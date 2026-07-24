@@ -199,7 +199,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
 
       <div style={{ marginTop: 20, fontSize: 14.5, lineHeight: 1.6, color: "#1f2937", textAlign: "center" }}>
         has successfully completed the Class {className || "8"} course of study at{" "}
-        <strong style={{ color: DARK_GREEN }}>{schoolName || "Rising Star Primary & Secondary School"}</strong>.
+        <strong style={{ color: DARK_GREEN }}>{schoolName || "Primary & Secondary School"}</strong>.
         <br />
         We wish the student all the best in his/her future.
       </div>

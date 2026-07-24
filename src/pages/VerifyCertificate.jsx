@@ -4,7 +4,7 @@
 // the QR code should be able to confirm the certificate is genuine and see
 // its details, straight from Firestore (source of truth), not from any
 // image someone could have edited.
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
@@ -16,6 +16,11 @@ export default function VerifyCertificate() {
   const { certificateId } = useParams();
   const [certificate, setCertificate] = useState(null);
   const [status, setStatus] = useState("loading"); // loading | found | notfound | error
+
+  // Scales the fixed 1000px-wide certificate down to fit the viewport
+  // (phones especially), instead of letting it overflow and get cropped.
+  const wrapperRef = useRef(null);
+  const [scale, setScale] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +45,19 @@ export default function VerifyCertificate() {
       cancelled = true;
     };
   }, [certificateId]);
+
+  useEffect(() => {
+    function updateScale() {
+      if (!wrapperRef.current) return;
+      const CERT_WIDTH = 1000;
+      const available = wrapperRef.current.offsetWidth;
+      const next = available < CERT_WIDTH ? available / CERT_WIDTH : 1;
+      setScale(next);
+    }
+    updateScale();
+    window.addEventListener("resize", updateScale);
+    return () => window.removeEventListener("resize", updateScale);
+  }, [status]);
 
   const verifyUrl = typeof window !== "undefined" ? window.location.href : "";
 
@@ -97,12 +115,26 @@ export default function VerifyCertificate() {
             title="Certificate Verified"
             message={`This is a genuine Class ${certificate.className || "8"} Leaving Certificate issued by Rising Star Primary & Secondary School.`}
           />
-          <div style={{ marginTop: 24, width: "100%", maxWidth: 900, overflowX: "auto" }}>
-            <CertificateCard
-              certificate={certificate}
-              verifyUrl={verifyUrl}
-              elementId="verify-certificate-card"
-            />
+          {/* Outer wrapper measures the available width; inner div is scaled
+              down (not cropped) so the full 1000px-wide certificate always
+              fits on screen, phones included. offsetHeight is collapsed to
+              match the scaled-down visual height so no blank space is left
+              below the certificate. */}
+          <div ref={wrapperRef} style={{ marginTop: 24, width: "100%", maxWidth: 900 }}>
+            <div
+              style={{
+                width: 1000,
+                transform: `scale(${scale})`,
+                transformOrigin: "top left",
+                height: scale !== 1 ? 707 * scale : undefined,
+              }}
+            >
+              <CertificateCard
+                certificate={certificate}
+                verifyUrl={verifyUrl}
+                elementId="verify-certificate-card"
+              />
+            </div>
           </div>
         </>
       )}
