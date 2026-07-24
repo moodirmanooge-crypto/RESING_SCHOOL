@@ -270,30 +270,30 @@ function CardStyles() {
       .idc-back-content {
         position: relative;
         z-index: 2;
-        padding: 50px 30px 0;
+        padding: 48px 30px 0;
       }
       .idc-back-title {
-        font-size: 28px;
+        font-size: 26px;
         font-weight: 800;
         color: #14532d;
-        margin-bottom: 10px;
+        margin-bottom: 6px;
       }
       .idc-back-notice {
-        font-size: 12px;
+        font-size: 11.5px;
         font-weight: 700;
         color: #d32f2f;
-        line-height: 1.4;
+        line-height: 1.35;
         max-width: 320px;
-        margin: 0 auto 14px;
+        margin: 0 auto 10px;
       }
       
       .idc-back-details {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 4px;
       }
       .idc-back-line {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 800;
         color: #16202b;
       }
@@ -301,19 +301,19 @@ function CardStyles() {
 
       .idc-signature-block {
         position: absolute;
-        bottom: 25px;
+        bottom: 30px;
         left: 30px;
         text-align: left;
         z-index: 2;
       }
       .idc-sig-text {
-        font-size: 10px;
+        font-size: 9.5px;
         font-weight: 700;
         color: #16202b;
-        margin-bottom: 22px;
+        margin-bottom: 18px;
       }
       .idc-sig-line {
-        width: 130px;
+        width: 120px;
         border-bottom: 1px solid #14532d;
         position: relative;
       }
@@ -321,16 +321,16 @@ function CardStyles() {
         position: absolute;
         bottom: -5px;
         left: 10px;
-        width: 90px;
-        height: 45px;
+        width: 85px;
+        height: 40px;
       }
 
       .idc-back-qr {
         position: absolute;
-        bottom: 12px;
+        bottom: 15px;
         right: 20px;
-        width: 48px;
-        height: 48px;
+        width: 46px;
+        height: 46px;
         background: #fff;
         border-radius: 4px;
         padding: 3px;
