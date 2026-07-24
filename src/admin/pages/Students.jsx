@@ -157,6 +157,23 @@ export default function Students() {
     if (!confirm(`Ma hubtaa inaad tirtirto ${student.fullName}?`)) return;
     try {
       await deleteDoc(doc(db, "students", student.id));
+
+      // ---- Sidoo kale ka saar diiwaanka cashier ee isla ardaygan ----
+      // Collection-ka "cashier" wuxuu isticmaalaa studentId-ga sida
+      // document ID-giisa (tusaale "0001"), isla sida "students" u
+      // isticmaalo. Marka ardayga la tirtiro, xogtiisa cashier-ka
+      // waa in si toos ah looga saaraa si aanay meel u sii jirin.
+      const cashierDocId = student.studentId || student.id;
+      if (cashierDocId) {
+        try {
+          await deleteDoc(doc(db, "cashier", cashierDocId));
+        } catch (cashierErr) {
+          // Ha joojin habka guud haddii diiwaanka cashier uusan jirin
+          // ama uu khalad yar dhaco — arday la tirtiray waa muhiim.
+          console.log("Khalad marka cashier-ka la tirtirayay:", cashierErr);
+        }
+      }
+
       setStudents((prev) => prev.filter((s) => s.id !== student.id));
     } catch (err) {
       console.log(err);
