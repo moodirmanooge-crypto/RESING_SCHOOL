@@ -221,7 +221,7 @@ export default function Settings() {
                     type="email"
                     value={newEmail}
                     onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="tusaale@resing.edu"
+                    placeholder="tusaale@rising.edu"
                     style={inputStyle}
                   />
                 </div>

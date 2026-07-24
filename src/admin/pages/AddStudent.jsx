@@ -24,7 +24,7 @@ const SCHOOL = {
     "If you accidently find this card, please contact the following address.",
   noticeTell: "+252-61 7390261",
   noticeEmail: "risingstar0261@gmail.com",
-  noticeWeb: "resingstarschools.com",
+  noticeWeb: "risingstarschools.com",
   officeLabel: "Admission & Student Affairs Office",
 };
 

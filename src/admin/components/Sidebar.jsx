@@ -105,7 +105,7 @@ export default function Sidebar() {
                 letterSpacing: "0.01em",
               }}
             >
-              RESING SCHOOL
+              RiSING SCHOOL
             </h2>
             <small style={{ color: "#9CA3AF", fontSize: 11.5 }}>
               School Management  System
