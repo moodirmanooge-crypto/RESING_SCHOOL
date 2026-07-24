@@ -225,7 +225,7 @@ export default function Results() {
     pdf.setFontSize(11);
     pdf.setTextColor(200, 200, 210);
     pdf.text(
-      `${exam.examName || ""}  -  Fasalka ${selectedClass}  -  ${exam.subject || ""}`,
+      `${exam.examType || exam.examName || ""}  -  Fasalka ${selectedClass}  -  ${exam.subject || ""}`,
       40,
       60
     );
@@ -304,6 +304,10 @@ export default function Results() {
       // Fall back to the exam's own subject field, and if that's empty too,
       // avoid saving another blank string into every result document.
       const subjectName = (exam.subject || "").trim() || "General";
+      // Nuuca exam-ka (Monthly One / Term / Monthly Two / Final) - waxa
+      // laga soo qaatay messages document-kii macallinku abuuray marka
+      // uu Exams.jsx ka dhigay "Send Exam".
+      const examTypeName = exam.examType || "";
 
       const resultsForPdf = [];
 
@@ -320,6 +324,7 @@ export default function Results() {
         await setDoc(doc(db, "results", `${selectedExam}_${student.id}`), {
           examId: selectedExam,
           examName: exam.examName || "",
+          examType: examTypeName,
           subject: subjectName,
           className: selectedClass,
           studentId: student.id,
@@ -334,11 +339,15 @@ export default function Results() {
 
       // Build ONE PDF containing every student in this class for this exam,
       // ranked from highest to lowest marks.
-      const pdf = buildSummaryPdf(resultsForPdf, { ...exam, subject: subjectName });
+      const pdf = buildSummaryPdf(resultsForPdf, {
+        ...exam,
+        subject: subjectName,
+        examType: examTypeName,
+      });
       const pdfBlob = pdf.output("blob");
 
       const timestamp = Date.now();
-      const fileName = `${timestamp}_${selectedClass}_${exam.examName || "exam"}_results.pdf`;
+      const fileName = `${timestamp}_${selectedClass}_${examTypeName || exam.examName || "exam"}_results.pdf`;
 
       // 1) Keep the teacher's own copy (unchanged behaviour)
       const teacherStorageRef = ref(storage, `teacher-results/${teacherName}/${fileName}`);
@@ -357,17 +366,18 @@ export default function Results() {
         senderRole: "Teacher",
         senderId: teacherId,
         senderPhoto: teacherPhoto,
-        text: `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka "${exam.examName}" - Fasalka ${selectedClass} (${subjectName}). Kani waa exam-kii ugu dambeeyay ee la saxay.`,
+        text: `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka (${examTypeName || exam.examName}) - Fasalka ${selectedClass} (${subjectName}). Kani waa exam-kii ugu dambeeyay ee la saxay.`,
         type: "results",
         examId: selectedExam,
         examName: exam.examName || "",
+        examType: examTypeName,
         examDate: exam.examDate || "",
         className: selectedClass,
         subject: subjectName,
         isLatestExam: true,
         fileUrl: pdfUrl,
         adminFileUrl: adminPdfUrl,
-        fileName: `${exam.examName || "exam"}_results.pdf`,
+        fileName: `${examTypeName || exam.examName || "exam"}_results.pdf`,
         studentCount: resultsForPdf.length,
         read: false,
         createdAt: serverTimestamp(),
@@ -382,6 +392,7 @@ export default function Results() {
           className: selectedClass,
           examId: selectedExam,
           examName: exam.examName || "",
+          examType: examTypeName,
           subject: subjectName,
           teacherId,
           teacherName,
@@ -466,7 +477,7 @@ export default function Results() {
                   <option value="">Select Exam</option>
                   {exams.map((e, i) => (
                     <option key={e.id} value={e.id}>
-                      {e.examName} ({e.subject || "no subject"}){i === 0 ? " - Ugu dambeeyay" : ""}
+                      {e.examType || e.examName || "Exam"} ({e.subject || "no subject"}){i === 0 ? " - Ugu dambeeyay" : ""}
                     </option>
                   ))}
                 </select>

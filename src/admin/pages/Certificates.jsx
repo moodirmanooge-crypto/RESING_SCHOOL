@@ -51,14 +51,37 @@ async function downloadCertificateImage(fullName) {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
+      allowTaint: false,
     });
     const link = document.createElement("a");
     link.download = `Certificate-${(fullName || "student").replace(/\s+/g, "-")}.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
   } catch (err) {
-    console.log("Falling back to print view:", err);
-    window.print();
+    // Most common cause here: the student's photo came from a storage URL
+    // without CORS headers, which "taints" the canvas and blocks
+    // toDataURL(). Retry once, skipping the photo, so the admin still gets
+    // a certificate image instead of a silent failure / print fallback.
+    console.log("Snapshot with photo failed, retrying without photo:", err);
+    try {
+      const canvas = await window.html2canvas(node, {
+        backgroundColor: "#ffffff",
+        scale: 2,
+        useCORS: true,
+        allowTaint: false,
+        ignoreElements: (el) => el.tagName === "IMG",
+      });
+      const link = document.createElement("a");
+      link.download = `Certificate-${(fullName || "student").replace(/\s+/g, "-")}.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      alert(
+        "Sawirka ardayga lama soo dagin (CORS). Shahaadada waa la soo dejiyay iyada oo aan sawirka lahayn."
+      );
+    } catch (err2) {
+      console.log("Falling back to print view:", err2);
+      window.print();
+    }
   }
 }
 
@@ -248,7 +271,10 @@ export default function Certificates() {
                           color: "#111827",
                         }}
                       >
-                        <span>{s.fullName || "Unnamed student"}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <StudentAvatar photo={s.studentPhoto} name={s.fullName} />
+                          {s.fullName || "Unnamed student"}
+                        </span>
                         {hasCert && (
                           <span
                             style={{
@@ -399,9 +425,10 @@ export default function Certificates() {
             {certificates.length === 0 && !loading ? (
               <p style={{ fontSize: 13, color: "#9CA3AF" }}>No certificates issued yet.</p>
             ) : (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 560 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 640 }}>
                 <thead>
                   <tr style={{ color: "#9CA3AF", textAlign: "left" }}>
+                    <th style={{ fontWeight: 600, paddingBottom: 8 }}>Photo</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Student</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Academic Year</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Grade</th>
@@ -412,6 +439,9 @@ export default function Certificates() {
                 <tbody>
                   {certificates.map((c) => (
                     <tr key={c.id} style={{ borderTop: "1px solid #F3F4F6" }}>
+                      <td style={{ padding: "10px 0" }}>
+                        <StudentAvatar photo={c.studentPhoto} name={c.fullName} size={36} />
+                      </td>
                       <td style={{ padding: "10px 0", color: "#111827", fontWeight: 600 }}>{c.fullName}</td>
                       <td style={{ color: "#6B7280" }}>{c.academicYear}</td>
                       <td style={{ color: "#6B7280" }}>{c.gradeObtained}</td>
@@ -446,6 +476,41 @@ export default function Certificates() {
           .cert-row { grid-template-columns: 1fr !important; }
         }
       `}</style>
+    </div>
+  );
+}
+
+// Small round avatar used both in the student picker list and the
+// "Issued Certificates" table, so the admin can see everyone's photo at a
+// glance instead of names only. Falls back to an initial when there's no
+// photo on file, instead of leaving a blank gap.
+function StudentAvatar({ photo, name, size = 26 }) {
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        overflow: "hidden",
+        background: "#E5E7EB",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        fontSize: size * 0.4,
+        fontWeight: 700,
+        color: "#6B7280",
+      }}
+    >
+      {photo ? (
+        <img
+          src={photo}
+          alt=""
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        (name || "?").charAt(0).toUpperCase()
+      )}
     </div>
   );
 }
