@@ -457,15 +457,6 @@ function CardFront({ student, studentId, issued, expiry }) {
         </div>
       </div>
 
-      <div className="idc-front-footer">
-        <div className="idc-qr">
-          <img src={qrSrc} alt="QR code" />
-        </div>
-        <div className="idc-signature">
-          <div className="idc-signature-line">Principal</div>
-          <div className="idc-signature-label">PRINCIPAL</div>
-        </div>
-      </div>
 
       <div className="idc-bottom-bar">
         <span>📞 {SCHOOL.phone}</span>
