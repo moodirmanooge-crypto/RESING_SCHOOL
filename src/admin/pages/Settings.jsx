@@ -7,7 +7,7 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
-import { db } from "../../firebase/firebase";
+import { db, app } from "../../firebase/firebase";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
@@ -131,7 +131,7 @@ export default function Settings() {
     setPhotoUploading(true);
 
     try {
-      const storage = getStorage();
+      const storage = getStorage(app);
       const extension = file.name.split(".").pop() || "jpg";
       // Path is scoped to this admin's own id — no other admin's file can
       // be overwritten by this upload.
