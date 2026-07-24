@@ -44,7 +44,6 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
   const {
     fullName,
     motherName,
-    admissionNo,
     academicYear,
     gradeObtained,
     studentPhoto,
@@ -64,7 +63,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         outline: `10px solid ${DARK_GREEN}`,
         outlineOffset: "-3px",
         borderRadius: 4,
-        padding: "34px 56px",
+        padding: "24px 50px 20px 50px",
         position: "relative",
         fontFamily: "'Georgia','Times New Roman',serif",
         color: "#111827",
@@ -72,6 +71,20 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         overflow: "hidden",
       }}
     >
+      {/* Decorative Corners / Borders matching the reference style */}
+      <div
+        style={{
+          position: "absolute",
+          top: 12,
+          left: 12,
+          right: 12,
+          bottom: 12,
+          border: `1px solid ${GOLD}`,
+          pointerEvents: "none",
+          borderRadius: 2,
+        }}
+      />
+
       {/* Header: crest logo left, school name center, ribbon badge right */}
       <div
         style={{
@@ -79,27 +92,32 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           alignItems: "center",
           justifyContent: "space-between",
           gap: 16,
+          position: "relative",
+          zIndex: 2,
         }}
       >
         <img
           src={certificateLogo}
           alt=""
-          style={{ width: 108, height: 108, objectFit: "contain", flexShrink: 0 }}
+          style={{ width: 104, height: 104, objectFit: "contain", flexShrink: 0 }}
         />
 
         <div style={{ textAlign: "center", flex: 1 }}>
-          <div style={{ fontSize: 40, fontWeight: 800, color: DARK_GREEN, letterSpacing: 2, lineHeight: 1 }}>
+          <div style={{ fontSize: 38, fontWeight: 800, color: DARK_GREEN, letterSpacing: 2, lineHeight: 1.1 }}>
             RISING STAR
           </div>
-          <div style={{ fontSize: 15.5, fontWeight: 700, color: DARK_GREEN, letterSpacing: 1, marginTop: 4 }}>
+          <div style={{ fontSize: 14.5, fontWeight: 700, color: DARK_GREEN, letterSpacing: 1, marginTop: 3 }}>
             {(schoolName || "PRIMARY & SECONDARY SCHOOL").toUpperCase()}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: DARK_GREEN, marginTop: 2, fontFamily: "serif" }}>
+            مدرسة ريسن ستار الإبتدائية والثانوية
           </div>
         </div>
 
         <div
           style={{
-            width: 84,
-            height: 100,
+            width: 80,
+            height: 96,
             flexShrink: 0,
             display: "flex",
             alignItems: "center",
@@ -113,11 +131,11 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           textAlign: "center",
-          fontSize: 12.5,
+          fontSize: 12,
           fontWeight: 700,
           color: GOLD,
           letterSpacing: 2,
-          margin: "2px 0 10px",
+          margin: "4px 0 6px",
         }}
       >
         ✦✦ Since 2023 ✦✦
@@ -126,24 +144,24 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           textAlign: "center",
-          fontSize: 27,
+          fontSize: 25,
           fontWeight: 800,
           color: DARK_GREEN,
           letterSpacing: 1,
-          margin: "6px 0 4px",
+          margin: "2px 0 2px",
         }}
       >
         ❧ CLASS {className || "8"} LEAVING CERTIFICATE ❧
       </div>
-      <div style={{ textAlign: "center", fontStyle: "italic", fontSize: 16, color: "#374151", marginBottom: 20 }}>
-        This is to certify that
+      <div style={{ textAlign: "center", fontStyle: "italic", fontSize: 15, color: "#374151", marginBottom: 14 }}>
+        ✦ This is to certify that ✦
       </div>
 
-      <div style={{ display: "flex", gap: 34, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", gap: 30, alignItems: "flex-start" }}>
         <div
           style={{
-            width: 130,
-            height: 150,
+            width: 122,
+            height: 144,
             border: `2px solid ${GOLD}`,
             borderRadius: 4,
             overflow: "hidden",
@@ -165,16 +183,15 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           )}
         </div>
 
-        <div style={{ flex: 1, fontSize: 15.5, lineHeight: 2.3, paddingTop: 4 }}>
+        <div style={{ flex: 1, fontSize: 15, lineHeight: 2.1, paddingTop: 2 }}>
           <CertLine label="Student Name" value={fullName} />
           <CertLine label="Mother's Name" value={motherName} />
-          <CertLine label="Admission No." value={admissionNo} />
           <CertLine label="Academic Year" value={academicYear} />
           <CertLine label="Grade Obtained" value={gradeObtained} />
         </div>
       </div>
 
-      <div style={{ marginTop: 22, fontSize: 14.5, lineHeight: 1.7, color: "#1f2937", textAlign: "center" }}>
+      <div style={{ marginTop: 14, fontSize: 14, lineHeight: 1.5, color: "#1f2937", textAlign: "center" }}>
         has successfully completed the Class {className || "8"} course of study at{" "}
         <strong>{schoolName || "Rising Star Primary & Secondary School"}</strong>.
         <br />
@@ -186,22 +203,26 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           display: "flex",
           alignItems: "flex-end",
           justifyContent: "space-between",
-          marginTop: 34,
+          marginTop: 18,
+          paddingLeft: 10,
+          paddingRight: 10,
         }}
       >
-        <div style={{ textAlign: "center", width: 190 }}>
+        <div style={{ textAlign: "center", width: 180 }}>
           <SignatureScribble />
-          <div style={{ borderBottom: "1.5px solid #374151", marginTop: -6 }} />
-          <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600 }}>Deputy Principal</div>
+          <div style={{ borderBottom: "1.5px solid #374151", marginTop: -4 }} />
+          <div style={{ fontSize: 12, marginTop: 3, fontWeight: 600 }}>Deputy Principal</div>
         </div>
 
-        <div ref={qrRef} style={{ width: 90, height: 90, flexShrink: 0 }} />
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+          <div ref={qrRef} style={{ width: 76, height: 76, flexShrink: 0 }} />
+        </div>
 
-        <div style={{ textAlign: "center", width: 190 }}>
+        <div style={{ textAlign: "center", width: 180 }}>
           <SignatureScribble flip />
-          <div style={{ borderBottom: "1.5px solid #374151", marginTop: -6 }} />
-          <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600 }}>Principal</div>
-          <div style={{ fontSize: 10, color: "#6B7280" }}>
+          <div style={{ borderBottom: "1.5px solid #374151", marginTop: -4 }} />
+          <div style={{ fontSize: 12, marginTop: 3, fontWeight: 600 }}>Principal</div>
+          <div style={{ fontSize: 9.5, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {schoolName || "Rising Star Primary & Secondary School"}
           </div>
         </div>
@@ -210,11 +231,11 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           textAlign: "center",
-          marginTop: 20,
+          marginTop: 14,
           background: DARK_GREEN,
           color: "#fff",
-          padding: "7px 0",
-          fontSize: 12.5,
+          padding: "6px 0",
+          fontSize: 12,
           fontWeight: 700,
           letterSpacing: 1.5,
           borderRadius: 3,
@@ -230,13 +251,13 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
 // "Label: ______________" layout instead of a boxed/dotted row.
 function CertLine({ label, value }) {
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 2 }}>
+    <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 1 }}>
       <span style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{label}:</span>
       <span
         style={{
           flex: 1,
           borderBottom: "1px solid #374151",
-          minHeight: 20,
+          minHeight: 18,
           paddingLeft: 6,
         }}
       >
@@ -282,7 +303,7 @@ function SignatureScribble({ flip }) {
     <svg
       viewBox="0 0 190 46"
       width="100%"
-      height="42"
+      height="38"
       style={{ transform: flip ? "scaleX(-1)" : "none" }}
     >
       <path
@@ -304,7 +325,6 @@ function loadQr() {
   if (qrPromise) return qrPromise;
   qrPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    // davidshimjs/qrcodejs — exposes `new QRCode(container, { text, width, height })`
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
     script.onload = () => {
       if (!window.QRCode) {
@@ -314,8 +334,6 @@ function loadQr() {
       resolve({
         toCanvas: async (container, text, opts = {}) => {
           container.innerHTML = "";
-          // qrcodejs renders into the container itself (canvas or img),
-          // it doesn't hand back a canvas — so we just let it draw.
           new window.QRCode(container, {
             text,
             width: opts.width || 96,
