@@ -75,6 +75,48 @@ const SUBJECTS_SECONDARY = [
   "English",
 ];
 
+// ---- Isku dheelitir maadada macalinka (subjects: ["arabic", ...]) iyo
+// liiska maadooyinka fasalka (sida "Arabic", "Carabi"). Waxaan u
+// isticmaalnaa lower-case comparison + isbeddel fudud si loo
+// helo qiimaha saxda ah ee liiska si loo soo bandhigo (display label). ----
+const SUBJECT_KEY_ALIASES = {
+  arabic: ["arabic", "carabi"],
+  islamic: ["islamic", "tarbiyo"],
+  somali: ["somali"],
+  math: ["math", "xisaab"],
+  english: ["english"],
+  biology: ["biology"],
+  chemistry: ["chemistry"],
+  physics: ["physics"],
+  business: ["business", "bussiness"],
+  technology: ["technology", "teknalojiyad", "teknalogy"],
+  geography: ["juqrafi", "geography"],
+  history: ["taariikh", "history"],
+  science: ["saynis", "science"],
+  socialstudies: ["cimi bulsho", "social studies", "socialstudies"],
+};
+
+function matchTeacherSubjectToClassList(teacherSubjects, classSubjectList) {
+  if (!Array.isArray(teacherSubjects) || teacherSubjects.length === 0) return "";
+  const normalizedTeacherSubjects = teacherSubjects.map((s) =>
+    String(s || "").trim().toLowerCase()
+  );
+
+  for (const classSubj of classSubjectList) {
+    const classSubjLower = classSubj.trim().toLowerCase();
+    // Direct match against class subject label
+    if (normalizedTeacherSubjects.includes(classSubjLower)) return classSubj;
+
+    // Alias-based match (e.g. teacher has "arabic", class list has "Carabi")
+    for (const [key, aliases] of Object.entries(SUBJECT_KEY_ALIASES)) {
+      if (aliases.includes(classSubjLower) && normalizedTeacherSubjects.some((ts) => aliases.includes(ts))) {
+        return classSubj;
+      }
+    }
+  }
+  return "";
+}
+
 function classLevel(className) {
   const c = String(className || "").toUpperCase();
   if (["1", "2", "3", "4"].includes(c)) return "lower_primary";
@@ -173,7 +215,9 @@ function TeacherSelect({ value, options, onChange }) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [wrapRef]);
 
-  const selectedLabel = options.find((o) => o.id === value)?.fullName;
+  const selectedOption = options.find((o) => o.id === value);
+  const selectedLabel = selectedOption?.fullName;
+  const selectedPhoto = selectedOption?.photoUrl;
 
   return (
     <div ref={(el) => (wrapRef.current = el)} style={{ position: "relative", width: "100%" }}>
@@ -191,13 +235,36 @@ function TeacherSelect({ value, options, onChange }) {
       >
         <span
           style={{
-            color: selectedLabel ? "#e5e3f7" : "#8b87ad",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
+            minWidth: 0,
           }}
         >
-          {selectedLabel || "-- Dooro Macalin --"}
+          {selectedPhoto && (
+            <img
+              src={selectedPhoto}
+              alt=""
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                objectFit: "cover",
+                flexShrink: 0,
+              }}
+            />
+          )}
+          <span
+            style={{
+              color: selectedLabel ? "#e5e3f7" : "#8b87ad",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {selectedLabel || "-- Dooro Macalin --"}
+          </span>
         </span>
         <ChevronDown
           size={15}
@@ -278,6 +345,9 @@ function TeacherSelect({ value, options, onChange }) {
                   setOpen(false);
                 }}
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                   padding: "10px 16px",
                   fontSize: 13.5,
                   fontWeight: isSelected ? 700 : 500,
@@ -292,7 +362,40 @@ function TeacherSelect({ value, options, onChange }) {
                   if (!isSelected) e.currentTarget.style.background = "transparent";
                 }}
               >
-                {opt.fullName}
+                {opt.photoUrl ? (
+                  <img
+                    src={opt.photoUrl}
+                    alt=""
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      flexShrink: 0,
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: "rgba(139,108,245,0.25)",
+                      color: "#c4b8f7",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {String(opt.fullName || "?").charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {opt.fullName}
+                </span>
               </div>
             );
           })}
@@ -477,8 +580,10 @@ export default function Timetable() {
         const data = d.data();
         teacherMap[d.id] = {
           fullName: data.fullName || data.username || d.id,
-          photoUrl: data.photoUrl || data.photoURL || data.avatar || "",
+          photoUrl: data.photoUrl || data.photoURL || data.avatar || data.teacherPhoto || "",
           subject: data.subject || data.subjectName || "",
+          // subjects: array of subject keys the teacher teaches, e.g. ["arabic"]
+          subjects: Array.isArray(data.subjects) ? data.subjects : [],
           // classes: [{ className, subject, dayValid, ... }]
           classes: Array.isArray(data.classes) ? data.classes : [],
         };
@@ -1091,12 +1196,25 @@ export default function Timetable() {
                         options={Object.entries(teachersForSelectedClass).map(([tid, info]) => ({
                           id: tid,
                           fullName: info.fullName,
+                          photoUrl: info.photoUrl,
                         }))}
                         onChange={(tid) => {
                           updateSession(index, "teacherId", tid);
+                          // ---- Toos u buuxi maadada iyadoo la eegayo
+                          // liiska subjects ee macalinka (subjects: [...])
+                          // oo lala barbardhigayo maadooyinka fasalkan.
+                          // Haddii aan la helin waxba lama beddelo. ----
                           const info = teachersForSelectedClass[tid];
-                          if (info?.subject && !session.subject) {
-                            updateSession(index, "subject", info.subject);
+                          if (info) {
+                            const matched = matchTeacherSubjectToClassList(
+                              info.subjects,
+                              subjectOptionsForSelectedClass
+                            );
+                            if (matched) {
+                              updateSession(index, "subject", matched);
+                            } else if (info.subject) {
+                              updateSession(index, "subject", info.subject);
+                            }
                           }
                         }}
                       />
