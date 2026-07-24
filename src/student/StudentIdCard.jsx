@@ -21,7 +21,7 @@ import { db } from "../firebase/firebase";
 import schoolLogo from "../assets/rising-star-logo.png";
 
 const SCHOOL = {
-  name1: "RISING STAR",
+  name1:   "RISING STAR",
   name2: "PRIMARY & SECONDARY SCHOOL",
   tagline: "Education Is Life It Self",
   phone: "+252 61 2345678",
