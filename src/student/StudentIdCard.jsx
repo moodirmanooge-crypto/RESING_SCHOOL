@@ -24,7 +24,7 @@ const SCHOOL = {
   name1:    "RISING STAR",
   name2: "PRIMARY & SECONDARY SCHOOL",
   tagline: "Education Is Life It Self",
-  phone: "+252 61 2345678",
+  phone: "+252 7390261",
   website: "www.resingstarschool.com",
   location: "Mogadishu, Somalia",
   noticeTitle: "NB",
