@@ -216,7 +216,7 @@ export default function Results() {
     pdf.rect(0, 0, pageWidth, 90, "F");
     pdf.setTextColor(255, 255, 255);
     pdf.setFontSize(20);
-    pdf.text("RESING ERP - Exam Results", 40, 40);
+    pdf.text("RiSING ERP - Exam Results", 40, 40);
     pdf.setFontSize(11);
     pdf.setTextColor(200, 200, 210);
     pdf.text(
