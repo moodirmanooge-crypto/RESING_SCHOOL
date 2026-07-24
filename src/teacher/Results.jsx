@@ -208,7 +208,12 @@ export default function Results() {
     return "F";
   };
 
+  // Builds ONE PDF sheet containing every student in the class,
+  // ranked from the highest marks (position #1) to the lowest.
   const buildSummaryPdf = (studentsWithMarks, exam) => {
+    // Sort by marks descending so the top scorer becomes rank 1.
+    const ranked = [...studentsWithMarks].sort((a, b) => b.marks - a.marks);
+
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
     const pageWidth = pdf.internal.pageSize.getWidth();
 
@@ -229,31 +234,41 @@ export default function Results() {
     pdf.setFontSize(11);
     let y = 120;
     pdf.setFont(undefined, "bold");
-    pdf.text("#", 40, y);
-    pdf.text("Student Name", 70, y);
+    pdf.text("Pos", 40, y);
+    pdf.text("Student Name", 80, y);
     pdf.text("Student ID", 300, y);
-    pdf.text("Marks", 420, y);
-    pdf.text("Grade", 490, y);
+    pdf.text("Marks", 400, y);
+    pdf.text("Grade", 460, y);
     y += 10;
     pdf.setDrawColor(200, 200, 200);
     pdf.line(40, y, pageWidth - 40, y);
     y += 20;
 
     pdf.setFont(undefined, "normal");
-    studentsWithMarks.forEach((s, i) => {
+    ranked.forEach((s, i) => {
       if (y > 780) {
         pdf.addPage();
         y = 60;
       }
       const grade = getGrade(s.marks, Number(s.maxMarks) || 100);
-      pdf.text(String(i + 1), 40, y);
-      pdf.text(String(s.studentName || "-"), 70, y);
+      const position = i + 1;
+
+      // Highlight the top student (position 1) in bold.
+      if (position === 1) {
+        pdf.setFont(undefined, "bold");
+      } else {
+        pdf.setFont(undefined, "normal");
+      }
+
+      pdf.text(String(position), 40, y);
+      pdf.text(String(s.studentName || "-"), 80, y);
       pdf.text(String(s.studentId || "-"), 300, y);
-      pdf.text(`${s.marks} / ${s.maxMarks}`, 420, y);
-      pdf.text(grade, 490, y);
+      pdf.text(`${s.marks} / ${s.maxMarks}`, 400, y);
+      pdf.text(grade, 460, y);
       y += 22;
     });
 
+    pdf.setFont(undefined, "normal");
     y += 10;
     pdf.setDrawColor(200, 200, 200);
     pdf.line(40, y, pageWidth - 40, y);
@@ -286,6 +301,9 @@ export default function Results() {
 
       const exam = currentExam || {};
       const maxMarks = Number(exam.maxMarks) || 100;
+      // Fall back to the exam's own subject field, and if that's empty too,
+      // avoid saving another blank string into every result document.
+      const subjectName = (exam.subject || "").trim() || "General";
 
       const resultsForPdf = [];
 
@@ -302,45 +320,77 @@ export default function Results() {
         await setDoc(doc(db, "results", `${selectedExam}_${student.id}`), {
           examId: selectedExam,
           examName: exam.examName || "",
-          subject: exam.subject || "",
+          subject: subjectName,
           className: selectedClass,
           studentId: student.id,
           studentName: student.fullName,
           marks: scoreValue,
           maxMarks,
           teacherId,
+          teacherName,
           updatedAt: new Date(),
         });
       }
 
-      const pdf = buildSummaryPdf(resultsForPdf, exam);
+      // Build ONE PDF containing every student in this class for this exam,
+      // ranked from highest to lowest marks.
+      const pdf = buildSummaryPdf(resultsForPdf, { ...exam, subject: subjectName });
       const pdfBlob = pdf.output("blob");
-      const storageRef = ref(
-        storage,
-        `teacher-results/${teacherName}/${Date.now()}_${selectedClass}_${exam.examName || "exam"}_results.pdf`
-      );
-      await uploadBytes(storageRef, pdfBlob);
-      const pdfUrl = await getDownloadURL(storageRef);
+
+      const timestamp = Date.now();
+      const fileName = `${timestamp}_${selectedClass}_${exam.examName || "exam"}_results.pdf`;
+
+      // 1) Keep the teacher's own copy (unchanged behaviour)
+      const teacherStorageRef = ref(storage, `teacher-results/${teacherName}/${fileName}`);
+      await uploadBytes(teacherStorageRef, pdfBlob);
+      const pdfUrl = await getDownloadURL(teacherStorageRef);
+
+      // 2) ALSO drop a copy into a shared admin folder so that every
+      //    teacher's results land in one place the admin can browse,
+      //    instead of each teacher's PDFs being scattered separately.
+      const adminStorageRef = ref(storage, `admin-results/${selectedClass}/${fileName}`);
+      await uploadBytes(adminStorageRef, pdfBlob);
+      const adminPdfUrl = await getDownloadURL(adminStorageRef);
 
       await addDoc(collection(db, "messages"), {
         senderName: teacherName,
         senderRole: "Teacher",
         senderId: teacherId,
         senderPhoto: teacherPhoto,
-        text: `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka "${exam.examName}" - Fasalka ${selectedClass} (${exam.subject}). Kani waa exam-kii ugu dambeeyay ee la saxay.`,
+        text: `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka "${exam.examName}" - Fasalka ${selectedClass} (${subjectName}). Kani waa exam-kii ugu dambeeyay ee la saxay.`,
         type: "results",
         examId: selectedExam,
         examName: exam.examName || "",
         examDate: exam.examDate || "",
         className: selectedClass,
-        subject: exam.subject || "",
+        subject: subjectName,
         isLatestExam: true,
         fileUrl: pdfUrl,
+        adminFileUrl: adminPdfUrl,
         fileName: `${exam.examName || "exam"}_results.pdf`,
         studentCount: resultsForPdf.length,
         read: false,
         createdAt: serverTimestamp(),
       });
+
+      // 3) Also keep a lightweight index doc admins can query directly,
+      //    grouped by class, so all teachers' latest result files for a
+      //    class show up together without scanning every teacher folder.
+      await setDoc(
+        doc(db, "adminResultsIndex", `${selectedClass}_${selectedExam}`),
+        {
+          className: selectedClass,
+          examId: selectedExam,
+          examName: exam.examName || "",
+          subject: subjectName,
+          teacherId,
+          teacherName,
+          fileUrl: adminPdfUrl,
+          studentCount: resultsForPdf.length,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       await setDoc(
         doc(db, "messages", selectedExam),
@@ -416,7 +466,7 @@ export default function Results() {
                   <option value="">Select Exam</option>
                   {exams.map((e, i) => (
                     <option key={e.id} value={e.id}>
-                      {e.examName} ({e.subject}){i === 0 ? " - Ugu dambeeyay" : ""}
+                      {e.examName} ({e.subject || "no subject"}){i === 0 ? " - Ugu dambeeyay" : ""}
                     </option>
                   ))}
                 </select>

@@ -25,6 +25,7 @@ import Cashiers from "./admin/pages/Cashiers";
 import Messages from "./admin/pages/Messages";
 import EditTeacher from "./admin/pages/EditTeacher";
 import Shifts from "./admin/pages/Shifts";
+import Certificates from "./admin/pages/Certificates";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -52,6 +53,9 @@ import ExamPayments from "./cashier/ExamPayments";
 import Receipts from "./admin/pages/Receipts";
 import AllIdCards from "./admin/pages/AllIdCards";
 
+// PUBLIC
+import VerifyCertificate from "./pages/VerifyCertificate";
+
 function App() {
   return (
     <BrowserRouter>
@@ -67,6 +71,10 @@ function App() {
         <Route path="/cashier/receipts" element={<CashierReports />} />
         <Route path="/admin/exam-cards" element={<ExamCards />} />
         <Route path="/admin/id-cards" element={<AllIdCards />} />
+
+        {/* Public certificate verification page — QR code on the Class 8
+            leaving certificate links here. No login required. */}
+        <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
 
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/parent/dashboard" element={<ParentDashboard />} />
@@ -92,6 +100,9 @@ function App() {
         <Route path="/admin/timetable" element={<Timetable />} />
         <Route path="/admin/exam-timetable" element={<ExamTimetable />} />
         <Route path="/admin/shifts" element={<Shifts />} />
+
+        {/* Class 8 Leaving Certificates — admin generates/manages them here */}
+        <Route path="/admin/certificates" element={<Certificates />} />
 
         {/* Dhammaan boggagga Teacher waxay ku jiraan MessagesProvider hal mar,
             si Sidebar/Topbar/Messages ay isku wadaagaan xogta fariimaha.

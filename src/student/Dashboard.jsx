@@ -1,4 +1,5 @@
 //src/student/Dashboard.jsx
+//student dashboard.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -12,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import StudentIdCard from "./StudentIdCard";
+import CertificateCard from "../admin/components/CertificateCard";
 
 const COLORS = {
   bg: "#0b1120",
@@ -172,6 +174,7 @@ function ResponsiveStyles() {
 const NAV_ITEMS = [
   { key: "overview", label: "Overview", icon: "🏠" },
   { key: "idCard", label: "ID Card", icon: "🪪" },
+  { key: "certificate", label: "Certificate", icon: "🎓" },
   { key: "timetable", label: "Timetable", icon: "🗓️" },
   { key: "examTimetable", label: "Exam Timetable", icon: "📝" },
   { key: "results", label: "Results", icon: "📄" },
@@ -213,6 +216,39 @@ async function downloadTimetableImage({ className, dayLabel }) {
   }
 }
 
+// Snapshots the rendered certificate card (from CertificateCard.jsx) and
+// triggers a PNG download. Same html2canvas-on-demand pattern as the
+// timetable download above, for consistency across the dashboard.
+async function downloadCertificateImage(fullName) {
+  const node = document.getElementById("certificate-render-card");
+  if (!node) return;
+
+  try {
+    if (!window.html2canvas) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = resolve;
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+    }
+
+    const canvas = await window.html2canvas(node, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+    });
+    const link = document.createElement("a");
+    link.download = `Certificate-${(fullName || "student").replace(/\s+/g, "-")}.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  } catch (err) {
+    console.log("Falling back to print view:", err);
+    window.print();
+  }
+}
+
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const studentId = localStorage.getItem("studentId");
@@ -233,6 +269,8 @@ export default function StudentDashboard() {
   const [activeExamDay, setActiveExamDay] = useState(DAYS[0].key);
   // teacherId -> fullName, so each timetable session can show who teaches it
   const [teacherNames, setTeacherNames] = useState({});
+  // Class 8 leaving certificate, if one has been issued for this student
+  const [certificate, setCertificate] = useState(null);
 
   useEffect(() => {
     if (!studentId) {
@@ -317,6 +355,26 @@ export default function StudentDashboard() {
             if (wkSnap.exists()) setExamWeek(wkSnap.data());
           } catch (e) {
             setExamWeek(null);
+          }
+
+          // Load the Class 8 leaving certificate, if issued. Certificates
+          // are keyed by a random certificateId, so look them up by the
+          // studentId field instead of by doc id.
+          if (String(className).toUpperCase() === "8") {
+            try {
+              const certQ = query(
+                collection(db, "certificates"),
+                where("studentId", "==", studentId)
+              );
+              const certSnap = await getDocs(certQ);
+              if (!certSnap.empty) {
+                setCertificate({ id: certSnap.docs[0].id, ...certSnap.docs[0].data() });
+              } else {
+                setCertificate(null);
+              }
+            } catch (e) {
+              setCertificate(null);
+            }
           }
         }
       } finally {
@@ -461,6 +519,11 @@ export default function StudentDashboard() {
     latestPayment?.monthKey === currentMonthKey &&
     latestPayment?.status === "Paid";
 
+  const isClass8 = String(student?.className || "").toUpperCase() === "8";
+  const visibleNavItems = NAV_ITEMS.filter(
+    (item) => item.key !== "certificate" || isClass8
+  );
+
   if (loading) {
     return (
       <div className="rs-page" style={{ alignItems: "center", justifyContent: "center", display: "flex" }}>
@@ -500,7 +563,7 @@ export default function StudentDashboard() {
           </div>
 
           <nav style={styles.nav}>
-            {NAV_ITEMS.map((item) => (
+            {visibleNavItems.map((item) => (
               <button
                 key={item.key}
                 onClick={() => setTab(item.key)}
@@ -578,6 +641,43 @@ export default function StudentDashboard() {
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>My Student ID Card</div>
               <StudentIdCard student={student} studentId={studentId} />
+            </section>
+          )}
+
+          {/* Class 8 Leaving Certificate — only visible to Class 8 students.
+              Rendered from the same CertificateCard component used in the
+              admin panel and the public verify page, so the design always
+              stays in sync. If admin hasn't generated one yet, show an
+              empty state instead of a broken/missing certificate. */}
+          {tab === "certificate" && isClass8 && (
+            <section className="rs-panel" style={styles.panel}>
+              <div style={styles.panelTitle}>My Class 8 Leaving Certificate</div>
+              {certificate ? (
+                <div style={{ overflowX: "auto" }}>
+                  <CertificateCard
+                    certificate={certificate}
+                    verifyUrl={`${window.location.origin}/verify/${certificate.certificateId}`}
+                  />
+                  <button
+                    onClick={() => downloadCertificateImage(certificate.fullName)}
+                    style={{
+                      marginTop: 16,
+                      padding: "11px 20px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ⬇️ Download Certificate
+                  </button>
+                </div>
+              ) : (
+                <EmptyState text="Your leaving certificate has not been issued yet. Please check with the school administration." />
+              )}
             </section>
           )}
 
@@ -957,7 +1057,7 @@ export default function StudentDashboard() {
 
       {/* Mobile bottom nav (visible only on small screens) */}
       <nav className="rs-bottom-nav">
-        {NAV_ITEMS.map((item) => (
+        {visibleNavItems.map((item) => (
           <button
             key={item.key}
             onClick={() => setTab(item.key)}
