@@ -644,7 +644,43 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          
+          {/* Class 8 Leaving Certificate — only visible to Class 8 students.
+              Rendered from the same CertificateCard component used in the
+              admin panel and the public verify page, so the design always
+              stays in sync. If admin hasn't generated one yet, show an
+              empty state instead of a broken/missing certificate. */}
+          {tab === "certificate" && isClass8 && (
+            <section className="rs-panel" style={styles.panel}>
+              <div style={styles.panelTitle}>My Class 8 Leaving Certificate</div>
+              {certificate ? (
+                <div style={{ overflowX: "auto" }}>
+                  <CertificateCard
+                    certificate={certificate}
+                    verifyUrl={`${window.location.origin}/verify/${certificate.certificateId}`}
+                  />
+                  <button
+                    onClick={() => downloadCertificateImage(certificate.fullName)}
+                    style={{
+                      marginTop: 16,
+                      padding: "11px 20px",
+                      borderRadius: 10,
+                      border: "none",
+                      background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    
+                  </button>
+                </div>
+              ) : (
+                <EmptyState text="Your leaving certificate has not been issued yet. Please check with the school administration." />
+              )}
+            </section>
+          )}
+
           {/* Regular weekly class timetable — styled to match the official
               printed timetable design, with a "Download as image" button.
               Each session shows the teacher's name (not just the subject). */}
