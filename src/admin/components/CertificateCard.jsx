@@ -44,7 +44,6 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
   const {
     fullName,
     motherName,
-    admissionNo,
     academicYear,
     gradeObtained,
     studentPhoto,
@@ -191,7 +190,6 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         <div style={{ flex: 1, fontSize: 15.5, lineHeight: 2.25, paddingTop: 4 }}>
           <CertLine label="Student Name" value={fullName} />
           <CertLine label="Mother's Name" value={motherName} />
-          <CertLine label="Admission No" value={admissionNo} />
           <CertLine label="Academic Year" value={academicYear} />
           <CertLine label="Grade Obtained" value={gradeObtained} />
         </div>
@@ -215,7 +213,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         }}
       >
         <div style={{ textAlign: "center", width: 190 }}>
-          <SignatureScribble />
+          <SignatureScribble variant="deputy" />
           <div style={{ borderBottom: "1.5px solid #374151", marginTop: -6 }} />
           <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600, color: DARK_GREEN }}>Deputy Principal</div>
         </div>
@@ -223,7 +221,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         <div ref={qrRef} style={{ width: 86, height: 86, flexShrink: 0 }} />
 
         <div style={{ textAlign: "center", width: 190 }}>
-          <SignatureScribble flip />
+          <SignatureScribble variant="principal" />
           <div style={{ borderBottom: "1.5px solid #374151", marginTop: -6 }} />
           <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600, color: DARK_GREEN }}>Principal</div>
           <div style={{ fontSize: 10, color: "#6B7280" }}>
@@ -300,19 +298,58 @@ function RibbonBadge() {
   );
 }
 
-function SignatureScribble({ flip }) {
+// Two distinct, more natural-looking cursive signature scribbles matching
+// the two different handwritten signatures in the printed reference
+// certificate (Deputy Principal on the left, Principal on the right).
+function SignatureScribble({ variant = "deputy" }) {
+  if (variant === "principal") {
+    return (
+      <svg viewBox="0 0 190 50" width="100%" height="44">
+        <path
+          d="M14 36 C 18 14, 24 10, 28 24 C 31 34, 34 34, 36 20
+             C 38 8, 44 8, 46 22 C 48 34, 52 30, 54 18
+             C 58 4, 66 6, 68 22 C 70 34, 74 30, 78 16
+             C 82 4, 90 6, 92 24 C 94 36, 98 32, 102 18
+             C 106 6, 114 8, 118 22 C 121 32, 126 28, 132 14
+             C 137 4, 146 6, 150 20"
+          fill="none"
+          stroke="#16266b"
+          strokeWidth="2.3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M20 40 C 60 46, 110 46, 156 34"
+          fill="none"
+          stroke="#16266b"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    );
+  }
+
   return (
-    <svg
-      viewBox="0 0 190 46"
-      width="100%"
-      height="42"
-      style={{ transform: flip ? "scaleX(-1)" : "none" }}
-    >
+    <svg viewBox="0 0 190 50" width="100%" height="44">
       <path
-        d="M8 34 C 22 10, 34 40, 48 18 S 70 8, 82 26 S 108 6, 122 22 S 150 34, 168 14"
+        d="M12 30 C 12 12, 20 10, 22 22 C 24 34, 30 34, 32 20
+           C 34 8, 40 8, 42 20 L 42 32
+           C 42 14, 50 10, 54 22 C 57 32, 62 30, 64 18
+           C 66 8, 74 8, 76 20 C 78 32, 84 30, 88 16
+           C 91 6, 100 6, 104 20 C 106 30, 112 30, 118 18
+           C 122 10, 130 10, 134 22 C 136 30, 142 28, 148 16"
         fill="none"
-        stroke="#1d3b8f"
-        strokeWidth="2.4"
+        stroke="#16266b"
+        strokeWidth="2.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 4 L44 34"
+        fill="none"
+        stroke="#16266b"
+        strokeWidth="2.1"
         strokeLinecap="round"
       />
     </svg>
