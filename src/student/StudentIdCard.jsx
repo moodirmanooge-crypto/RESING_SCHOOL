@@ -173,7 +173,7 @@ function CardStyles() {
         color: #fff;
       }
       .ic-id { background: #267c85; }
-      .ic-name { background: #5c2c70; }
+      .ic-name { background: #5c2c70; text-transform: capitalize; }
       .ic-class { background: #1c6b3a; }
       .ic-shift { background: #737373; }
       .ic-issue { background: #1f6499; }
@@ -195,6 +195,9 @@ function CardStyles() {
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .idc-field-value.is-name {
+        text-transform: capitalize;
+      }
 
       .idc-photo-wrap {
         width: 105px;
@@ -207,6 +210,7 @@ function CardStyles() {
         width: 95px;
         height: 115px;
         object-fit: cover;
+        object-position: center;
         border-radius: 8px;
         border: 2px solid #1c6b3a;
         background: #f4f7f4;
@@ -392,7 +396,7 @@ function CardFront({ student, studentId, issued, expiry }) {
             <span className="idc-field-icon ic-name">👤</span>
             <span className="idc-field-label">NAME</span>
             <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{student?.fullName || "—"}</span>
+            <span className="idc-field-value is-name">{student?.fullName || "—"}</span>
           </div>
           <div className="idc-field-row">
             <span className="idc-field-icon ic-class">🎓</span>
