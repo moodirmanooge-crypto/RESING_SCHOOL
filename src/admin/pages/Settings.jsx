@@ -1,11 +1,17 @@
 // src/admin/pages/Settings.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  getStorage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+} from "firebase/storage";
 import { db } from "../../firebase/firebase";
 import { useNavigate } from "react-router-dom";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
-import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff, ShieldCheck, Camera, Loader2 } from "lucide-react";
 
 /*
   Sida ay u shaqeyso (nidaamkan xogta admin-ku ku jirto Firestore, oo aan
@@ -22,11 +28,23 @@ import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
      field-ka "email" iyo/ama "password" doc-ga admin-ka. Marka xigta uu
      login sameeyo, xogtan cusub ayuu isticmaali doonaa (sida LoginForm.jsx
      ayaa u shaqeysa — waxay ka akhrisaa Firestore).
+
+  4. SAWIRKA PROFILE-KA (photoUrl): admin-ku wuxuu keliya beddeli karaa
+     SAWIRKIISA GAARKA AH. Upload-ku wuxuu isticmaalaa Firebase Storage,
+     kadibna URL-ka soo baxa waxaa lagu qoraa KELIYA doc-ga
+     admin/{adminId} ee session-ka hadda socda — lama taabanayo/lama
+     update gareynayo doc-yada admin-yada kale (tusaale: admin1, admin2...).
+     Tani waxay ka hortagaysaa in admin-yada ay isku beddelaan sawirrada
+     midba midka kale.
 */
+
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export default function Settings() {
   const navigate = useNavigate();
   const adminId = localStorage.getItem("adminId");
+  const fileInputRef = useRef(null);
 
   const [adminData, setAdminData] = useState(null);
   const [currentIdentity, setCurrentIdentity] = useState(""); // email or username shown
@@ -41,6 +59,11 @@ export default function Settings() {
   const [pageLoading, setPageLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null); // { type: "success" | "error", text }
+
+  // Photo upload state (kept separate from the email/password flow)
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState("");
 
   useEffect(() => {
     loadAdmin();
@@ -64,11 +87,71 @@ export default function Settings() {
       const data = snap.data();
       setAdminData(data);
       setCurrentIdentity(data.email || data.username || "");
+      setPhotoPreview(data.photoUrl || "");
     } catch (err) {
       console.error("Khalad admin-ka la soo qaadanayay:", err);
       setMessage({ type: "error", text: "Khalad ayaa dhacay markii xogta admin-ka la soo qaadanayay." });
     } finally {
       setPageLoading(false);
+    }
+  }
+
+  // ---- Profile photo upload: touches ONLY admin/{adminId} (the logged-in
+  // admin's own doc). It never reads or writes any other admin document. ----
+  function handlePhotoButtonClick() {
+    setPhotoMessage(null);
+    fileInputRef.current?.click();
+  }
+
+  async function handlePhotoChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+
+    setPhotoMessage(null);
+
+    if (!adminId) {
+      setPhotoMessage({ type: "error", text: "Ma jiro session admin ah. Fadlan mar kale soo gal." });
+      return;
+    }
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setPhotoMessage({ type: "error", text: "Fadlan dooro sawir (JPG, PNG, ama WEBP) oo keliya." });
+      return;
+    }
+
+    if (file.size > MAX_PHOTO_BYTES) {
+      setPhotoMessage({ type: "error", text: "Sawirku waa inuu ka yar yahay 5MB." });
+      return;
+    }
+
+    // Local preview while uploading
+    const localUrl = URL.createObjectURL(file);
+    setPhotoPreview(localUrl);
+    setPhotoUploading(true);
+
+    try {
+      const storage = getStorage();
+      const extension = file.name.split(".").pop() || "jpg";
+      // Path is scoped to this admin's own id — no other admin's file can
+      // be overwritten by this upload.
+      const storageRef = ref(storage, `adminPhotos/${adminId}-${Date.now()}.${extension}`);
+
+      await uploadBytes(storageRef, file);
+      const downloadUrl = await getDownloadURL(storageRef);
+
+      // Update ONLY this admin's own document.
+      await updateDoc(doc(db, "admin", adminId), { photoUrl: downloadUrl });
+
+      setAdminData((prev) => ({ ...prev, photoUrl: downloadUrl }));
+      setPhotoPreview(downloadUrl);
+      setPhotoMessage({ type: "success", text: "Sawirkaaga si guul leh ayaa loo cusboonaysiiyay." });
+    } catch (err) {
+      console.error("Khalad photo upload:", err);
+      setPhotoMessage({ type: "error", text: "Khalad ayaa dhacay markii sawirka la soo shubayay. Isku day mar kale." });
+      setPhotoPreview(adminData?.photoUrl || "");
+    } finally {
+      setPhotoUploading(false);
     }
   }
 
@@ -171,7 +254,7 @@ export default function Settings() {
             Settings
           </h1>
           <p style={{ fontSize: 13.5, color: "#6B7280", margin: "0 0 24px" }}>
-            Halkan ka beddel email-ka iyo password-ka account-ka admin-ka.
+            Halkan ka beddel email-ka, password-ka, iyo sawirka account-kaaga admin-ka.
           </p>
 
           {!adminId || !adminData ? (
@@ -188,139 +271,278 @@ export default function Settings() {
               {message?.text || "Ma jiro session admin ah. Fadlan mar kale soo gal."}
             </div>
           ) : (
-            <form
-              onSubmit={handleSave}
-              style={{
-                background: "#fff",
-                borderRadius: 18,
-                padding: "26px 26px",
-                boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-                border: "1px solid rgba(17,24,39,0.05)",
-              }}
-            >
-              {/* Current identity display */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Email/Username-ka Hadda</label>
-                <div style={{ ...inputWrapStyle, background: "#F9FAFB" }}>
-                  <Mail size={16} color="#9CA3AF" />
-                  <input
-                    type="text"
-                    value={currentIdentity}
-                    disabled
-                    style={{ ...inputStyle, color: "#6B7280" }}
-                  />
-                </div>
-              </div>
-
-              {/* New email */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Email Cusub (ka bogeeya haddii aadan beddelin)</label>
-                <div style={inputWrapStyle}>
-                  <Mail size={16} color="#9CA3AF" />
-                  <input
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="tusaale@rising.edu"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
-
-              {/* New password */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={labelStyle}>Password Cusub (ka bogeeya haddii aadan beddelin)</label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showNewPw ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Ugu yaraan 4 xaraf"
-                    style={inputStyle}
-                  />
-                  <button type="button" onClick={() => setShowNewPw((s) => !s)} style={eyeBtnStyle}>
-                    {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Xaqiiji Password Cusub</label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showNewPw ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Ku celi password-ka cusub"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
-
-              {/* Current password (required for both) */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>
-                  <ShieldCheck size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
-                  Password-ka Hadda Jira (waajib si loo xaqiijiyo)
-                </label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showCurrentPw ? "text" : "password"}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Geli password-kaaga hadda"
-                    style={inputStyle}
-                  />
-                  <button type="button" onClick={() => setShowCurrentPw((s) => !s)} style={eyeBtnStyle}>
-                    {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {message && (
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    fontSize: 13,
-                    marginBottom: 18,
-                    background: message.type === "success" ? "#DCFCE7" : "#FEE2E2",
-                    color: message.type === "success" ? "#166534" : "#DC2626",
-                    fontWeight: 600,
-                  }}
-                >
-                  {message.text}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
+            <>
+              {/* Profile photo card — affects ONLY this admin's own document */}
+              <div
                 style={{
-                  width: "100%",
-                  padding: "13px 0",
-                  borderRadius: 12,
-                  border: "none",
-                  background: loading ? "#86efac" : "#16a34a",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: loading ? "not-allowed" : "pointer",
+                  background: "#fff",
+                  borderRadius: 18,
+                  padding: "26px 26px",
+                  boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
+                  border: "1px solid rgba(17,24,39,0.05)",
+                  marginBottom: 20,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 20,
+                  flexWrap: "wrap",
                 }}
               >
-                {loading ? "Kaydinaya..." : "Kaydi Isbedelada"}
-              </button>
-            </form>
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <div
+                    style={{
+                      width: 84,
+                      height: 84,
+                      borderRadius: "50%",
+                      overflow: "hidden",
+                      background: "#E6F5EC",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 30,
+                      fontWeight: 800,
+                      color: "#16a34a",
+                      border: "3px solid #F3F4F6",
+                    }}
+                  >
+                    {photoPreview ? (
+                      <img
+                        src={photoPreview}
+                        alt="Sawirka profile-ka"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      (currentIdentity || "A").charAt(0).toUpperCase()
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePhotoButtonClick}
+                    disabled={photoUploading}
+                    title="Beddel sawirka"
+                    style={{
+                      position: "absolute",
+                      bottom: -2,
+                      right: -2,
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      border: "2px solid #fff",
+                      background: photoUploading ? "#86efac" : "#16a34a",
+                      color: "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: photoUploading ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {photoUploading ? (
+                      <Loader2 size={14} className="spin" />
+                    ) : (
+                      <Camera size={14} />
+                    )}
+                  </button>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handlePhotoChange}
+                    style={{ display: "none" }}
+                  />
+                </div>
+
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#111827", marginBottom: 4 }}>
+                    Sawirka Profile-ka
+                  </div>
+                  <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#6B7280", lineHeight: 1.5 }}>
+                    Sawirkan waxaa keliya la wada arki doonaa xogtaada gaarka ah — beddelkani
+                    kuma saameyn doono admin-yada kale ee nidaamka.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handlePhotoButtonClick}
+                    disabled={photoUploading}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 16px",
+                      borderRadius: 10,
+                      border: "1px solid #E5E7EB",
+                      background: "#F9FAFB",
+                      color: "#111827",
+                      fontWeight: 700,
+                      fontSize: 12.5,
+                      cursor: photoUploading ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {photoUploading ? "Waa la soo shubayaa..." : "Dooro Sawir Cusub"}
+                  </button>
+
+                  {photoMessage && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        fontSize: 12.5,
+                        fontWeight: 600,
+                        background: photoMessage.type === "success" ? "#DCFCE7" : "#FEE2E2",
+                        color: photoMessage.type === "success" ? "#166534" : "#DC2626",
+                      }}
+                    >
+                      {photoMessage.text}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <form
+                onSubmit={handleSave}
+                style={{
+                  background: "#fff",
+                  borderRadius: 18,
+                  padding: "26px 26px",
+                  boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
+                  border: "1px solid rgba(17,24,39,0.05)",
+                }}
+              >
+                {/* Current identity display */}
+                <div style={{ marginBottom: 22 }}>
+                  <label style={labelStyle}>Email/Username-ka Hadda</label>
+                  <div style={{ ...inputWrapStyle, background: "#F9FAFB" }}>
+                    <Mail size={16} color="#9CA3AF" />
+                    <input
+                      type="text"
+                      value={currentIdentity}
+                      disabled
+                      style={{ ...inputStyle, color: "#6B7280" }}
+                    />
+                  </div>
+                </div>
+
+                {/* New email */}
+                <div style={{ marginBottom: 22 }}>
+                  <label style={labelStyle}>Email Cusub (ka bogeeya haddii aadan beddelin)</label>
+                  <div style={inputWrapStyle}>
+                    <Mail size={16} color="#9CA3AF" />
+                    <input
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="tusaale@rising.edu"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
+
+                {/* New password */}
+                <div style={{ marginBottom: 18 }}>
+                  <label style={labelStyle}>Password Cusub (ka bogeeya haddii aadan beddelin)</label>
+                  <div style={inputWrapStyle}>
+                    <Lock size={16} color="#9CA3AF" />
+                    <input
+                      type={showNewPw ? "text" : "password"}
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Ugu yaraan 4 xaraf"
+                      style={inputStyle}
+                    />
+                    <button type="button" onClick={() => setShowNewPw((s) => !s)} style={eyeBtnStyle}>
+                      {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 22 }}>
+                  <label style={labelStyle}>Xaqiiji Password Cusub</label>
+                  <div style={inputWrapStyle}>
+                    <Lock size={16} color="#9CA3AF" />
+                    <input
+                      type={showNewPw ? "text" : "password"}
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder="Ku celi password-ka cusub"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
+
+                {/* Current password (required for both) */}
+                <div style={{ marginBottom: 22 }}>
+                  <label style={labelStyle}>
+                    <ShieldCheck size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
+                    Password-ka Hadda Jira (waajib si loo xaqiijiyo)
+                  </label>
+                  <div style={inputWrapStyle}>
+                    <Lock size={16} color="#9CA3AF" />
+                    <input
+                      type={showCurrentPw ? "text" : "password"}
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Geli password-kaaga hadda"
+                      style={inputStyle}
+                    />
+                    <button type="button" onClick={() => setShowCurrentPw((s) => !s)} style={eyeBtnStyle}>
+                      {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {message && (
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 10,
+                      fontSize: 13,
+                      marginBottom: 18,
+                      background: message.type === "success" ? "#DCFCE7" : "#FEE2E2",
+                      color: message.type === "success" ? "#166534" : "#DC2626",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {message.text}
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    width: "100%",
+                    padding: "13px 0",
+                    borderRadius: 12,
+                    border: "none",
+                    background: loading ? "#86efac" : "#16a34a",
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {loading ? "Kaydinaya..." : "Kaydi Isbedelada"}
+                </button>
+              </form>
+            </>
           )}
         </div>
       </div>
+
+      <style>{`
+        .spin {
+          animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }
