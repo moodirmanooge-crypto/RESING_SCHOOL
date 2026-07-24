@@ -104,14 +104,14 @@ function CardStyles() {
         z-index: 2;
         display: flex;
         align-items: center;
-        gap: 12px;
-        padding: 18px 20px 6px;
+        padding: 14px 16px 4px;
+        justify-content: space-between;
       }
       .idc-logo-badge {
-        width: 62px;
-        height: 62px;
-        min-width: 62px;
-        min-height: 62px;
+        width: 52px;
+        height: 52px;
+        min-width: 52px;
+        min-height: 52px;
         border-radius: 50%;
         background: #fff;
         border: 2px solid #1c6b3a;
@@ -130,9 +130,14 @@ function CardStyles() {
         border-radius: 50%;
         display: block;
       }
-      .idc-school-block { line-height: 1.15; }
+      .idc-school-block {
+        text-align: center;
+        flex: 1;
+        padding: 0 8px;
+        line-height: 1.15;
+      }
       .idc-school-name1 {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 800;
         color: #1c6b3a;
         letter-spacing: 0.8px;
@@ -383,6 +388,7 @@ function CardFront({ student, studentId, issued, expiry }) {
           <div className="idc-school-name2">{SCHOOL.name2}</div>
           <div className="idc-school-tag">{SCHOOL.tagline}</div>
         </div>
+        <div style={{ width: "52px" }} /> {/* Spacer to perfectly balance the centered text with the badge on the left */}
       </div>
 
       <div className="idc-front-body">
