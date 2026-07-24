@@ -23,7 +23,7 @@ import schoolLogo from "../assets/rising-star-logo.png";
 const SCHOOL = {
   name1: "RISING STAR",
   name2: "SCHOOL",
-  tagline: "Excellence Today, Leaders Tomorrow",
+  tagline: "Education Is Life It Self",
   phone: "+252 61 2345678",
   website: "www.risingstarschool.so",
   location: "Mogadishu, Somalia",

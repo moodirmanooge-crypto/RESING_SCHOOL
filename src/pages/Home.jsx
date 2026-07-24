@@ -266,8 +266,7 @@ export default function Home() {
           <h2 className="hero-subtitle">School Management System</h2>
           <div className="hero-rule" />
           <p className="hero-lede">
-            A complete solution to manage students, teachers, classes,
-            examinations, and more.
+            Education Is Life It Self
           </p>
           <a href="#roles" className="hero-cta" onClick={scrollToRoles}>
             <span className="hero-cta-icon">▦</span>
