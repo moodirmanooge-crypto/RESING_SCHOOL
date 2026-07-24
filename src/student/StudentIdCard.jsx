@@ -21,7 +21,7 @@ import { db } from "../firebase/firebase";
 import schoolLogo from "../assets/rising-star-logo.png";
 
 const SCHOOL = {
-  name1:   "RISING STAR",
+  name1:    "RISING STAR",
   name2: "PRIMARY & SECONDARY SCHOOL",
   tagline: "Education Is Life It Self",
   phone: "+252 61 2345678",
@@ -74,7 +74,7 @@ function CardStyles() {
         width: 420px;
         max-width: 100%;
         aspect-ratio: 856 / 540;
-        border-radius: 18px;
+        border-radius: 24px;
         overflow: hidden;
         position: relative;
         background: #ffffff;
@@ -105,13 +105,13 @@ function CardStyles() {
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 16px 18px 6px;
+        padding: 18px 20px 6px;
       }
       .idc-logo-badge {
-        width: 54px;
-        height: 54px;
-        min-width: 54px;
-        min-height: 54px;
+        width: 62px;
+        height: 62px;
+        min-width: 62px;
+        min-height: 62px;
         border-radius: 50%;
         background: #fff;
         border: 2px solid #1c6b3a;
@@ -132,19 +132,19 @@ function CardStyles() {
       }
       .idc-school-block { line-height: 1.15; }
       .idc-school-name1 {
-        font-size: 15px;
+        font-size: 18px;
         font-weight: 800;
         color: #1c6b3a;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.8px;
       }
       .idc-school-name2 {
-        font-size: 11.5px;
+        font-size: 13px;
         font-weight: 700;
         color: #16202b;
-        letter-spacing: 0.2px;
+        letter-spacing: 0.3px;
       }
       .idc-school-tag {
-        font-size: 8.5px;
+        font-size: 9.5px;
         font-weight: 700;
         color: #e08b1d;
         letter-spacing: 0.4px;
@@ -156,7 +156,7 @@ function CardStyles() {
         z-index: 2;
         flex: 1;
         display: flex;
-        padding: 8px 18px 0;
+        padding: 8px 20px 0;
         gap: 10px;
       }
 
