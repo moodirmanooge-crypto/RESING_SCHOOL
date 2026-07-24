@@ -15,6 +15,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   getDocs,
+  query,
+  where,
   doc,
   setDoc,
   deleteDoc,
@@ -27,6 +29,33 @@ import CertificateCard from "../components/CertificateCard";
 
 const GREEN = "#14532d";
 
+// Official Banadir Regional Administration / Education Directorate grading
+// scale (TUSAHA DARAJAYNTA - GRADING). Percentage thresholds are inclusive
+// of the lower bound shown in the printed reference table.
+const GRADING_SCALE = [
+  { min: 90, grade: "A" },
+  { min: 80, grade: "A-" },
+  { min: 75, grade: "B+" },
+  { min: 70, grade: "B" },
+  { min: 65, grade: "B-" },
+  { min: 60, grade: "C+" },
+  { min: 55, grade: "C" },
+  { min: 50, grade: "C-" },
+  { min: 45, grade: "D+" },
+  { min: 40, grade: "D" },
+  { min: 35, grade: "D-" },
+  { min: 0, grade: "E" },
+];
+
+function computeGrade(marks, maxMarks) {
+  const pct = (Number(marks) / (Number(maxMarks) || 100)) * 100;
+  const found = GRADING_SCALE.find((row) => pct >= row.min);
+  return found ? found.grade : "E";
+}
+
+// A student only qualifies for a Class 8 Leaving Certificate if they have a
+// recorded Final Exam result (examType === "Final") and did NOT fail it
+// (grade "E" per the official scale = below 35%).
 function genCertificateId() {
   // e.g. RS-CERT-8F3K9Q2A
   const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
@@ -99,6 +128,8 @@ export default function Certificates() {
   });
   const [previewCert, setPreviewCert] = useState(null); // the cert currently rendered in the hidden card
   const [search, setSearch] = useState("");
+  // Maps studentId -> { marks, maxMarks, grade, passed } from the Final Exam.
+  const [finalResults, setFinalResults] = useState({});
 
   useEffect(() => {
     load();
@@ -117,6 +148,43 @@ export default function Certificates() {
       const certsList = certsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       certsList.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setCertificates(certsList);
+
+      // Pull each Class 8 student's Final Exam result (examType === "Final")
+      // so we know who actually qualifies for a leaving certificate.
+      const resultsMap = {};
+      await Promise.all(
+        studentsList.map(async (s) => {
+          try {
+            const resSnap = await getDocs(
+              query(
+                collection(db, "results"),
+                where("studentId", "==", s.id),
+                where("examType", "==", "Final")
+              )
+            );
+            if (resSnap.empty) return;
+            // If more than one Final result exists for some reason, use the
+            // most recently updated one.
+            const docsData = resSnap.docs.map((d) => d.data());
+            docsData.sort((a, b) => {
+              const aTime = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt || 0);
+              const bTime = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(b.updatedAt || 0);
+              return bTime - aTime;
+            });
+            const r = docsData[0];
+            const grade = computeGrade(r.marks, r.maxMarks);
+            resultsMap[s.id] = {
+              marks: r.marks,
+              maxMarks: r.maxMarks,
+              grade,
+              passed: grade !== "E",
+            };
+          } catch (e) {
+            console.error("Error loading final result for student", s.id, e);
+          }
+        })
+      );
+      setFinalResults(resultsMap);
     } catch (e) {
       console.error("Error loading certificates data:", e);
     } finally {
@@ -139,25 +207,42 @@ export default function Certificates() {
   );
 
   function pickStudent(id) {
+    const result = finalResults[id];
+    if (!result) {
+      alert("Ardaygan wali ma helin natiijada Final Exam. Shahaado lama siin karo.");
+      return;
+    }
+    if (!result.passed) {
+      alert(
+        `Ardaygan wuu ku dhacay Final Exam-ka (${result.marks}/${result.maxMarks} - Grade ${result.grade}). Shahaado lama siin karo.`
+      );
+      return;
+    }
+
     setSelectedStudentId(id);
     const existing = certificates.find((c) => c.studentId === id);
     if (existing) {
       setForm({
         motherName: existing.motherName || "",
         academicYear: existing.academicYear || "",
-        gradeObtained: existing.gradeObtained || "",
+        gradeObtained: existing.gradeObtained || result.grade,
       });
       setPreviewCert(existing);
     } else {
-      setForm({ motherName: "", academicYear: "", gradeObtained: "" });
+      setForm({ motherName: "", academicYear: "", gradeObtained: result.grade });
       setPreviewCert(null);
     }
   }
 
   async function handleGenerate() {
     if (!selectedStudent) return;
-    if (!form.motherName || !form.academicYear || !form.gradeObtained) {
-      alert("Fadlan buuxi Mother's Name, Academic Year, iyo Grade Obtained.");
+    const result = finalResults[selectedStudent.id];
+    if (!result || !result.passed) {
+      alert("Ardaygan uma qalmo shahaado - Final Exam lama helin ama wuu ku dhacay.");
+      return;
+    }
+    if (!form.motherName || !form.academicYear) {
+      alert("Fadlan buuxi Mother's Name iyo Academic Year.");
       return;
     }
     setSaving(true);
@@ -171,7 +256,12 @@ export default function Certificates() {
         studentPhoto: selectedStudent.studentPhoto || "",
         motherName: form.motherName,
         academicYear: form.academicYear,
-        gradeObtained: form.gradeObtained,
+        // Grade always comes from the actual Final Exam result, computed
+        // with the official Banadir grading scale - never typed by hand -
+        // so it can't drift from what the student actually scored.
+        gradeObtained: result.grade,
+        finalExamMarks: result.marks,
+        finalExamMaxMarks: result.maxMarks,
         schoolName: "Rising Star Primary & Secondary School",
         createdAt: existingCertForStudent?.createdAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -251,6 +341,8 @@ export default function Certificates() {
                   {filteredStudents.map((s) => {
                     const hasCert = certificates.some((c) => c.studentId === s.id);
                     const isActive = s.id === selectedStudentId;
+                    const result = finalResults[s.id];
+                    const eligible = result && result.passed;
                     return (
                       <button
                         key={s.id}
@@ -269,26 +361,44 @@ export default function Certificates() {
                           cursor: "pointer",
                           fontSize: 13.5,
                           color: "#111827",
+                          opacity: eligible ? 1 : 0.55,
                         }}
                       >
                         <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <StudentAvatar photo={s.studentPhoto} name={s.fullName} />
                           {s.fullName || "Unnamed student"}
                         </span>
-                        {hasCert && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 700,
-                              color: "#16a34a",
-                              background: "#DCFCE7",
-                              padding: "2px 8px",
-                              borderRadius: 999,
-                            }}
-                          >
-                            Has certificate
-                          </span>
-                        )}
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          {hasCert && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: "#16a34a",
+                                background: "#DCFCE7",
+                                padding: "2px 8px",
+                                borderRadius: 999,
+                              }}
+                            >
+                              Has certificate
+                            </span>
+                          )}
+                          {!result && (
+                            <span style={statusBadgeStyle("#92400E", "#FEF3C7")}>
+                              No Final Exam
+                            </span>
+                          )}
+                          {result && !result.passed && (
+                            <span style={statusBadgeStyle("#991B1B", "#FEE2E2")}>
+                              Failed ({result.grade})
+                            </span>
+                          )}
+                          {result && result.passed && !hasCert && (
+                            <span style={statusBadgeStyle("#1D4ED8", "#DBEAFE")}>
+                              Eligible ({result.grade})
+                            </span>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
@@ -320,12 +430,15 @@ export default function Certificates() {
                         style={inputStyle}
                       />
                     </Field>
-                    <Field label="Grade Obtained">
+                    <Field label="Grade Obtained (Final Exam - auto)">
                       <input
-                        value={form.gradeObtained}
-                        onChange={(e) => setForm({ ...form, gradeObtained: e.target.value })}
-                        placeholder="e.g. A / 88%"
-                        style={inputStyle}
+                        value={
+                          finalResults[selectedStudent.id]
+                            ? `${finalResults[selectedStudent.id].grade}  (${finalResults[selectedStudent.id].marks}/${finalResults[selectedStudent.id].maxMarks})`
+                            : ""
+                        }
+                        disabled
+                        style={inputStyleDisabled}
                       />
                     </Field>
                   </div>
@@ -539,6 +652,18 @@ const inputStyleDisabled = {
   background: "#F3F4F6",
   color: "#6B7280",
 };
+
+function statusBadgeStyle(color, bg) {
+  return {
+    fontSize: 10.5,
+    fontWeight: 700,
+    color,
+    background: bg,
+    padding: "2px 7px",
+    borderRadius: 999,
+    whiteSpace: "nowrap",
+  };
+}
 
 const smallBtnStyle = {
   padding: "5px 12px",
