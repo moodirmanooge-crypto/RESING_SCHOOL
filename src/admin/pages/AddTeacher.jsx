@@ -269,7 +269,7 @@ export default function AddTeacher() {
         ),
       ];
 
-      await setDoc(doc(db, "teachers", username), {
+      const teacherData = {
         fullName,
         username,
         password,
@@ -283,6 +283,19 @@ export default function AddTeacher() {
         teacherPhoto: teacherPhotoUrl, // TeacherIdCard.jsx expects `teacherPhoto`
         classes: classBlocks,
         createdAt: serverTimestamp(),
+      };
+
+      await setDoc(doc(db, "teachers", username), teacherData);
+
+      // Isla markiiba abuur diiwaanka teacher_id/{username} -- kani waa
+      // isla snapshot-ka uu QR code-ka ID card-ka ku jira (front + back)
+      // uu wajahayo TeacherVerify.jsx. Lama sugayo inuu macalinku booqdo
+      // Profile-kiisa marka hore -- haddii kale QR-ka macallimiinta
+      // cusub ma shaqayn doono ilaa ay booqdaan bogga profile-ka.
+      await setDoc(doc(db, "teacher_id", username), {
+        ...teacherData,
+        teacherUsername: username,
+        issuedAt: serverTimestamp(),
       });
 
       alert("Teacher Saved");

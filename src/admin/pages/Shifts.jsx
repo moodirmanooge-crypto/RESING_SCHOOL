@@ -1,8 +1,8 @@
 // src/admin/pages/Shifts.jsx
 import { useEffect, useState, useMemo } from "react";
 import { db } from "../../firebase/firebase";
-import { collection, getDocs } from "firebase/firestore";
-import { Clock, Search, User } from "lucide-react";
+import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
+import { Clock, Search, User, Trash2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
@@ -34,6 +34,9 @@ export default function Shifts() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedTeacherId, setSelectedTeacherId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [deletingGroupId, setDeletingGroupId] = useState(null);
+  const [confirmTarget, setConfirmTarget] = useState(null); // { type: "one"|"group", record?, group? }
 
   useEffect(() => {
     loadData();
@@ -126,6 +129,48 @@ export default function Shifts() {
       ),
     [teachersMap]
   );
+
+  function askDeleteOne(record) {
+    setConfirmTarget({ type: "one", record });
+  }
+
+  function askDeleteGroup(group) {
+    if (group.records.length === 0) return;
+    setConfirmTarget({ type: "group", group });
+  }
+
+  async function confirmDelete() {
+    if (!confirmTarget) return;
+
+    if (confirmTarget.type === "one") {
+      const record = confirmTarget.record;
+      try {
+        setDeletingId(record.id);
+        await deleteDoc(doc(db, "shifts", record.id));
+        setShifts((prev) => prev.filter((s) => s.id !== record.id));
+        setConfirmTarget(null);
+      } catch (err) {
+        console.error("Khalad ayaa dhacay markii shift-ka la tirtirayay:", err);
+        alert("Khalad ayaa dhacay: " + err.message);
+      } finally {
+        setDeletingId(null);
+      }
+    } else {
+      const group = confirmTarget.group;
+      try {
+        setDeletingGroupId(group.teacherId);
+        const idsToDelete = group.records.map((r) => r.id);
+        await Promise.all(idsToDelete.map((id) => deleteDoc(doc(db, "shifts", id))));
+        setShifts((prev) => prev.filter((s) => !idsToDelete.includes(s.id)));
+        setConfirmTarget(null);
+      } catch (err) {
+        console.error("Khalad ayaa dhacay markii shifts-ka la tirtirayay:", err);
+        alert("Khalad ayaa dhacay: " + err.message);
+      } finally {
+        setDeletingGroupId(null);
+      }
+    }
+  }
 
   return (
     <div
@@ -317,48 +362,77 @@ export default function Shifts() {
                     style={{
                       display: "flex",
                       alignItems: "center",
+                      justifyContent: "space-between",
                       gap: 14,
                       marginBottom: 16,
+                      flexWrap: "wrap",
                     }}
                   >
-                    {group.photo ? (
-                      <img
-                        src={group.photo}
-                        alt={group.name}
-                        style={{
-                          width: 52,
-                          height: 52,
-                          borderRadius: "50%",
-                          objectFit: "cover",
-                          border: "2px solid #16a34a",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
-                      <div
-                        style={{
-                          width: 52,
-                          height: 52,
-                          borderRadius: "50%",
-                          background: "#E6F5EC",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
-                        }}
-                      >
-                        <User size={24} color="#16a34a" />
-                      </div>
-                    )}
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 15.5, color: "#111827" }}>
-                        {group.name}
-                      </div>
-                      <div style={{ fontSize: 12.5, color: "#9CA3AF" }}>
-                        @{group.username} &nbsp;•&nbsp; {group.records.length} shift
-                        {group.records.length !== 1 ? "s" : ""}
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      {group.photo ? (
+                        <img
+                          src={group.photo}
+                          alt={group.name}
+                          style={{
+                            width: 52,
+                            height: 52,
+                            borderRadius: "50%",
+                            objectFit: "cover",
+                            border: "2px solid #16a34a",
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 52,
+                            height: 52,
+                            borderRadius: "50%",
+                            background: "#E6F5EC",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          <User size={24} color="#16a34a" />
+                        </div>
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 15.5, color: "#111827" }}>
+                          {group.name}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: "#9CA3AF" }}>
+                          @{group.username} &nbsp;•&nbsp; {group.records.length} shift
+                          {group.records.length !== 1 ? "s" : ""}
+                        </div>
                       </div>
                     </div>
+
+                    <button
+                      onClick={() => askDeleteGroup(group)}
+                      disabled={deletingGroupId === group.teacherId}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        border: "1px solid #FCA5A5",
+                        background: "#FEF2F2",
+                        color: "#DC2626",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        padding: "8px 14px",
+                        borderRadius: 10,
+                        cursor: deletingGroupId === group.teacherId ? "not-allowed" : "pointer",
+                        opacity: deletingGroupId === group.teacherId ? 0.7 : 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      <Trash2 size={14} />
+                      {deletingGroupId === group.teacherId
+                        ? "Tirtiraya..."
+                        : "Tirtir Taariikhda"}
+                    </button>
                   </div>
 
                   {/* History table for this teacher */}
@@ -369,6 +443,7 @@ export default function Shifts() {
                         <th style={{ fontWeight: 600, paddingBottom: 8 }}>Clock Out</th>
                         <th style={{ fontWeight: 600, paddingBottom: 8 }}>Duration</th>
                         <th style={{ fontWeight: 600, paddingBottom: 8 }}>Status</th>
+                        <th style={{ fontWeight: 600, paddingBottom: 8 }}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -397,6 +472,26 @@ export default function Shifts() {
                               {r.status || "open"}
                             </span>
                           </td>
+                          <td style={{ textAlign: "right" }}>
+                            <button
+                              onClick={() => askDeleteOne(r)}
+                              disabled={deletingId === r.id}
+                              style={{
+                                border: "none",
+                                background: "#FEF2F2",
+                                color: "#DC2626",
+                                fontWeight: 700,
+                                fontSize: 12,
+                                padding: "6px 10px",
+                                borderRadius: 8,
+                                cursor: deletingId === r.id ? "not-allowed" : "pointer",
+                                display: "inline-flex",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -407,6 +502,95 @@ export default function Shifts() {
           )}
         </div>
       </div>
+
+      {confirmTarget && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 3000,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              width: 360,
+              maxWidth: "90%",
+              fontFamily: "'Inter','Segoe UI',sans-serif",
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>Xaqiiji Tirtiridda</h3>
+            <p style={{ fontSize: 13.5, color: "#6B7280", marginTop: 10, lineHeight: 1.6 }}>
+              {confirmTarget.type === "one" ? (
+                <>
+                  Ma hubtaa inaad tirtirto shift-kan ee{" "}
+                  <strong style={{ color: "#111827" }}>
+                    {formatDateTime(confirmTarget.record.clockInAt)}
+                  </strong>
+                  ? Tallaabadan lama soo celin karo.
+                </>
+              ) : (
+                <>
+                  Ma hubtaa inaad tirtirto dhammaan{" "}
+                  <strong style={{ color: "#111827" }}>
+                    {confirmTarget.group.records.length}
+                  </strong>{" "}
+                  shift ee{" "}
+                  <strong style={{ color: "#111827" }}>{confirmTarget.group.name}</strong>?
+                  Tallaabadan lama soo celin karo.
+                </>
+              )}
+            </p>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => setConfirmTarget(null)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 10,
+                  border: "1px solid #E5E7EB",
+                  background: "#fff",
+                  color: "#374151",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Jooji
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deletingId !== null || deletingGroupId !== null}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#DC2626",
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor:
+                    deletingId !== null || deletingGroupId !== null
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity: deletingId !== null || deletingGroupId !== null ? 0.7 : 1,
+                }}
+              >
+                {deletingId || deletingGroupId ? "Tirtiraya..." : "Haa, Tirtir"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

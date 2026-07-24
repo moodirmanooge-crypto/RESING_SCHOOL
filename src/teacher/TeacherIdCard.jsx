@@ -13,6 +13,13 @@
 // On first view (if no card doc exists yet), the full teacher record is
 // duplicated into the `teacher_id` Firestore collection, keyed by the
 // teacher's username, so issued cards have their own persistent snapshot.
+//
+// QR CODE: encodes the school's public verify page
+// (https://risingstarschools.com/verify/teacher/{teacherUsername}) — NOT
+// just the bare website. Scanning it opens TeacherVerify.jsx, which reads
+// the teacher_id/{teacherUsername} snapshot from Firestore and displays
+// the full ID card details (name, subject, phone, photo, joining date) —
+// exactly the same info printed on the card itself.
 
 import { useEffect, useState } from "react";
 import {
@@ -22,6 +29,8 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase/firebase";
+import schoolLogo from "../admin/assets/logo.png";
+import principalSignature from "../admin/assets/signature-principal.png";
 
 const SCHOOL = {
   name1: "RISING STAR",
@@ -131,11 +140,11 @@ function CardStyles() {
         overflow: hidden;
         margin-bottom: 6px;
       }
-      .tidc-logo-ring {
-        position: absolute;
-        inset: 3px;
+      .tidc-logo-badge img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
         border-radius: 50%;
-        border: 1px solid #cfe0d3;
       }
       .tidc-school-block { line-height: 1.1; }
       .tidc-school-name1 {
@@ -269,10 +278,17 @@ function CardStyles() {
         padding: 6px 22px 0;
         margin-top: 8px;
       }
+      .tidc-signature-img {
+        width: 150px;
+        height: 42px;
+        object-fit: contain;
+        object-position: bottom center;
+        margin-top: 4px;
+      }
       .tidc-signature-line {
         width: 150px;
         border-top: 1px solid #16202b;
-        margin-top: 30px;
+        margin-top: 2px;
         padding-top: 4px;
         text-align: center;
         font-size: 9.5px;
@@ -344,6 +360,13 @@ function CardStyles() {
         display: flex;
         align-items: center;
         justify-content: center;
+        overflow: hidden;
+      }
+      .tidc-back-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border-radius: 50%;
       }
       .tidc-section-bar {
         background: #14532d;
@@ -428,50 +451,6 @@ function CardStyles() {
   );
 }
 
-// Circular school badge — laurel-wreath style crest to match the
-// reference logo (open book + sunrise + wreath), drawn in pure SVG so it
-// renders crisply at any size without needing an uploaded image asset.
-function SchoolCrest({ size = 40 }) {
-  return (
-    <svg viewBox="0 0 100 100" width={size} height={size}>
-      <circle cx="50" cy="50" r="47" fill="#ffffff" stroke="#1c6b3a" strokeWidth="2" />
-      {/* laurel wreath */}
-      <g stroke="#1c6b3a" strokeWidth="2" fill="none" strokeLinecap="round">
-        <path d="M18,58 C14,44 20,28 32,20" />
-        <path d="M82,58 C86,44 80,28 68,20" />
-      </g>
-      <g fill="#1c6b3a">
-        <ellipse cx="18" cy="58" rx="3" ry="5" transform="rotate(-30 18 58)" />
-        <ellipse cx="15" cy="48" rx="3" ry="5" transform="rotate(-15 15 48)" />
-        <ellipse cx="14" cy="38" rx="3" ry="5" transform="rotate(0 14 38)" />
-        <ellipse cx="18" cy="28" rx="3" ry="5" transform="rotate(20 18 28)" />
-        <ellipse cx="25" cy="22" rx="3" ry="5" transform="rotate(40 25 22)" />
-
-        <ellipse cx="82" cy="58" rx="3" ry="5" transform="rotate(30 82 58)" />
-        <ellipse cx="85" cy="48" rx="3" ry="5" transform="rotate(15 85 48)" />
-        <ellipse cx="86" cy="38" rx="3" ry="5" transform="rotate(0 86 38)" />
-        <ellipse cx="82" cy="28" rx="3" ry="5" transform="rotate(-20 82 28)" />
-        <ellipse cx="75" cy="22" rx="3" ry="5" transform="rotate(-40 75 22)" />
-      </g>
-      {/* sunrise */}
-      <path d="M30,52 A20,20 0 0 1 70,52 Z" fill="#f5a623" />
-      <g stroke="#f5a623" strokeWidth="2.5" strokeLinecap="round">
-        <line x1="50" y1="20" x2="50" y2="27" />
-        <line x1="34" y1="26" x2="38" y2="31" />
-        <line x1="66" y1="26" x2="62" y2="31" />
-      </g>
-      {/* open book */}
-      <path d="M32,58 L50,54 L68,58 L68,66 L50,62 L32,66 Z" fill="#14532d" />
-      <line x1="50" y1="54" x2="50" y2="62" stroke="#ffffff" strokeWidth="1.2" />
-      {/* star */}
-      <path
-        d="M50,68 l1.6,3.4 3.7,0.5 -2.7,2.6 0.6,3.7 -3.2,-1.7 -3.2,1.7 0.6,-3.7 -2.7,-2.6 3.7,-0.5 Z"
-        fill="#ffffff"
-      />
-    </svg>
-  );
-}
-
 function BandTop() {
   return (
     <svg viewBox="0 0 400 46" preserveAspectRatio="none">
@@ -505,15 +484,14 @@ function CardFront({ teacher, teacherUsername }) {
     [teacher?.firstName, teacher?.lastName].filter(Boolean).join(" ") ||
     "—";
 
-  // Firestore stores the teacher's photo under "teacherPhoto" (a full
-  // Firebase Storage download URL, e.g.
-  // https://firebasestorage.googleapis.com/.../teacherPhotos%2F...jpeg?alt=media&token=...).
-  // Some older docs may still have used "photoUrl" instead, so fall
-  // back to that for backward compatibility.
   const photoSrc = teacher?.teacherPhoto || teacher?.photoUrl || "";
 
-  const qrValue = encodeURIComponent(`https://${SCHOOL.website}`);
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${qrValue}`;
+  const verifyUrl = `https://${SCHOOL.website}/verify/teacher/${encodeURIComponent(
+    teacherUsername || ""
+  )}`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(
+    verifyUrl
+  )}`;
 
   return (
     <div className="tidc-card-outer">
@@ -523,8 +501,7 @@ function CardFront({ teacher, teacherUsername }) {
 
         <div className="tidc-header">
           <div className="tidc-logo-badge">
-            <div className="tidc-logo-ring" />
-            <SchoolCrest size={56} />
+            <img src={schoolLogo} alt="Rising Star School logo" />
           </div>
           <div className="tidc-school-block">
             <div className="tidc-school-name1">{SCHOOL.name1}</div>
@@ -588,6 +565,11 @@ function CardFront({ teacher, teacherUsername }) {
         </div>
 
         <div className="tidc-signature">
+          <img
+            className="tidc-signature-img"
+            src={principalSignature}
+            alt="Principal's signature"
+          />
           <div className="tidc-signature-line">PRINCIPAL'S SIGNATURE</div>
         </div>
 
@@ -596,9 +578,9 @@ function CardFront({ teacher, teacherUsername }) {
             <img src={qrSrc} alt="QR code" />
           </div>
           <div className="tidc-qr-caption">
-            SCAN TO VISIT
+            SCAN TO VERIFY
             <br />
-            {SCHOOL.website}
+            TEACHER ID
           </div>
         </div>
 
@@ -609,9 +591,13 @@ function CardFront({ teacher, teacherUsername }) {
   );
 }
 
-function CardBack() {
-  const qrValue = encodeURIComponent(`https://${SCHOOL.website}`);
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=0&data=${qrValue}`;
+function CardBack({ teacherUsername }) {
+  const verifyUrl = `https://${SCHOOL.website}/verify/teacher/${encodeURIComponent(
+    teacherUsername || ""
+  )}`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=0&data=${encodeURIComponent(
+    verifyUrl
+  )}`;
 
   return (
     <div className="tidc-card-outer">
@@ -622,7 +608,7 @@ function CardBack() {
         <div className="tidc-back-content">
           <div className="tidc-back-header">
             <div className="tidc-back-logo">
-              <SchoolCrest size={48} />
+              <img src={schoolLogo} alt="Rising Star School logo" />
             </div>
           </div>
 
@@ -663,9 +649,9 @@ function CardBack() {
               <img src={qrSrc} alt="QR code" />
             </div>
             <div className="tidc-qr-caption">
-              SCAN TO VISIT
+              SCAN TO VERIFY
               <br />
-              {SCHOOL.website}
+              TEACHER ID
             </div>
           </div>
         </div>
@@ -685,7 +671,8 @@ export default function TeacherIdCard({ teacher, teacherUsername }) {
   // Duplicate the full teacher record into `teacher_id/{teacherUsername}`
   // the first time this card is viewed, so each issued card has its own
   // persistent snapshot independent of later edits to the original
-  // teacher record.
+  // teacher record. This is also the exact record TeacherVerify.jsx reads
+  // when the QR code is scanned.
   useEffect(() => {
     if (!teacherUsername || !teacher) return;
 
@@ -719,7 +706,7 @@ export default function TeacherIdCard({ teacher, teacherUsername }) {
 
       <div className="tidc-wrap">
         <CardFront teacher={teacher} teacherUsername={teacherUsername} />
-        <CardBack />
+        <CardBack teacherUsername={teacherUsername} />
       </div>
     </div>
   );

@@ -23,7 +23,6 @@ import {
   Paperclip,
 } from "lucide-react";
 
-// Codka la dhawaajiyo marka fariin cusub soo gasho
 const NOTIFICATION_SOUND_URL =
   "https://actions.google.com/sounds/v1/alarms/beep_short.ogg";
 
@@ -33,13 +32,12 @@ export default function Messages() {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [selected, setSelected] = useState(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   const audioRef = useRef(null);
   const isFirstLoad = useRef(true);
   const knownIds = useRef(new Set());
 
-  // ---- Real-time listener: fariin kasta oo soo gasha ayaa isla markiiba
-  // muuqata iyada oo aan reload la sameyn, hadana dhawaaq ayaa la siiyaa ----
   useEffect(() => {
     const q = query(collection(db, "messages"), orderBy("createdAt", "desc"));
 
@@ -49,12 +47,9 @@ export default function Messages() {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
         if (isFirstLoad.current) {
-          // Markii ugu horeysay ee la soo shubo, kaliya u kaydi ID-yada
-          // yaan dhawaaqu ka dhicin fariimihii hore.
           list.forEach((m) => knownIds.current.add(m.id));
           isFirstLoad.current = false;
         } else {
-          // Hel fariimaha cusub ee aan hore loo arag
           const newOnes = list.filter((m) => !knownIds.current.has(m.id));
           if (newOnes.length > 0) {
             newOnes.forEach((m) => knownIds.current.add(m.id));
@@ -102,9 +97,6 @@ export default function Messages() {
     setSelected(msg);
     if (!msg.read) {
       try {
-        // Isla markiiba fariinta waxaa laga saaraa liiska "unread" -
-        // state-ka waa la update gareeyaa si notification-ku isla
-        // markiiba u yaraado, ka hor inta Firestore uu jawaabo.
         setMessages((prev) =>
           prev.map((m) => (m.id === msg.id ? { ...m, read: true } : m))
         );
@@ -137,6 +129,28 @@ export default function Messages() {
     }
   }
 
+  async function deleteAllMessages() {
+    if (filtered.length === 0) return;
+    if (
+      !confirm(
+        `Ma hubtaa inaad tirtirto dhammaan ${filtered.length} fariimood? Tallaabadan lama soo celin karo.`
+      )
+    )
+      return;
+
+    try {
+      setDeletingAll(true);
+      const idsToDelete = filtered.map((m) => m.id);
+      await Promise.all(idsToDelete.map((id) => deleteDoc(doc(db, "messages", id))));
+      if (selected && idsToDelete.includes(selected.id)) setSelected(null);
+    } catch (err) {
+      console.log(err);
+      alert("Khalad ayaa dhacay marka la tirtirayay: " + err.message);
+    } finally {
+      setDeletingAll(false);
+    }
+  }
+
   function formatDate(ts) {
     if (!ts) return "—";
     const date = ts.toDate ? ts.toDate() : new Date(ts);
@@ -145,7 +159,6 @@ export default function Messages() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
-      {/* Codka notification-ka - qarsoon, waxaa loo isticmaalaa kaliya JS-ka */}
       <audio ref={audioRef} src={NOTIFICATION_SOUND_URL} preload="auto" />
 
       <Sidebar />
@@ -156,7 +169,6 @@ export default function Messages() {
         </div>
 
         <div style={{ padding: "26px 30px" }}>
-          {/* ---- Header ---- */}
           <div
             style={{
               display: "flex",
@@ -182,15 +194,31 @@ export default function Messages() {
               </div>
             </div>
 
-            {unreadCount > 0 && (
-              <button onClick={markAllRead} style={markAllBtn}>
-                <CheckCheck size={16} />
-                Calaamadee dhammaan la akhriyay
-              </button>
-            )}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {unreadCount > 0 && (
+                <button onClick={markAllRead} style={markAllBtn}>
+                  <CheckCheck size={16} />
+                  Calaamadee dhammaan la akhriyay
+                </button>
+              )}
+
+              {filtered.length > 0 && (
+                <button
+                  onClick={deleteAllMessages}
+                  disabled={deletingAll}
+                  style={{
+                    ...deleteAllBtn,
+                    opacity: deletingAll ? 0.7 : 1,
+                    cursor: deletingAll ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <Trash2 size={16} />
+                  {deletingAll ? "Tirtiraya..." : "Tirtir Dhammaan"}
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* ---- Search + filter ---- */}
           <div style={{ display: "flex", gap: 14, marginBottom: 22, flexWrap: "wrap" }}>
             <div style={searchWrap}>
               <Search size={16} color="#8b87ad" />
@@ -215,13 +243,11 @@ export default function Messages() {
             </select>
           </div>
 
-          {/* ---- Dir Fariin (Compose) ---- */}
           <div style={{ marginBottom: 24 }}>
             <MessagesCard messages={messages} />
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1.6fr", gap: 20, alignItems: "start" }}>
-            {/* ---- Liiska fariimaha ---- */}
             <div style={listCard}>
               {loading ? (
                 <p style={{ color: "#8b87ad" }}>Loading...</p>
@@ -310,7 +336,6 @@ export default function Messages() {
               )}
             </div>
 
-            {/* ---- Faahfaahinta fariinta la doortay ---- */}
             <div style={detailCard}>
               {!selected ? (
                 <div style={{ textAlign: "center", padding: "60px 0", color: "#6b6890" }}>
@@ -424,6 +449,19 @@ const markAllBtn = {
   padding: "10px 16px",
   borderRadius: 10,
   cursor: "pointer",
+  fontWeight: 600,
+  fontSize: 13,
+};
+
+const deleteAllBtn = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  background: "rgba(239,68,68,0.12)",
+  border: "1.5px solid rgba(239,68,68,0.35)",
+  color: "#f87171",
+  padding: "10px 16px",
+  borderRadius: 10,
   fontWeight: 600,
   fontSize: 13,
 };

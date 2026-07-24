@@ -55,6 +55,7 @@ import AllIdCards from "./admin/pages/AllIdCards";
 
 // PUBLIC
 import VerifyCertificate from "./pages/VerifyCertificate";
+import TeacherVerify from "./pages/TeacherVerify";
 
 function App() {
   return (
@@ -75,6 +76,12 @@ function App() {
         {/* Public certificate verification page — QR code on the Class 8
             leaving certificate links here. No login required. */}
         <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
+
+        {/* Public teacher ID verification page — QR code on the Teacher
+            ID card (front + back) links here. No login required. Reads
+            the teacher_id/{teacherUsername} Firestore snapshot and shows
+            the same details printed on the card. */}
+        <Route path="/verify/teacher/:teacherUsername" element={<TeacherVerify />} />
 
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/parent/dashboard" element={<ParentDashboard />} />

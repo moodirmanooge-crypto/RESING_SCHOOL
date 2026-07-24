@@ -176,6 +176,21 @@ export default function BulkRegistration() {
           monthlyFee: finalMonthlyFee,
         });
 
+        // ✅ Isla marka ardayga la kaydiyo, si toos ah u samee ID Card-kiisa.
+        await setDoc(doc(db, "studentIdCards", studentId), {
+          studentId,
+          fullName: student.fullName,
+          className: student.className,
+          shift: student.shift,
+          studentPhoto: photoURL,
+          district: student.district,
+          parentPhone: student.parentPhone,
+          studentPhone: student.studentPhone,
+          idIssuedAt: new Date(),
+          issuedAt: new Date(),
+          createdAt: new Date(),
+        });
+
         if (student.className) {
           await attachStudentToClassTeachers(
             teachersSnap,

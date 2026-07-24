@@ -1,8 +1,8 @@
 // src/admin/pages/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
-import { Search, Printer, X, Receipt as ReceiptIcon } from "lucide-react";
+import { Search, Printer, X, Receipt as ReceiptIcon, Trash2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
@@ -31,6 +31,9 @@ export default function Receipts() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+  const [confirmTarget, setConfirmTarget] = useState(null); // { type: "one"|"all", receipt? }
+  const [deletingAll, setDeletingAll] = useState(false);
 
   useEffect(() => {
     fetchReceipts();
@@ -72,6 +75,49 @@ export default function Receipts() {
     () => filtered.reduce((sum, r) => sum + (Number(r.paidAmount) || 0), 0),
     [filtered]
   );
+
+  function askDeleteOne(receipt) {
+    setConfirmTarget({ type: "one", receipt });
+  }
+
+  function askDeleteAll() {
+    if (filtered.length === 0) return;
+    setConfirmTarget({ type: "all" });
+  }
+
+  async function confirmDelete() {
+    if (!confirmTarget) return;
+
+    if (confirmTarget.type === "one") {
+      const receipt = confirmTarget.receipt;
+      try {
+        setDeletingId(receipt.id);
+        await deleteDoc(doc(db, "receipts", receipt.id));
+        setReceipts((prev) => prev.filter((r) => r.id !== receipt.id));
+        if (selected?.id === receipt.id) setSelected(null);
+        setConfirmTarget(null);
+      } catch (err) {
+        console.error("Khalad ayaa dhacay markii rasiidka la tirtirayay:", err);
+        alert("Khalad ayaa dhacay: " + err.message);
+      } finally {
+        setDeletingId(null);
+      }
+    } else {
+      try {
+        setDeletingAll(true);
+        const idsToDelete = filtered.map((r) => r.id);
+        await Promise.all(idsToDelete.map((id) => deleteDoc(doc(db, "receipts", id))));
+        setReceipts((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
+        if (selected && idsToDelete.includes(selected.id)) setSelected(null);
+        setConfirmTarget(null);
+      } catch (err) {
+        console.error("Khalad ayaa dhacay markii dhammaan rasiidhada la tirtirayay:", err);
+        alert("Khalad ayaa dhacay: " + err.message);
+      } finally {
+        setDeletingAll(false);
+      }
+    }
+  }
 
   return (
     <div
@@ -151,7 +197,17 @@ export default function Receipts() {
           </div>
 
           {/* Search */}
-          <div style={{ ...cardStyle, padding: "14px 18px", marginBottom: 20 }}>
+          <div
+            style={{
+              ...cardStyle,
+              padding: "14px 18px",
+              marginBottom: 20,
+              display: "flex",
+              gap: 14,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <div
               style={{
                 display: "flex",
@@ -161,6 +217,8 @@ export default function Receipts() {
                 border: "1px solid #F3F4F6",
                 borderRadius: 12,
                 padding: "10px 14px",
+                flex: 1,
+                minWidth: 220,
               }}
             >
               <Search size={16} color="#9CA3AF" />
@@ -186,6 +244,31 @@ export default function Receipts() {
                 />
               )}
             </div>
+
+            {filtered.length > 0 && (
+              <button
+                onClick={askDeleteAll}
+                disabled={deletingAll}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  border: "1px solid #FCA5A5",
+                  background: "#FEF2F2",
+                  color: "#DC2626",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  padding: "10px 16px",
+                  borderRadius: 10,
+                  cursor: deletingAll ? "not-allowed" : "pointer",
+                  opacity: deletingAll ? 0.7 : 1,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <Trash2 size={14} />
+                {deletingAll ? "Tirtiraya..." : "Tirtir Dhammaan"}
+              </button>
+            )}
           </div>
 
           {/* Table */}
@@ -203,7 +286,7 @@ export default function Receipts() {
             )}
 
             {!loading && filtered.length > 0 && (
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 640 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 700 }}>
                 <thead>
                   <tr style={{ color: "#9CA3AF", textAlign: "left" }}>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>No</th>
@@ -212,6 +295,7 @@ export default function Receipts() {
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Month</th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Date</th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Amount</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 10 }}></th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}></th>
                   </tr>
                 </thead>
@@ -245,6 +329,27 @@ export default function Receipts() {
                           View
                         </button>
                       </td>
+                      <td>
+                        <button
+                          onClick={() => askDeleteOne(r)}
+                          disabled={deletingId === r.id}
+                          style={{
+                            border: "none",
+                            background: "#FEF2F2",
+                            color: "#DC2626",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            padding: "6px 10px",
+                            borderRadius: 8,
+                            cursor: deletingId === r.id ? "not-allowed" : "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                          }}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -255,7 +360,94 @@ export default function Receipts() {
       </div>
 
       {selected && (
-        <ReceiptViewModal receipt={selected} onClose={() => setSelected(null)} />
+        <ReceiptViewModal
+          receipt={selected}
+          onClose={() => setSelected(null)}
+          onDelete={() => askDeleteOne(selected)}
+          deleting={deletingId === selected.id}
+        />
+      )}
+
+      {confirmTarget && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 3000,
+          }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              width: 360,
+              maxWidth: "90%",
+              fontFamily: "'Inter','Segoe UI',sans-serif",
+            }}
+          >
+            <h3 style={{ margin: 0, fontSize: 16, color: "#111827" }}>Xaqiiji Tirtiridda</h3>
+            <p style={{ fontSize: 13.5, color: "#6B7280", marginTop: 10, lineHeight: 1.6 }}>
+              {confirmTarget.type === "one" ? (
+                <>
+                  Ma hubtaa inaad tirtirto rasiidka{" "}
+                  <strong style={{ color: "#111827" }}>
+                    {confirmTarget.receipt.receiptNo}
+                  </strong>
+                  ? Tallaabadan lama soo celin karo.
+                </>
+              ) : (
+                <>
+                  Ma hubtaa inaad tirtirto dhammaan{" "}
+                  <strong style={{ color: "#111827" }}>{filtered.length}</strong> rasiid?
+                  Tallaabadan lama soo celin karo.
+                </>
+              )}
+            </p>
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                onClick={() => setConfirmTarget(null)}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 10,
+                  border: "1px solid #E5E7EB",
+                  background: "#fff",
+                  color: "#374151",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Jooji
+              </button>
+              <button
+                onClick={confirmDelete}
+                disabled={deletingId !== null || deletingAll}
+                style={{
+                  flex: 1,
+                  padding: "10px 0",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#DC2626",
+                  color: "#fff",
+                  fontWeight: 700,
+                  cursor: deletingId !== null || deletingAll ? "not-allowed" : "pointer",
+                  opacity: deletingId !== null || deletingAll ? 0.7 : 1,
+                }}
+              >
+                {deletingAll || deletingId ? "Tirtiraya..." : "Haa, Tirtir"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -264,7 +456,7 @@ export default function Receipts() {
 // Modal-ka daawashada rasiidka — waa isla design-ka warqadda cusub
 // (ReceiptModal.jsx), laakiin ka soo akhriya xog rasiid oo hore loo
 // kaydiyay (halkii uu ka kordhin lahaa lambar cusub).
-function ReceiptViewModal({ receipt, onClose }) {
+function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
   const paidDate = receipt.paidAt?.seconds
     ? new Date(receipt.paidAt.seconds * 1000)
     : receipt.createdAt?.seconds
@@ -277,6 +469,10 @@ function ReceiptViewModal({ receipt, onClose }) {
         <div className="rv-actions no-print">
           <button onClick={onClose} className="rv-close-btn">
             Xir
+          </button>
+          <button onClick={onDelete} disabled={deleting} className="rv-delete-btn">
+            <Trash2 size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />
+            {deleting ? "Tirtiraya..." : "Tirtir"}
           </button>
           <button onClick={() => window.print()} className="rv-print-btn">
             <Printer size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />
@@ -344,7 +540,7 @@ function ReceiptViewModal({ receipt, onClose }) {
           gap: 14px;
         }
         .rv-actions { display: flex; gap: 10px; }
-        .rv-close-btn, .rv-print-btn {
+        .rv-close-btn, .rv-print-btn, .rv-delete-btn {
           border: none;
           border-radius: 10px;
           padding: 10px 18px;
@@ -356,6 +552,10 @@ function ReceiptViewModal({ receipt, onClose }) {
           background: #ffffff;
           color: #6B7280;
           border: 1px solid #E5E7EB;
+        }
+        .rv-delete-btn {
+          background: #DC2626;
+          color: #ffffff;
         }
         .rv-print-btn {
           background: #16a34a;
