@@ -269,9 +269,8 @@ function CardStyles() {
         padding: 4px;
       }
 
-      /* Signature sits in its own row, above the QR footer — not
-         overlapping it — right-aligned above the "PRINCIPAL'S SIGNATURE"
-         caption, matching a real ID card layout. */
+      /* Signature is now the last element above the bottom band since the
+         QR code was removed from the front (QR lives on the back only). */
       .tidc-signature {
         position: relative;
         z-index: 2;
@@ -279,7 +278,8 @@ function CardStyles() {
         flex-direction: column;
         align-items: flex-end;
         padding: 4px 22px 0;
-        margin-top: 6px;
+        margin-top: 10px;
+        margin-bottom: 18px;
       }
       .tidc-signature-img {
         width: 118px;
@@ -474,21 +474,6 @@ function BandBottom() {
 function CardFront({ teacher, teacherUsername }) {
   const joined = formatDate(teacher?.createdAt);
 
-  // Show ALL subjects, comma-separated — handles subjects stored as an
-  // array, a comma/semicolon-separated string, or a single value.
-  let subjectText = "—";
-  if (Array.isArray(teacher?.subjects) && teacher.subjects.length > 0) {
-    subjectText = teacher.subjects.filter(Boolean).join(", ");
-  } else if (typeof teacher?.subjects === "string" && teacher.subjects.trim()) {
-    subjectText = teacher.subjects
-      .split(/[,;]/)
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(", ");
-  } else if (teacher?.subject) {
-    subjectText = teacher.subject;
-  }
-
   const motherNameText =
     teacher?.motherName || teacher?.matherName || teacher?.parentName || "—";
 
@@ -499,13 +484,6 @@ function CardFront({ teacher, teacherUsername }) {
     "—";
 
   const photoSrc = teacher?.teacherPhoto || teacher?.photoUrl || "";
-
-  const verifyUrl = `https://${SCHOOL.website}/verify/teacher/${encodeURIComponent(
-    teacherUsername || ""
-  )}`;
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${encodeURIComponent(
-    verifyUrl
-  )}`;
 
   return (
     <div className="tidc-card-outer">
@@ -556,12 +534,6 @@ function CardFront({ teacher, teacherUsername }) {
               <span className="tidc-field-value">{teacher?.phone || teacher?.phoneNumber || "—"}</span>
             </div>
             <div className="tidc-field-row">
-              <span className="tidc-field-icon">📘</span>
-              <span className="tidc-field-label">SUBJECT</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{subjectText}</span>
-            </div>
-            <div className="tidc-field-row">
               <span className="tidc-field-icon">📅</span>
               <span className="tidc-field-label">DATE OF JOINING</span>
               <span className="tidc-field-colon">:</span>
@@ -585,17 +557,6 @@ function CardFront({ teacher, teacherUsername }) {
             alt="Principal's signature"
           />
           <div className="tidc-signature-line">PRINCIPAL'S SIGNATURE</div>
-        </div>
-
-        <div className="tidc-footer">
-          <div className="tidc-qr">
-            <img src={qrSrc} alt="QR code" />
-          </div>
-          <div className="tidc-qr-caption">
-            SCAN TO VERIFY
-            <br />
-            TEACHER ID
-          </div>
         </div>
 
         <div className="tidc-band-bottom"><BandBottom /></div>
