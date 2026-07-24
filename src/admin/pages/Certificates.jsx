@@ -22,7 +22,8 @@ import {
   deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { db } from "../../firebase/firebase";
+import { db, storage } from "../../firebase/firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import CertificateCard from "../components/CertificateCard";
@@ -130,6 +131,11 @@ export default function Certificates() {
   const [search, setSearch] = useState("");
   // Maps studentId -> { marks, maxMarks, grade, passed } from the Final Exam.
   const [finalResults, setFinalResults] = useState({});
+  // Lets the admin upload/override the photo used on the certificate,
+  // e.g. when the student's own record has no photo on file.
+  const [uploadedPhoto, setUploadedPhoto] = useState(""); // data URL for instant preview
+  const [uploadedPhotoFile, setUploadedPhotoFile] = useState(null); // actual File to upload on generate
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     load();
@@ -220,6 +226,10 @@ export default function Certificates() {
     }
 
     setSelectedStudentId(id);
+    // Reset any in-progress photo upload from a previously selected student.
+    setUploadedPhoto("");
+    setUploadedPhotoFile(null);
+
     const existing = certificates.find((c) => c.studentId === id);
     if (existing) {
       setForm({
@@ -232,6 +242,19 @@ export default function Certificates() {
       setForm({ motherName: "", academicYear: "", gradeObtained: result.grade });
       setPreviewCert(null);
     }
+  }
+
+  function handlePhotoChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Fadlan dooro sawir (image file) sax ah.");
+      return;
+    }
+    setUploadedPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setUploadedPhoto(reader.result);
+    reader.readAsDataURL(file);
   }
 
   async function handleGenerate() {
@@ -248,12 +271,33 @@ export default function Certificates() {
     setSaving(true);
     try {
       const certId = existingCertForStudent?.id || genCertificateId();
+
+      // If the admin picked a new photo for this certificate, upload it to
+      // Storage first and use its URL; otherwise fall back to whatever
+      // photo the certificate already had, or the student's own record.
+      let photoUrl =
+        existingCertForStudent?.studentPhoto || selectedStudent.studentPhoto || "";
+
+      if (uploadedPhotoFile) {
+        setUploadingPhoto(true);
+        try {
+          const photoRef = ref(
+            storage,
+            `certificate-photos/${selectedStudent.id}/${Date.now()}_${uploadedPhotoFile.name}`
+          );
+          await uploadBytes(photoRef, uploadedPhotoFile);
+          photoUrl = await getDownloadURL(photoRef);
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
+
       const certData = {
         certificateId: certId,
         studentId: selectedStudent.id,
         fullName: selectedStudent.fullName || "",
         className: selectedStudent.className || "8",
-        studentPhoto: selectedStudent.studentPhoto || "",
+        studentPhoto: photoUrl,
         motherName: form.motherName,
         academicYear: form.academicYear,
         // Grade always comes from the actual Final Exam result, computed
@@ -268,6 +312,8 @@ export default function Certificates() {
       };
       await setDoc(doc(db, "certificates", certId), certData, { merge: true });
       setPreviewCert(certData);
+      setUploadedPhoto("");
+      setUploadedPhotoFile(null);
       await load();
     } catch (e) {
       console.error("Error saving certificate:", e);
@@ -276,6 +322,7 @@ export default function Certificates() {
       setSaving(false);
     }
   }
+
 
   async function handleDelete(cert) {
     if (!window.confirm(`Ma hubtaa inaad tirtirto shahaadada ${cert.fullName}?`)) return;
@@ -430,6 +477,57 @@ export default function Certificates() {
                         style={inputStyle}
                       />
                     </Field>
+                    <Field label="Student Photo">
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <div
+                          style={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 10,
+                            overflow: "hidden",
+                            background: "#E5E7EB",
+                            border: "1px solid rgba(17,24,39,0.1)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {uploadedPhoto || selectedStudent.studentPhoto ? (
+                            <img
+                              src={uploadedPhoto || selectedStudent.studentPhoto}
+                              alt=""
+                              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            />
+                          ) : (
+                            <span style={{ fontSize: 11, color: "#9CA3AF" }}>No photo</span>
+                          )}
+                        </div>
+                        <label
+                          style={{
+                            padding: "9px 14px",
+                            borderRadius: 10,
+                            border: `1.5px solid ${GREEN}`,
+                            color: GREEN,
+                            fontWeight: 700,
+                            fontSize: 12.5,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {uploadedPhotoFile ? "Change Photo" : "Upload Photo"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handlePhotoChange}
+                            style={{ display: "none" }}
+                          />
+                        </label>
+                      </div>
+                      <p style={{ fontSize: 11, color: "#9CA3AF", marginTop: 6 }}>
+                        Sawirkan wuxuu isticmaalmayaa shahaadada kaliya, kama beddelayo sawirka
+                        diiwaanka ardayga.
+                      </p>
+                    </Field>
                     <Field label="Grade Obtained (Final Exam - auto)">
                       <input
                         value={
@@ -445,7 +543,7 @@ export default function Certificates() {
 
                   <button
                     onClick={handleGenerate}
-                    disabled={saving}
+                    disabled={saving || uploadingPhoto}
                     style={{
                       marginTop: 18,
                       width: "100%",
@@ -459,7 +557,9 @@ export default function Certificates() {
                       cursor: saving ? "default" : "pointer",
                     }}
                   >
-                    {saving
+                    {uploadingPhoto
+                      ? "Uploading photo…"
+                      : saving
                       ? "Saving…"
                       : existingCertForStudent
                       ? "Update Certificate"
