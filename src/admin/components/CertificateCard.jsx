@@ -46,7 +46,6 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
   const {
     fullName,
     motherName,
-    admissionNo,
     academicYear,
     gradeObtained,
     studentPhoto,
@@ -193,7 +192,6 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         <div style={{ flex: 1, fontSize: 15.5, lineHeight: 2.25, paddingTop: 4 }}>
           <CertLine label="Student Name" value={fullName} />
           <CertLine label="Mother's Name" value={motherName} />
-          <CertLine label="Admission No" value={admissionNo} />
           <CertLine label="Academic Year" value={academicYear} />
           <CertLine label="Grade Obtained" value={gradeObtained} />
         </div>
