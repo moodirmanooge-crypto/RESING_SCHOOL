@@ -232,50 +232,9 @@ function CardStyles() {
         background: #eef3ee;
       }
 
-      .idc-front-footer {
+      .idc-bottom-bar {
         position: relative;
         z-index: 2;
-        background: #1c6b3a;
-        margin-top: auto;
-        padding: 8px 18px 10px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        width: 100%;
-        box-sizing: border-box;
-      }
-      .idc-qr {
-        width: 46px;
-        height: 46px;
-        min-width: 46px;
-        background: #fff;
-        border-radius: 4px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 3px;
-        box-sizing: border-box;
-      }
-      .idc-qr img { width: 100%; height: 100%; }
-      .idc-signature {
-        text-align: right;
-      }
-      .idc-signature-line {
-        font-family: 'Brush Script MT', cursive;
-        font-size: 20px;
-        color: #fff;
-        line-height: 1;
-      }
-      .idc-signature-label {
-        font-size: 8.5px;
-        font-weight: 700;
-        color: #fdf3e0;
-        letter-spacing: 1px;
-        margin-top: 2px;
-      }
-
-      .idc-bottom-bar {
         background: #14532d;
         color: #eafaf0;
         font-size: 8px;
@@ -286,6 +245,9 @@ function CardStyles() {
         padding: 6px 10px;
         flex-wrap: wrap;
         text-align: center;
+        margin-top: auto;
+        width: 100%;
+        box-sizing: border-box;
       }
       .idc-bottom-bar span { white-space: nowrap; }
 
@@ -314,37 +276,56 @@ function CardStyles() {
       .idc-back-content {
         position: relative;
         z-index: 2;
-        padding: 26px 30px 0;
+        padding: 22px 30px 0;
       }
       .idc-back-title {
-        font-size: 26px;
+        font-size: 24px;
         font-weight: 800;
         color: #14532d;
-        margin-bottom: 14px;
+        margin-bottom: 8px;
       }
       .idc-back-notice {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         color: #c0392b;
-        line-height: 1.5;
+        line-height: 1.4;
         max-width: 320px;
-        margin: 0 auto 14px;
+        margin: 0 auto 8px;
       }
       .idc-back-line {
-        font-size: 12.5px;
+        font-size: 11.5px;
         font-weight: 700;
-        margin: 5px 0;
+        margin: 3px 0;
         color: #16202b;
       }
       .idc-back-line b { color: #14532d; }
 
+      .idc-back-qr {
+        width: 64px;
+        height: 64px;
+        background: #fff;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 3px;
+        margin: 6px auto 0;
+        box-sizing: border-box;
+        border: 1px solid #ddd;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+      }
+      .idc-back-qr img { width: 100%; height: 100%; display: block; }
+
       .idc-back-footer {
         position: relative;
         z-index: 2;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 800;
         color: #fff;
-        padding: 10px 12px 14px;
+        padding: 10px 12px 12px;
+        background: #14532d;
+        width: 100%;
+        box-sizing: border-box;
       }
 
       @media print {
@@ -386,10 +367,6 @@ function Wave({ variant = "front-top" }) {
 
 function CardFront({ student, studentId, issued, expiry }) {
   const shift = student?.shift || student?.classShift || "MORNING";
-  const qrValue = encodeURIComponent(
-    `Rising Star School | Student ID: ${studentId} | Name: ${student?.fullName || ""} | Class: ${student?.className || ""}`
-  );
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&margin=0&data=${qrValue}`;
 
   return (
     <div className="idc-card idc-front">
@@ -457,7 +434,6 @@ function CardFront({ student, studentId, issued, expiry }) {
         </div>
       </div>
 
-
       <div className="idc-bottom-bar">
         <span>📞 {SCHOOL.phone}</span>
         <span>🌐 {SCHOOL.website}</span>
@@ -467,7 +443,16 @@ function CardFront({ student, studentId, issued, expiry }) {
   );
 }
 
-function CardBack() {
+function CardBack({ student, studentId }) {
+  const qrRawData = JSON.stringify({
+    studentId: studentId || "",
+    fullName: student?.fullName || "",
+    className: student?.className || "",
+    shift: student?.shift || student?.classShift || "",
+  });
+  const qrValue = encodeURIComponent(qrRawData);
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${qrValue}`;
+
   return (
     <div className="idc-card idc-back">
       <div className="idc-back-wave-top"><Wave variant="back-top" /></div>
@@ -478,6 +463,9 @@ function CardBack() {
         <div className="idc-back-line"><b>Tell:</b> {SCHOOL.noticeTell}</div>
         <div className="idc-back-line"><b>Email:</b> {SCHOOL.noticeEmail}</div>
         <div className="idc-back-line"><b>Web:</b> {SCHOOL.noticeWeb}</div>
+        <div className="idc-back-qr">
+          <img src={qrSrc} alt="Student ID QR Code" />
+        </div>
       </div>
 
       <div className="idc-back-wave-bottom"><Wave variant="back-bottom" /></div>
@@ -527,41 +515,6 @@ export default function StudentIdCard({ student, studentId }) {
     };
   }, [studentId, student]);
 
-  const handlePrint = () => {
-    const printWindow = window.open("", "_blank", "width=900,height=650");
-    if (!printWindow) return;
-
-    const frontHtml = document.getElementById("idc-print-front")?.outerHTML || "";
-    const backHtml = document.getElementById("idc-print-back")?.outerHTML || "";
-    const stylesHtml = Array.from(document.querySelectorAll("style"))
-      .map((s) => s.outerHTML)
-      .join("\n");
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Student ID Card - ${student?.fullName || studentId}</title>
-          <meta charset="utf-8" />
-          ${stylesHtml}
-          <style>
-            body { margin: 0; padding: 24px; display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; background: #eee; font-family: sans-serif; }
-            .idc-card { box-shadow: none; }
-          </style>
-        </head>
-        <body>
-          ${frontHtml}
-          ${backHtml}
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
-  };
-
   return (
     <div>
       <CardStyles />
@@ -571,12 +524,9 @@ export default function StudentIdCard({ student, studentId }) {
           <CardFront student={student} studentId={studentId} issued={issued} expiry={expiry} />
         </div>
         <div id="idc-print-back">
-          <CardBack />
+          <CardBack student={student} studentId={studentId} />
         </div>
       </div>
-
-      
-
     </div>
   );
 }
