@@ -91,7 +91,7 @@ function CardStyles() {
       .tidc-card {
         width: 400px;
         max-width: 100%;
-        aspect-ratio: 640 / 760;
+        aspect-ratio: 640 / 780;
         border-radius: 22px;
         overflow: hidden;
         position: relative;
@@ -122,12 +122,12 @@ function CardStyles() {
         flex-direction: column;
         align-items: center;
         gap: 4px;
-        padding: 22px 22px 4px;
+        padding: 20px 22px 4px;
         text-align: center;
       }
       .tidc-logo-badge {
-        width: 76px;
-        height: 76px;
+        width: 70px;
+        height: 70px;
         border-radius: 50%;
         background: #fff;
         border: 2.5px solid #1c6b3a;
@@ -148,20 +148,20 @@ function CardStyles() {
       }
       .tidc-school-block { line-height: 1.1; }
       .tidc-school-name1 {
-        font-size: 21px;
+        font-size: 20px;
         font-weight: 800;
         color: #14532d;
         letter-spacing: 0.3px;
       }
       .tidc-school-name2 {
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 700;
         color: #16202b;
         letter-spacing: 1.5px;
         text-transform: uppercase;
       }
       .tidc-school-name3 {
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 700;
         color: #16202b;
         letter-spacing: 4px;
@@ -170,18 +170,18 @@ function CardStyles() {
       .tidc-title-bar {
         position: relative;
         z-index: 2;
-        margin: 12px 22px 14px;
+        margin: 10px 22px 12px;
         background: #14532d;
         border-radius: 8px;
-        padding: 9px 16px;
+        padding: 8px 16px;
         display: flex;
         align-items: baseline;
         justify-content: center;
         gap: 7px;
         box-shadow: 0 6px 14px rgba(20,83,45,0.25);
       }
-      .tidc-title-1 { color: #fff; font-weight: 700; font-size: 17px; letter-spacing: 1px; }
-      .tidc-title-2 { color: #f5a623; font-weight: 800; font-size: 17px; letter-spacing: 1px; }
+      .tidc-title-1 { color: #fff; font-weight: 700; font-size: 16px; letter-spacing: 1px; }
+      .tidc-title-2 { color: #f5a623; font-weight: 800; font-size: 16px; letter-spacing: 1px; }
 
       .tidc-body {
         position: relative;
@@ -197,34 +197,34 @@ function CardStyles() {
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
-        gap: 11px;
+        gap: 9px;
         min-width: 0;
       }
       .tidc-field-row {
         display: flex;
         align-items: flex-start;
         gap: 8px;
-        font-size: 12px;
+        font-size: 11.5px;
       }
       .tidc-field-icon {
-        width: 20px;
-        height: 20px;
+        width: 19px;
+        height: 19px;
         border-radius: 6px;
         background: #1c6b3a;
         color: #fff;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 10px;
+        font-size: 9.5px;
         flex-shrink: 0;
       }
       .tidc-field-label {
         font-weight: 700;
         color: #16202b;
-        min-width: 100px;
+        min-width: 96px;
         letter-spacing: 0.2px;
         white-space: nowrap;
-        font-size: 11px;
+        font-size: 10.5px;
         flex-shrink: 0;
         padding-top: 1px;
       }
@@ -240,7 +240,7 @@ function CardStyles() {
       }
 
       .tidc-photo-wrap {
-        width: 92px;
+        width: 88px;
         flex-shrink: 0;
         display: flex;
         align-items: flex-start;
@@ -248,16 +248,16 @@ function CardStyles() {
         padding-top: 2px;
       }
       .tidc-photo {
-        width: 90px;
-        height: 108px;
+        width: 86px;
+        height: 104px;
         object-fit: cover;
         border-radius: 8px;
         border: 3px solid #1c6b3a;
         background: #eef3ee;
       }
       .tidc-photo-placeholder {
-        width: 90px;
-        height: 108px;
+        width: 86px;
+        height: 104px;
         border-radius: 8px;
         border: 2px dashed #9db8a4;
         display: flex;
@@ -269,29 +269,31 @@ function CardStyles() {
         padding: 4px;
       }
 
+      /* Signature sits in its own row, above the QR footer — not
+         overlapping it — right-aligned above the "PRINCIPAL'S SIGNATURE"
+         caption, matching a real ID card layout. */
       .tidc-signature {
         position: relative;
         z-index: 2;
         display: flex;
         flex-direction: column;
         align-items: flex-end;
-        padding: 6px 22px 0;
-        margin-top: 8px;
+        padding: 4px 22px 0;
+        margin-top: 6px;
       }
       .tidc-signature-img {
-        width: 150px;
-        height: 42px;
+        width: 118px;
+        height: 34px;
         object-fit: contain;
         object-position: bottom center;
-        margin-top: 4px;
       }
       .tidc-signature-line {
-        width: 150px;
+        width: 118px;
         border-top: 1px solid #16202b;
         margin-top: 2px;
-        padding-top: 4px;
+        padding-top: 3px;
         text-align: center;
-        font-size: 9.5px;
+        font-size: 8.5px;
         font-weight: 700;
         color: #16202b;
         letter-spacing: 0.3px;
@@ -306,7 +308,7 @@ function CardStyles() {
         justify-content: center;
         gap: 3px;
         padding: 8px 18px 6px;
-        margin-top: auto;
+        margin-top: 6px;
       }
       .tidc-qr {
         width: 54px;
@@ -471,9 +473,21 @@ function BandBottom() {
 
 function CardFront({ teacher, teacherUsername }) {
   const joined = formatDate(teacher?.createdAt);
-  const subjectText = Array.isArray(teacher?.subjects)
-    ? teacher.subjects.join(", ")
-    : teacher?.subject || "—";
+
+  // Show ALL subjects, comma-separated — handles subjects stored as an
+  // array, a comma/semicolon-separated string, or a single value.
+  let subjectText = "—";
+  if (Array.isArray(teacher?.subjects) && teacher.subjects.length > 0) {
+    subjectText = teacher.subjects.filter(Boolean).join(", ");
+  } else if (typeof teacher?.subjects === "string" && teacher.subjects.trim()) {
+    subjectText = teacher.subjects
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
+  } else if (teacher?.subject) {
+    subjectText = teacher.subject;
+  }
 
   const motherNameText =
     teacher?.motherName || teacher?.matherName || teacher?.parentName || "—";

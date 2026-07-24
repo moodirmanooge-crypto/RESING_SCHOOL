@@ -223,9 +223,21 @@ export default function TeacherVerify() {
     );
   }
 
-  const subjectText = Array.isArray(teacher?.subjects)
-    ? teacher.subjects.join(", ")
-    : teacher?.subject || "—";
+  // Show ALL subjects, comma-separated — matches TeacherIdCard.jsx exactly,
+  // handling subjects stored as an array, a comma/semicolon-separated
+  // string, or a single value.
+  let subjectText = "—";
+  if (Array.isArray(teacher?.subjects) && teacher.subjects.length > 0) {
+    subjectText = teacher.subjects.filter(Boolean).join(", ");
+  } else if (typeof teacher?.subjects === "string" && teacher.subjects.trim()) {
+    subjectText = teacher.subjects
+      .split(/[,;]/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .join(", ");
+  } else if (teacher?.subject) {
+    subjectText = teacher.subject;
+  }
 
   const fullNameText =
     teacher?.fullName ||
