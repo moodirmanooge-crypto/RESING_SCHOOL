@@ -21,10 +21,11 @@ import { db } from "../firebase/firebase";
 import schoolLogo from "../assets/rising-star-logo.png";
 
 const SCHOOL = {
-  name1: "RISING STAR PRIMARY & SECONDARY SCHOOL",
+  name1: "RISING STAR",
+  name2: "PRIMARY & SECONDARY SCHOOL",
   tagline: "Education Is Life It Self",
   phone: "+252 61 2345678",
-  website: "www.risingstarschool.so",
+  website: "www.resingstarschool.com",
   location: "Mogadishu, Somalia",
   noticeTitle: "NB",
   noticeBody:
@@ -129,18 +130,18 @@ function CardStyles() {
         border-radius: 50%;
         display: block;
       }
-      .idc-school-block { line-height: 1.05; }
+      .idc-school-block { line-height: 1.15; }
       .idc-school-name1 {
-        font-size: 19px;
+        font-size: 15px;
         font-weight: 800;
         color: #1c6b3a;
-        letter-spacing: 0.3px;
+        letter-spacing: 0.5px;
       }
       .idc-school-name2 {
-        font-size: 15px;
+        font-size: 11.5px;
         font-weight: 700;
         color: #16202b;
-        letter-spacing: 3px;
+        letter-spacing: 0.2px;
       }
       .idc-school-tag {
         font-size: 8.5px;
