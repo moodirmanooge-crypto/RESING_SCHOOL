@@ -33,6 +33,63 @@ function classRank(className) {
   return idx === -1 ? 999 : idx;
 }
 
+// ---- Maadooyinka lagu kala sortaa heerka fasalka (class level) ----
+// Fasallada 1-4 (dugsiga hoose - lower primary), 5-8 (dugsiga dhexe -
+// upper primary), F1-F4 (dugsiga sare - secondary) mid kastaa wuxuu
+// leeyahay liistadiisa maadooyin oo gaar ah. Tan waxaa loo isticmaalaa
+// SubjectSelect si macalinka loogu soo bandhigo kaliya maadooyinka
+// ku habboon fasalka la doortay.
+const SUBJECTS_LOWER_PRIMARY = [
+  "Tarbiyo",
+  "Carabi",
+  "Somali",
+  "Xisaab",
+  "Cimi Bulsho",
+  "Saynis",
+  "English",
+];
+
+const SUBJECTS_UPPER_PRIMARY = [
+  "Tarbiyo",
+  "Carabi",
+  "Somali",
+  "Xisaab",
+  "Cimi Bulsho",
+  "Saynis",
+  "English",
+  "Teknalojiyad",
+];
+
+const SUBJECTS_SECONDARY = [
+  "Islamic",
+  "Arabic",
+  "Somali",
+  "Juqrafi",
+  "Taariikh",
+  "Math",
+  "Biology",
+  "Chemistry",
+  "Physics",
+  "Business",
+  "Technology",
+  "English",
+];
+
+function classLevel(className) {
+  const c = String(className || "").toUpperCase();
+  if (["1", "2", "3", "4"].includes(c)) return "lower_primary";
+  if (["5", "6", "7", "8"].includes(c)) return "upper_primary";
+  if (["F1", "F2", "F3", "F4"].includes(c)) return "secondary";
+  return "lower_primary";
+}
+
+function subjectsForClass(className) {
+  const level = classLevel(className);
+  if (level === "upper_primary") return SUBJECTS_UPPER_PRIMARY;
+  if (level === "secondary") return SUBJECTS_SECONDARY;
+  return SUBJECTS_LOWER_PRIMARY;
+}
+
 const DAYS = [
   { key: "Saturday", label: "Saturday" },
   { key: "Sunday", label: "Sunday" },
@@ -245,6 +302,153 @@ function TeacherSelect({ value, options, onChange }) {
   );
 }
 
+// ============================================================
+// SubjectSelect — dropdown la mid ah TeacherSelect, laakiin waxa
+// uu soo bandhigayaa maadooyinka ku habboon heerka fasalka la
+// doortay (dugsiga hoose / dhexe / sare). Isla theme-ka mugdiga
+// ah ayuu isticmaalaa si aanu kala duwanaan la arag.
+// ============================================================
+function SubjectSelect({ value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useState(() => ({ current: null }))[0];
+
+  useEffect(() => {
+    function handleOutside(e) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [wrapRef]);
+
+  return (
+    <div ref={(el) => (wrapRef.current = el)} style={{ position: "relative", width: "100%" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          ...fieldStyle,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <span
+          style={{
+            color: value ? "#e5e3f7" : "#8b87ad",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {value || "-- Dooro Maadada --"}
+        </span>
+        <ChevronDown
+          size={15}
+          color="#8b87ad"
+          style={{
+            flexShrink: 0,
+            transition: "transform .15s",
+            transform: open ? "rotate(180deg)" : "rotate(0deg)",
+          }}
+        />
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            right: 0,
+            zIndex: 50,
+            background: "#181430",
+            border: "1px solid rgba(139,108,245,0.3)",
+            borderRadius: 10,
+            boxShadow: "0 16px 40px rgba(0,0,0,0.55)",
+            maxHeight: 230,
+            overflowY: "auto",
+            padding: "6px 0",
+          }}
+        >
+          <div
+            style={{
+              padding: "9px 16px",
+              fontSize: 12.5,
+              fontWeight: 700,
+              color: "#8b87ad",
+              textTransform: "uppercase",
+              letterSpacing: 0.4,
+            }}
+          >
+            Dooro Maadada
+          </div>
+
+          <div
+            onClick={() => {
+              onChange("");
+              setOpen(false);
+            }}
+            style={{
+              padding: "10px 16px",
+              fontSize: 13.5,
+              color: "#8b87ad",
+              background: !value ? "#2563eb" : "transparent",
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => {
+              if (value) e.currentTarget.style.background = "rgba(139,108,245,0.12)";
+            }}
+            onMouseLeave={(e) => {
+              if (value) e.currentTarget.style.background = "transparent";
+            }}
+          >
+            -- Dooro Maadada --
+          </div>
+
+          {options.length === 0 && (
+            <div style={{ padding: "9px 16px", fontSize: 12.5, color: "#8b87ad" }}>
+              Fasalkan maadooyin looma helin.
+            </div>
+          )}
+
+          {options.map((subj) => {
+            const isSelected = subj === value;
+            return (
+              <div
+                key={subj}
+                onClick={() => {
+                  onChange(subj);
+                  setOpen(false);
+                }}
+                style={{
+                  padding: "10px 16px",
+                  fontSize: 13.5,
+                  fontWeight: isSelected ? 700 : 500,
+                  color: isSelected ? "#fff" : "#e5e3f7",
+                  background: isSelected ? "#2563eb" : "transparent",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) e.currentTarget.style.background = "rgba(139,108,245,0.12)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                {subj}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export default function Timetable() {
   const [loading, setLoading] = useState(true);
@@ -314,6 +518,15 @@ export default function Timetable() {
     });
     return filtered;
   }, [teachers, selectedClass]);
+
+  // ---- Maadooyinka ku habboon heerka fasalka la doortay ----
+  // 1-4 = dugsiga hoose, 5-8 = dugsiga dhexe, F1-F4 = dugsiga sare.
+  // Mid kastaa liistadiisa maadooyin ayaa lagu soo bandhigayaa
+  // SubjectSelect-ka gudaha row-ka xiisadda.
+  const subjectOptionsForSelectedClass = useMemo(() => {
+    if (!selectedClass) return [];
+    return subjectsForClass(selectedClass);
+  }, [selectedClass]);
 
   // Whenever the selected class or active day changes, load the draft
   // sessions for that class/day from the loaded timetable docs.
@@ -887,12 +1100,10 @@ export default function Timetable() {
                           }
                         }}
                       />
-                      <input
-                        type="text"
-                        placeholder="Maadada"
+                      <SubjectSelect
                         value={session.subject}
-                        onChange={(e) => updateSession(index, "subject", e.target.value)}
-                        style={fieldStyle}
+                        options={subjectOptionsForSelectedClass}
+                        onChange={(subj) => updateSession(index, "subject", subj)}
                       />
                       <button
                         onClick={() => removeSession(index)}
