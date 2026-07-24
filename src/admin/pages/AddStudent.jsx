@@ -159,23 +159,6 @@ export default function AddStudent() {
         monthlyFee: finalMonthlyFee,
       });
 
-      // ✅ Isla marka ardayga la kaydiyo, si toos ah u samee ID Card-kiisa.
-      // Waxaan halkan ku kaydinaynaa xogta ID card-ka u baahan oo kaliya —
-      // lama isku darayo examTimetable ama xog kale oo aan lahayn sawirka.
-      await setDoc(doc(db, "studentIdCards", studentId), {
-        studentId,
-        fullName: student.fullName,
-        className: student.className,
-        shift: student.shift,
-        studentPhoto: photoURL,
-        district: student.district,
-        parentPhone: student.parentPhone,
-        studentPhone: student.studentPhone,
-        idIssuedAt: new Date(),
-        issuedAt: new Date(),
-        createdAt: new Date(),
-      });
-
       await attachStudentToClassTeachers(
         student.className,
         studentId,
