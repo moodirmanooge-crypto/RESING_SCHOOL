@@ -33,7 +33,7 @@ const galladConfig = {
   appId: "1:492970437433:web:17249ff78baca4e86b56e8",
 };
 
-// ✅ Bilow labada app ee Firebase
+// apiKey: "AIzaSyCXOp6MPnwArV0NiPPAmkBBKdvQoc0gadk",
 const risingApp = initializeApp(firebaseConfig, "rising");
 const galladApp = initializeApp(galladConfig, "gallad");
 

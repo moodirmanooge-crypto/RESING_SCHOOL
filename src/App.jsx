@@ -26,6 +26,7 @@ import Messages from "./admin/pages/Messages";
 import EditTeacher from "./admin/pages/EditTeacher";
 import Shifts from "./admin/pages/Shifts";
 import Certificates from "./admin/pages/Certificates";
+import ResultsByClass from "./admin/pages/ResultsByClass";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -72,6 +73,7 @@ function App() {
         <Route path="/cashier/receipts" element={<CashierReports />} />
         <Route path="/admin/exam-cards" element={<ExamCards />} />
         <Route path="/admin/id-cards" element={<AllIdCards />} />
+        <Route path="/admin/results-by-class" element={<ResultsByClass />} />
 
         {/* Public certificate verification page — QR code on the Class 8
             leaving certificate links here. No login required. */}

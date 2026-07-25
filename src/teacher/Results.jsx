@@ -234,7 +234,7 @@ export default function Results() {
     pdf.setFontSize(11);
     let y = 120;
     pdf.setFont(undefined, "bold");
-    pdf.text("Pos", 40, y);
+    pdf.text("NO", 40, y);
     pdf.text("Student Name", 80, y);
     pdf.text("Student ID", 300, y);
     pdf.text("Marks", 400, y);

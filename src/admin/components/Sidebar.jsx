@@ -19,6 +19,7 @@ import {
   Settings,
   Clock,
   Receipt,
+  FileSpreadsheet,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -37,6 +38,7 @@ const menus = [
   { name: "Exam Cards", icon: IdCard, path: "/admin/exam-cards" },
   { name: "ID Cards", icon: IdCard, path: "/admin/id-cards" },
   { name: "Certificates", icon: Award, path: "/admin/certificates" },
+  { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
   { name: "Add Cashier", icon: Wallet, path: "/admin/add-cashier" },
   { name: "Receipts", icon: Receipt, path: "/admin/receipts" },
   { name: "Messages", icon: MessageCircle, path: "/admin/messages" },
@@ -110,7 +112,7 @@ export default function Sidebar() {
               RiSING SCHOOL
             </h2>
             <small style={{ color: "#9CA3AF", fontSize: 11.5 }}>
-              School Management  System
+              School Management System
             </small>
           </div>
         </div>

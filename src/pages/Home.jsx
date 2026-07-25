@@ -4,6 +4,8 @@ import logo from "../assets/logo.png";
 import heroPhoto from "../admin/assets/hero-students.jpg";
 import { Link } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
+import { collection, getCountFromServer } from "firebase/firestore";
+import { db } from "../firebase/firebase";
 
 const ROLES = [
   {
@@ -38,13 +40,6 @@ const ROLES = [
     desc: "Track your child's progress and performance",
     cta: "Go to Parent Portal",
   },
-];
-
-const STATS = [
-  { key: "students", icon: "👥", value: "320", label: "Students", color: "green" },
-  { key: "teachers", icon: "👤", value: "25", label: "Teachers", color: "orange" },
-  { key: "classes", icon: "📘", value: "18", label: "Classes", color: "blue" },
-  { key: "attendance", icon: "✅", value: "96%", label: "Attendance", color: "green" },
 ];
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -170,6 +165,59 @@ export default function Home() {
   const menuRef = useRef(null);
   const helpRef = useRef(null);
   const rolesRef = useRef(null);
+
+  const [statsData, setStatsData] = useState({
+    students: null,
+    teachers: null,
+    classes: null,
+  });
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        const [studentsSnap, teachersSnap, classesSnap] = await Promise.all([
+          getCountFromServer(collection(db, "students")),
+          getCountFromServer(collection(db, "teachers")),
+          getCountFromServer(collection(db, "classes")),
+        ]);
+
+        setStatsData({
+          students: studentsSnap.data().count,
+          teachers: teachersSnap.data().count,
+          classes: classesSnap.data().count,
+        });
+      } catch (err) {
+        console.error("Failed to load home stats:", err);
+      }
+    }
+
+    loadStats();
+  }, []);
+
+  const STATS = [
+    {
+      key: "students",
+      icon: "👥",
+      value: statsData.students === null ? "…" : String(statsData.students),
+      label: "Students",
+      color: "green",
+    },
+    {
+      key: "teachers",
+      icon: "👤",
+      value: statsData.teachers === null ? "…" : String(statsData.teachers),
+      label: "Teachers",
+      color: "orange",
+    },
+    {
+      key: "classes",
+      icon: "📘",
+      value: statsData.classes === null ? "…" : String(statsData.classes),
+      label: "Classes",
+      color: "blue",
+    },
+    { key: "attendance", icon: "✅", value: "96%", label: "Attendance", color: "green" },
+  ];
 
   useEffect(() => {
     function handleClickOutside(e) {
