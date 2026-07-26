@@ -14,6 +14,7 @@ import { Users, UserCheck, UserX, Clock } from "lucide-react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
+import { getActiveHolidayToday, formatHolidayDate } from "../utils/holidayCheck";
 
 function AttendanceStyles() {
   return (
@@ -78,16 +79,23 @@ export default function Attendance() {
   const [existingSessions, setExistingSessions] = useState([]);
   const [sessionSaved, setSessionSaved] = useState(false);
 
-  // NEW: whether the selected class actually has a lesson scheduled today
+  // Whether the selected class actually has a lesson scheduled today
   // (checked against the `timetable` collection, doc id `${className}__${weekday}`).
   const [isScheduledToday, setIsScheduledToday] = useState(true);
   const [checkingSchedule, setCheckingSchedule] = useState(false);
+
+  // Whether today falls inside an active school holiday range. While a
+  // holiday is active, teachers cannot take/save attendance at all,
+  // regardless of the selected class or its timetable schedule.
+  const [activeHoliday, setActiveHoliday] = useState(null);
+  const [checkingHoliday, setCheckingHoliday] = useState(true);
 
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
 
   useEffect(() => {
     loadClasses();
+    checkHoliday();
   }, []);
 
   useEffect(() => {
@@ -102,6 +110,18 @@ export default function Attendance() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedClass, date]);
+
+  const checkHoliday = async () => {
+    try {
+      setCheckingHoliday(true);
+      const holiday = await getActiveHolidayToday();
+      setActiveHoliday(holiday);
+    } catch (err) {
+      console.log(err);
+    } finally {
+      setCheckingHoliday(false);
+    }
+  };
 
   const loadClasses = async () => {
     try {
@@ -228,12 +248,12 @@ export default function Attendance() {
   };
 
   const setStatus = (studentId, status) => {
-    if (sessionSaved || !isScheduledToday) return;
+    if (sessionSaved || !isScheduledToday || activeHoliday) return;
     setAttendance({ ...attendance, [studentId]: status });
   };
 
   const markAll = (status) => {
-    if (sessionSaved || !isScheduledToday) return;
+    if (sessionSaved || !isScheduledToday || activeHoliday) return;
     const updated = {};
     students.forEach((s) => {
       updated[s.id] = status;
@@ -242,6 +262,15 @@ export default function Attendance() {
   };
 
   const saveAttendance = async () => {
+    if (activeHoliday) {
+      alert(
+        `Waxa lagu jiraa xiliga fasaxa "${activeHoliday.name}" ilaa ` +
+          `${formatHolidayDate(activeHoliday.endDate)}. Ma xaadirin kartid ilaa ` +
+          `xiliga imaanshaha school-ku uu isku soo noqdo.`
+      );
+      return;
+    }
+
     if (!selectedClass) {
       alert("Please select a class first");
       return;
@@ -307,7 +336,7 @@ export default function Attendance() {
     (s.studentId || s.id || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const locked = sessionSaved || !isScheduledToday;
+  const locked = sessionSaved || !isScheduledToday || !!activeHoliday;
 
   return (
     <div className="att-layout">
@@ -318,14 +347,22 @@ export default function Attendance() {
         <Topbar teacherName={teacherName} />
 
         <div className="att-body">
-          {selectedClass && !checkingSchedule && !isScheduledToday && (
+          {!checkingHoliday && activeHoliday && (
+            <div style={lockedBanner}>
+              🚫 Waxa lagu jiraa xiliga fasaxa "{activeHoliday.name}" ilaa{" "}
+              {formatHolidayDate(activeHoliday.endDate)} — ma xaadirin kartid
+              ilaa xiliga imaanshaha school-ku uu isku soo noqdo.
+            </div>
+          )}
+
+          {!activeHoliday && selectedClass && !checkingSchedule && !isScheduledToday && (
             <div style={lockedBanner}>
               🚫 Xiisad malihid maanta ({date}) fasalka {selectedClass}. Fadlan
               dooro maalinta jadwalka ku qoran ama fasal kale.
             </div>
           )}
 
-          {sessionSaved && isScheduledToday && (
+          {!activeHoliday && sessionSaved && isScheduledToday && (
             <div style={lockedBanner}>
               🔒 Xaadirintii maalintan ({date}) waa la kaydiyay ee waa la
               xiray. Waxaad mar kale furan kartaa maalinta soo socota.
@@ -384,6 +421,7 @@ export default function Attendance() {
                   style={input}
                   value={selectedClass}
                   onChange={(e) => setSelectedClass(e.target.value)}
+                  disabled={!!activeHoliday}
                 >
                   <option value="">Select Class</option>
                   {classes.map((c) => (
@@ -401,6 +439,7 @@ export default function Attendance() {
                   style={input}
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
+                  disabled={!!activeHoliday}
                 />
               </div>
 
@@ -445,7 +484,13 @@ export default function Attendance() {
 
           {/* Table */}
           <div className="att-panel" style={tableCard}>
-            {checkingSchedule ? (
+            {checkingHoliday ? (
+              <p style={{ padding: 20, color: "#94A3B8" }}>Checking holidays...</p>
+            ) : activeHoliday ? (
+              <p style={{ padding: 20, color: "#94A3B8" }}>
+                Xiisad malihid — waxa lagu jiraa xiliga fasaxa.
+              </p>
+            ) : checkingSchedule ? (
               <p style={{ padding: 20, color: "#94A3B8" }}>Checking schedule...</p>
             ) : loading ? (
               <p style={{ padding: 20, color: "#94A3B8" }}>Loading students...</p>
@@ -551,7 +596,7 @@ export default function Attendance() {
             )}
           </div>
 
-          {isScheduledToday && students.length > 0 && (
+          {!activeHoliday && isScheduledToday && students.length > 0 && (
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
               <button
                 onClick={saveAttendance}

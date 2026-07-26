@@ -20,6 +20,7 @@ import {
   Clock,
   Receipt,
   FileSpreadsheet,
+  CalendarOff,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -32,6 +33,7 @@ const menus = [
   { name: "Classes", icon: School, path: "/admin/classes" },
   { name: "Shifts", icon: Clock, path: "/admin/shifts" },
   { name: "Attendance", icon: CalendarCheck, path: "/admin/attendance" },
+  { name: "Holidays", icon: CalendarOff, path: "/admin/holidays" },
   { name: "Exams", icon: ClipboardList, path: "/admin/exams" },
   { name: "Timetable", icon: CalendarDays, path: "/admin/timetable" },
   { name: "Exam Timetable", icon: FileEdit, path: "/admin/exam-timetable" },
