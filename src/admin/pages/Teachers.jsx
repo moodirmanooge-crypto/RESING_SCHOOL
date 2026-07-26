@@ -64,10 +64,15 @@ export default function Teachers() {
     }
   }
 
-  const filteredTeachers = teachers.filter((t) =>
-    (t.fullName || "").toLowerCase().includes(search.toLowerCase()) ||
-    (t.username || "").toLowerCase().includes(search.toLowerCase())
-  );
+  // NOTE: macalimiinta la calaamadeeyay in la tirtirayo (pendingDeletion)
+  // waxaa laga qariyaa liiska front-end-ka ilaa backend-ku uu approve gareeyo.
+  const filteredTeachers = teachers.filter((t) => {
+    if (t.pendingDeletion) return false;
+    return (
+      (t.fullName || "").toLowerCase().includes(search.toLowerCase()) ||
+      (t.username || "").toLowerCase().includes(search.toLowerCase())
+    );
+  });
 
   const totalSubjects = new Set(
     teachers.flatMap((t) => (t.classes || []).map((c) => c.subject).filter(Boolean))
@@ -205,11 +210,29 @@ export default function Teachers() {
     }
   }
 
+  // ---- Tirtirka macalinka ----
+  // MUHIIM: Xogta Firestore laftigeeda LAGAMA TIRTIRO halkan. Waxaa kaliya
+  // la calaamadeeyaa "pendingDeletion: true" (iyo waqtiga codsiga) si
+  // macalinku uu si toos ah uga qarsoomo liiska front-end-ka. Tirtirka
+  // dhabta ah ee Firestore waxaa kaliya sameeya backend-ka marka la
+  // ansixiyo (approve).
   async function deleteTeacher(teacher) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${teacher.fullName}?`)) return;
     try {
-      await deleteDoc(doc(db, "teachers", teacher.id));
-      setTeachers((prev) => prev.filter((t) => t.id !== teacher.id));
+      await updateDoc(doc(db, "teachers", teacher.id), {
+        pendingDeletion: true,
+        deletionRequestedAt: new Date().toISOString(),
+      });
+
+      setTeachers((prev) =>
+        prev.map((t) =>
+          t.id === teacher.id
+            ? { ...t, pendingDeletion: true, deletionRequestedAt: new Date().toISOString() }
+            : t
+        )
+      );
+
+      alert("Codsiga tirtirka waa la diray. Wuxuu sugayaa ansixinta backend-ka.");
     } catch (err) {
       console.log(err);
       alert(err.message);

@@ -62,7 +62,11 @@ export default function Students() {
   }
 
   // ---- Raadinta arday: ID-giisa ama Password-kiisa ----
+  // NOTE: ardayda la calaamadeeyay in la tirtirayo (pendingDeletion)
+  // waxaa laga qariyaa liiska front-end-ka ilaa backend-ku uu approve gareeyo.
   const filteredStudents = students.filter((s) => {
+    if (s.pendingDeletion) return false;
+
     const q = search.toLowerCase().trim();
     if (!q) return true;
     return (
@@ -153,28 +157,28 @@ export default function Students() {
     }
   }
 
+  // ---- Tirtirka ardayga ----
+  // MUHIIM: Xogta Firestore laftigeeda LAGAMA TIRTIRO halkan. Waxaa kaliya
+  // la calaamadeeyaa "pendingDeletion: true" (iyo waqtiga codsiga) si arday-gu
+  // uu si toos ah uga qarsoomo liiska front-end-ka. Tirtirka dhabta ah ee
+  // Firestore waxaa kaliya sameeya backend-ka marka la ansixiyo (approve).
   async function deleteStudent(student) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${student.fullName}?`)) return;
     try {
-      await deleteDoc(doc(db, "students", student.id));
+      await updateDoc(doc(db, "students", student.id), {
+        pendingDeletion: true,
+        deletionRequestedAt: new Date().toISOString(),
+      });
 
-      // ---- Sidoo kale ka saar diiwaanka cashier ee isla ardaygan ----
-      // Collection-ka "cashier" wuxuu isticmaalaa studentId-ga sida
-      // document ID-giisa (tusaale "0001"), isla sida "students" u
-      // isticmaalo. Marka ardayga la tirtiro, xogtiisa cashier-ka
-      // waa in si toos ah looga saaraa si aanay meel u sii jirin.
-      const cashierDocId = student.studentId || student.id;
-      if (cashierDocId) {
-        try {
-          await deleteDoc(doc(db, "cashier", cashierDocId));
-        } catch (cashierErr) {
-          // Ha joojin habka guud haddii diiwaanka cashier uusan jirin
-          // ama uu khalad yar dhaco — arday la tirtiray waa muhiim.
-          console.log("Khalad marka cashier-ka la tirtirayay:", cashierErr);
-        }
-      }
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === student.id
+            ? { ...s, pendingDeletion: true, deletionRequestedAt: new Date().toISOString() }
+            : s
+        )
+      );
 
-      setStudents((prev) => prev.filter((s) => s.id !== student.id));
+      alert("Codsiga tirtirka waa la diray. Wuxuu sugayaa ansixinta backend-ka.");
     } catch (err) {
       console.log(err);
       alert(err.message);
