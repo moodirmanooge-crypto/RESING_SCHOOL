@@ -10,6 +10,12 @@
 //   - "Delete Selected" bulk-delete button (shows count, asks confirmation)
 //   - Single "Delete" button inside the selected-card preview panel
 //   - Deletes go straight to Firestore: studentIdCards/{id} or teacher_id/{id}
+//
+// PENDING DELETION support (added):
+//   - Student ID cards belonging to a student currently marked
+//     pendingDeletion (in the `students` collection) are hidden from this
+//     list immediately, even though studentIdCards/{id} itself is not
+//     touched until the backend approves the deletion.
 
 import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
@@ -65,13 +71,30 @@ export default function AllIdCards() {
   async function fetchAllCards() {
     try {
       setLoading(true);
-      const [studentSnap, teacherSnap] = await Promise.all([
+      const [studentSnap, teacherSnap, pendingSnap] = await Promise.all([
         getDocs(collection(db, "studentIdCards")),
         getDocs(collection(db, "teacher_id")),
+        // Loo baahan yahay si loo hubiyo studentId-yada ardayda hadda
+        // sugaya in la tirtiro (pendingDeletion: true) oo aan lahayn
+        // pendingDeletion field studentIdCards document-kooda gudihiisa.
+        getDocs(collection(db, "students")),
       ]);
 
+      // Set ah studentId-yada ardayda pendingDeletion ah — waxaa loo
+      // isticmaalayaa in card-yadooda si toos ah looga qariyo liiska,
+      // xitaa haddii backend-ku uusan weli si buuxda uga tirtirin
+      // Firestore.
+      const pendingStudentIds = new Set(
+        pendingSnap.docs
+          .map((d) => d.data())
+          .filter((s) => s.pendingDeletion)
+          .map((s) => s.studentId)
+      );
+
       setStudents(
-        studentSnap.docs.map((d) => ({ id: d.id, type: "student", ...d.data() }))
+        studentSnap.docs
+          .map((d) => ({ id: d.id, type: "student", ...d.data() }))
+          .filter((s) => !pendingStudentIds.has(s.studentId))
       );
       setTeachers(
         teacherSnap.docs.map((d) => ({ id: d.id, type: "teacher", ...d.data() }))
