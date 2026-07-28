@@ -232,7 +232,7 @@ export default function Teachers() {
         )
       );
 
-      alert("Codsiga tirtirka waa la diray. Wuxuu sugayaa ansixinta backend-ka.");
+      alert("SUCCESSFULLY REQUESTED FOR DELETION✅.");
     } catch (err) {
       console.log(err);
       alert(err.message);
