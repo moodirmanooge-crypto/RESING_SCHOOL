@@ -58,7 +58,7 @@ export default function PendingDeletions() {
 
   // ---- ANSIXI: si buuxda uga tirtir Firestore (students + dhammaan
   // collection-yada la xiriira, si aan mar dambe loogu arag "Paid"
-  // ama xog kale oo hadhay) ----
+  // ama xog kale oo hadhay).. ----
   async function approveDeletion(student) {
     if (
       !confirm(
