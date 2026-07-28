@@ -192,7 +192,12 @@ export default function Attendance() {
       const snap = await getDocs(
         query(collection(db, "students"), where("className", "==", className))
       );
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Ka reeb ardayda la calaamadeeyay pendingDeletion — isla markiiba
+      // ha ka baxeen liiska Attendance ee macallinka, xitaa haddii
+      // backend-ku uusan weli si buuxda uga tirtirin Firestore.
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((s) => !s.pendingDeletion);
       setStudents(list);
 
       // Check Firestore itself (not local state) for any attendance already

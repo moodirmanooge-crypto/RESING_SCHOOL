@@ -46,8 +46,12 @@ export default function Payments() {
         .map((d) => ({ id: d.id, ...d.data() }))
         // Ka reeb xogta aan lahayn studentId ama fullName sax ah —
         // taasi waa waxa keenayay safafka "—" ee madhan.
+        // Ka reeb sidoo kale ardayda la calaamadeeyay pendingDeletion —
+        // isla markiiba ha ka baxeen Cashier/Payments, xitaa haddii
+        // backend-ku uusan weli si buuxda uga tirtirin Firestore.
         .filter(
           (s) =>
+            !s.pendingDeletion &&
             s.studentId &&
             String(s.studentId).trim() !== "" &&
             s.fullName &&
