@@ -58,7 +58,7 @@ import AllIdCards from "./admin/pages/AllIdCards";
 // PUBLIC
 import VerifyCertificate from "./pages/VerifyCertificate";
 import TeacherVerify from "./pages/TeacherVerify";
-import PendingDeletions from "./admin/pages/PendingDeletions";
+import PendingDeletions from "./admin/pages/Pendingdeletions";
 
 function App() {
   return (
