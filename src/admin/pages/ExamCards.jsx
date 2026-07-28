@@ -327,7 +327,7 @@ export default function ExamCards() {
           ) : cards.length === 0 ? (
             <div style={{ color: "#8b87ad", textAlign: "center", padding: 60 }}>
               Weli Exam Card lama sameyn. Marka cashierku uu ka qaado lacagta imtixaanka
-              ardayda, cardadku halkan ayay ku soo muuqan doonaan.
+              ardayda, kaararka halkan ayay ku soo muuqan doonaan.
             </div>
           ) : !selectedClass ? (
             <div
