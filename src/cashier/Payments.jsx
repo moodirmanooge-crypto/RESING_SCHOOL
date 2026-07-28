@@ -56,12 +56,19 @@ export default function Payments() {
 
       setStudents(studentData);
 
+      // Liis ka mid ah studentId-yada ardayda wali JIRA — waxa loo
+      // isticmaalayaa in payments-ka arday la tirtiray aan lagu
+      // muujin miiska (haddii diiwaan-payment uu weli ku hadhay
+      // Firestore isaga oo aan si buuxda loo sync-garayn).
+      const activeStudentIds = new Set(studentData.map((s) => s.studentId));
+
       const paymentsSnap = await getDocs(collection(db, "payments"));
       const paymentMap = {};
       paymentsSnap.docs.forEach((d) => {
         const data = d.data();
         const sid = data.studentId;
         if (!sid) return;
+        if (!activeStudentIds.has(sid)) return; // arday la tirtiray — iska dhaaf
         // Hay boqolka ugu dambeeyay ee bishaas studentId-gan
         if (
           !paymentMap[sid] ||

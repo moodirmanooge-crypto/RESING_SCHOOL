@@ -58,12 +58,13 @@ import AllIdCards from "./admin/pages/AllIdCards";
 // PUBLIC
 import VerifyCertificate from "./pages/VerifyCertificate";
 import TeacherVerify from "./pages/TeacherVerify";
+import PendingDeletions from "./admin/pages/PendingDeletions";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-
+        <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
         <Route path="/" element={<Home />} />
         <Route path="/admin/receipts" element={<Receipts />} />
         <Route path="/admin-login" element={<Login role="Admin" />} />
