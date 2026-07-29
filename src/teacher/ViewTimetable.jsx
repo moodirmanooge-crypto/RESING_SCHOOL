@@ -21,24 +21,26 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
 
+// Todobaadka wuxuu ka bilaabmaa Saturday (sida school-ka), ka dibna
+// Sunday, Monday, Tuesday, Wednesday, Thursday, Friday.
 const dayOrder = [
+  "Saturday",
+  "Sunday",
   "Monday",
   "Tuesday",
   "Wednesday",
   "Thursday",
   "Friday",
-  "Saturday",
-  "Sunday",
 ];
 
 const dayColors = {
+  Saturday: "#EF4444",
+  Sunday: "#EC4899",
   Monday: "#6D5DF0",
   Tuesday: "#8B5CF6",
   Wednesday: "#17A2B8",
   Thursday: "#22C55E",
   Friday: "#F59E0B",
-  Saturday: "#EF4444",
-  Sunday: "#EC4899",
 };
 
 function ViewTimetableStyles() {
@@ -118,8 +120,11 @@ export default function ViewTimetable() {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeDay, setActiveDay] = useState(() => {
-    const today = dayOrder[(new Date().getDay() + 6) % 7]; // Monday-first
-    return today;
+    // Weekday-ga JS (0=Sunday..6=Saturday) waxaan u beddelayaa index-ka
+    // dayOrder-keena oo ka bilaabmaya Saturday.
+    const jsDay = new Date().getDay(); // 0=Sun,1=Mon,...,6=Sat
+    const satFirstIndex = (jsDay + 1) % 7; // 0=Sat,1=Sun,2=Mon,...
+    return dayOrder[satFirstIndex];
   });
 
   const teacherId = localStorage.getItem("teacherId") || "";
