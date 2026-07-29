@@ -16,6 +16,10 @@
 //     pendingDeletion (in the `students` collection) are hidden from this
 //     list immediately, even though studentIdCards/{id} itself is not
 //     touched until the backend approves the deletion.
+//   - Same for teacher ID cards: a teacher marked pendingDeletion (in the
+//     `teachers` collection, keyed by the same doc id/username as
+//     `teacher_id`) is hidden from this list immediately too, even though
+//     teacher_id/{id} itself is untouched until the backend approves it.
 
 import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
@@ -71,13 +75,18 @@ export default function AllIdCards() {
   async function fetchAllCards() {
     try {
       setLoading(true);
-      const [studentSnap, teacherSnap, pendingSnap] = await Promise.all([
+      const [studentSnap, teacherSnap, pendingStudentsSnap, pendingTeachersSnap] = await Promise.all([
         getDocs(collection(db, "studentIdCards")),
         getDocs(collection(db, "teacher_id")),
         // Loo baahan yahay si loo hubiyo studentId-yada ardayda hadda
         // sugaya in la tirtiro (pendingDeletion: true) oo aan lahayn
         // pendingDeletion field studentIdCards document-kooda gudihiisa.
         getDocs(collection(db, "students")),
+        // Isla sababtaas: teacher_id docs-ku ma haystaan pendingDeletion,
+        // waxay ku jirtaa document-ka macalinka ee "teachers" collection-ka.
+        // teacher_id doc id-gu wuxuu la mid yahay teachers doc id-ga
+        // (username), sidaas darteed waa la is barbar dhigi karaa si toos ah.
+        getDocs(collection(db, "teachers")),
       ]);
 
       // Set ah studentId-yada ardayda pendingDeletion ah — waxaa loo
@@ -85,10 +94,18 @@ export default function AllIdCards() {
       // xitaa haddii backend-ku uusan weli si buuxda uga tirtirin
       // Firestore.
       const pendingStudentIds = new Set(
-        pendingSnap.docs
+        pendingStudentsSnap.docs
           .map((d) => d.data())
           .filter((s) => s.pendingDeletion)
           .map((s) => s.studentId)
+      );
+
+      // Set ah teacher doc id-yada (== username) ee pendingDeletion ah —
+      // isla mabda'a: card-kooda toos ahaan waa laga qariyaa liiska.
+      const pendingTeacherIds = new Set(
+        pendingTeachersSnap.docs
+          .filter((d) => d.data().pendingDeletion)
+          .map((d) => d.id)
       );
 
       setStudents(
@@ -97,7 +114,9 @@ export default function AllIdCards() {
           .filter((s) => !pendingStudentIds.has(s.studentId))
       );
       setTeachers(
-        teacherSnap.docs.map((d) => ({ id: d.id, type: "teacher", ...d.data() }))
+        teacherSnap.docs
+          .map((d) => ({ id: d.id, type: "teacher", ...d.data() }))
+          .filter((t) => !pendingTeacherIds.has(t.id))
       );
     } catch (err) {
       console.error("Failed to load ID cards:", err);
