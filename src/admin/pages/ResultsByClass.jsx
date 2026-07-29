@@ -6,11 +6,26 @@
 // isla markaana subject-yada si dynamic ah uga soo saaraa xogta results-ka
 // (ma aha kuwo hardcode ah). Waxaa laga heli karaa print (Ctrl+P) iyo
 // download PDF (per class), sida sawirka model-ka ah ee "Class G8".
+//
+// ADDED:
+//   1) "Submitted" column — taariikhda + waqtiga natiijadan (result
+//      document-ka) markii ugu horeysay loo geliyay Firestore. Waxaa laga
+//      soo aqriyaa field-ka ugu horeeya ee la helo: createdAt,
+//      submittedAt, examDate, dateSubmitted, timestamp, updatedAt —
+//      hal alla hal si dabacsan, ku xidhan sida backend-ku result-ka u
+//      qoray. Haddii aan mid ka mid ah jirin, waxa la muujiyaa "-".
+//   2) "Lock after print/download" — marka warqad (className) mar la
+//      daabaco ama la soo dejiyo (PDF), waxaa la sameeyaa calaamad
+//      localStorage ah (per className) oo sheegaysa in warqadan mar
+//      horeba loo daabacay. Marka dib loo eego bogga, buttons-ka
+//      Print/Download way is-hakiyaan ("Already Printed") si aan mar
+//      labaad loogu daabicin isla warqadda — ilaa Admin-ku uu si cad u
+//      furo ("Allow Reprint").
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { Printer, Download, RefreshCcw } from "lucide-react";
+import { Printer, Download, RefreshCcw, Lock, Unlock } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import logo from "../../assets/logo.png";
@@ -25,14 +40,69 @@ function gradeFor(percent) {
   return { label: "D", bg: "#FEE2E2", color: "#DC2626" };
 }
 
+// ---- taariikh/wakhti helpers -------------------------------------------
+// Firestore Timestamp -> Date, ama string/number -> Date, si dabacsan.
+function toDateSafe(value) {
+  if (!value) return null;
+  if (typeof value?.toDate === "function") return value.toDate(); // Firestore Timestamp
+  if (value?.seconds) return new Date(value.seconds * 1000);
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function formatDateTime(date) {
+  if (!date) return "—";
+  return date.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+// Ka soo dooro qiimaha taariikhda/wakhtiga ee ugu horeeya ee la helo oo
+// ka mid ah dhowr magac oo la isticmaali karo Firestore result document-ka
+// (ku xidhan sida loo qoray backend-ka natiijada).
+function extractSubmittedDate(r) {
+  const candidates = [
+    r.createdAt,
+    r.submittedAt,
+    r.examDate,
+    r.dateSubmitted,
+    r.timestamp,
+    r.updatedAt,
+  ];
+  for (const c of candidates) {
+    const d = toDateSafe(c);
+    if (d) return d;
+  }
+  return null;
+}
+
+// localStorage key helper — "lock" waa gaar u className kasta.
+const printLockKey = (className) => `resultsPrinted:${className}`;
+
 export default function ResultsByClass() {
   const [loading, setLoading] = useState(true);
-  const [classGroups, setClassGroups] = useState([]); // [{className, subjects:[], rows:[]}]
+  const [classGroups, setClassGroups] = useState([]); // [{className, subjects:[], rows:[], submittedAt}]
   const printRefs = useRef({}); // className -> DOM node, used for per-class PDF export
+
+  // Tracks which classNames are currently "locked" (already printed/downloaded).
+  const [lockedClasses, setLockedClasses] = useState({}); // { [className]: true }
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    // Refresh lock state from localStorage whenever the list of classes changes
+    const next = {};
+    classGroups.forEach((g) => {
+      next[g.className] = window.localStorage.getItem(printLockKey(g.className)) === "true";
+    });
+    setLockedClasses(next);
+  }, [classGroups]);
 
   async function fetchData() {
     try {
@@ -73,7 +143,7 @@ export default function ResultsByClass() {
             studentId: linkedStudent?.studentId || r.studentId || "—",
             studentName: linkedStudent?.fullName || r.studentName || "Unknown",
             studentPhoto: linkedStudent?.studentPhoto || "",
-            subjects: {}, // subjectName -> { marks, maxMarks }
+            subjects: {}, // subjectName -> { marks, maxMarks, submittedAt }
             totalMarks: 0,
             totalMax: 0,
           };
@@ -82,13 +152,17 @@ export default function ResultsByClass() {
         const subjectName = (r.subject || "—").toString();
         const marks = Number(r.marks) || 0;
         const maxMarks = Number(r.maxMarks) || 0;
+        const submittedAt = extractSubmittedDate(r);
 
         // Haddii subject-kan mar hore loo diiwaan geliyay ardaygan (isticmaal
         // xogta ugu dambeysa, si aan loo labanlaabin haddii dib loo geliyay).
-        byClass[cls][studentKey].subjects[subjectName] = { marks, maxMarks };
+        byClass[cls][studentKey].subjects[subjectName] = { marks, maxMarks, submittedAt };
       });
 
       // 4) Isku dar kolonada subject-ka + xisaabi Total/Average per student
+      //    + xisaabi taariikhda ugu horeysay (earliest submittedAt) ee
+      //    dhammaan natiijooyinka fasalkan, si loo muujiyo hal taariikh oo
+      //    guud oo sax ah warqadda kore.
       const classGroupsArr = Object.entries(byClass).map(([className, studentsMap]) => {
         const subjectSet = new Set();
         Object.values(studentsMap).forEach((s) => {
@@ -98,14 +172,25 @@ export default function ResultsByClass() {
           a.localeCompare(b, undefined, { sensitivity: "base" })
         );
 
+        let earliestSubmitted = null;
+
         const rows = Object.values(studentsMap).map((s) => {
           let totalMarks = 0;
           let totalMax = 0;
+          let studentEarliest = null;
           subjects.forEach((subj) => {
             const v = s.subjects[subj];
             if (v) {
               totalMarks += v.marks;
               totalMax += v.maxMarks;
+              if (v.submittedAt) {
+                if (!studentEarliest || v.submittedAt < studentEarliest) {
+                  studentEarliest = v.submittedAt;
+                }
+                if (!earliestSubmitted || v.submittedAt < earliestSubmitted) {
+                  earliestSubmitted = v.submittedAt;
+                }
+              }
             }
           });
           const average = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
@@ -114,6 +199,7 @@ export default function ResultsByClass() {
             totalMarks,
             totalMax,
             average: Math.round(average * 100) / 100,
+            submittedAt: studentEarliest,
           };
         });
 
@@ -124,7 +210,7 @@ export default function ResultsByClass() {
           })
         );
 
-        return { className, subjects, rows };
+        return { className, subjects, rows, submittedAt: earliestSubmitted };
       });
 
       classGroupsArr.sort((a, b) =>
@@ -139,7 +225,28 @@ export default function ResultsByClass() {
     }
   }
 
+  function isLocked(className) {
+    return !!lockedClasses[className];
+  }
+
+  function lockClass(className) {
+    window.localStorage.setItem(printLockKey(className), "true");
+    setLockedClasses((prev) => ({ ...prev, [className]: true }));
+  }
+
+  // Admin-ku wuu furi karaa dib-u-daabicidda haddii loo baahdo (gaar ahaan
+  // haddii natiijo la saxay oo mar kale loo baahan yahay in la daabaco).
+  function unlockClass(className) {
+    const confirmed = window.confirm(
+      `Ma hubtaa inaad furto warqadda Class ${className} si dib loogu daabaco/soo dejiyo? Tan waxay tusaysaa in warqaddan mar hore la daabacay.`
+    );
+    if (!confirmed) return;
+    window.localStorage.removeItem(printLockKey(className));
+    setLockedClasses((prev) => ({ ...prev, [className]: false }));
+  }
+
   function handlePrintClass(className) {
+    if (isLocked(className)) return; // safety: buttons are disabled anyway
     const node = printRefs.current[className];
     if (!node) return;
 
@@ -169,9 +276,12 @@ export default function ResultsByClass() {
       printWindow.print();
       printWindow.close();
     }, 300);
+
+    lockClass(className);
   }
 
   async function handleDownloadPdf(className) {
+    if (isLocked(className)) return; // safety: buttons are disabled anyway
     const node = printRefs.current[className];
     if (!node) return;
 
@@ -202,6 +312,8 @@ export default function ResultsByClass() {
     }
     pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
     pdf.save(`Class-${className}-Results.pdf`);
+
+    lockClass(className);
   }
 
   return (
@@ -273,195 +385,256 @@ export default function ResultsByClass() {
           )}
 
           {!loading &&
-            classGroups.map((group) => (
-              <div
-                key={group.className}
-                style={{
-                  background: "#fff",
-                  borderRadius: 18,
-                  boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-                  border: "1px solid rgba(17,24,39,0.05)",
-                  marginBottom: 28,
-                  overflow: "hidden",
-                }}
-              >
-                {/* Toolbar (not part of the printed/exported area) */}
+            classGroups.map((group) => {
+              const locked = isLocked(group.className);
+              return (
                 <div
+                  key={group.className}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    padding: "14px 20px",
-                    borderBottom: "1px solid #F3F4F6",
-                    background: "#FAFAFB",
+                    background: "#fff",
+                    borderRadius: 18,
+                    boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
+                    border: "1px solid rgba(17,24,39,0.05)",
+                    marginBottom: 28,
+                    overflow: "hidden",
                   }}
                 >
-                  <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
-                    Class {group.className} · {group.rows.length} student
-                    {group.rows.length !== 1 ? "s" : ""}
-                  </span>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button
-                      onClick={() => handlePrintClass(group.className)}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(22,163,74,0.3)",
-                        background: "#fff",
-                        color: "#16a34a",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Printer size={14} />
-                      Print
-                    </button>
-                    <button
-                      onClick={() => handleDownloadPdf(group.className)}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "none",
-                        background: "#16a34a",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Download size={14} />
-                      Download PDF
-                    </button>
-                  </div>
-                </div>
-
-                {/* Printable / exportable area */}
-                <div
-                  ref={(el) => (printRefs.current[group.className] = el)}
-                  style={{ padding: 24, overflowX: "auto" }}
-                >
-                  {/* Header */}
+                  {/* Toolbar (not part of the printed/exported area) */}
                   <div
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
-                      marginBottom: 18,
+                      padding: "14px 20px",
+                      borderBottom: "1px solid #F3F4F6",
+                      background: "#FAFAFB",
                       flexWrap: "wrap",
-                      gap: 12,
+                      gap: 10,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                      <img src={logo} alt="" style={{ width: 56, height: 56, objectFit: "contain" }} />
-                      <div>
-                        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#111827" }}>
-                          RISING STAR SCHOOL
-                        </h2>
-                      </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
+                        Class {group.className} · {group.rows.length} student
+                        {group.rows.length !== 1 ? "s" : ""}
+                      </span>
+                      <span style={{ fontSize: 12, color: "#6B7280" }}>
+                        Submitted: {formatDateTime(group.submittedAt)}
+                      </span>
+                      {locked && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 5,
+                            fontSize: 11.5,
+                            fontWeight: 700,
+                            padding: "3px 10px",
+                            borderRadius: 20,
+                            background: "#FEE2E2",
+                            color: "#DC2626",
+                          }}
+                        >
+                          <Lock size={11} />
+                          Already Printed
+                        </span>
+                      )}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
-                      CLASS: {group.className}
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <button
+                        onClick={() => handlePrintClass(group.className)}
+                        disabled={locked}
+                        title={locked ? "Warqaddan mar hore ayaa la daabacay" : "Print"}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "8px 14px",
+                          borderRadius: 10,
+                          border: "1px solid rgba(22,163,74,0.3)",
+                          background: locked ? "#F3F4F6" : "#fff",
+                          color: locked ? "#9CA3AF" : "#16a34a",
+                          fontWeight: 700,
+                          fontSize: 12.5,
+                          cursor: locked ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        <Printer size={14} />
+                        Print
+                      </button>
+                      <button
+                        onClick={() => handleDownloadPdf(group.className)}
+                        disabled={locked}
+                        title={locked ? "Warqaddan mar hore ayaa la soo dejiyay" : "Download PDF"}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 6,
+                          padding: "8px 14px",
+                          borderRadius: 10,
+                          border: "none",
+                          background: locked ? "#D1D5DB" : "#16a34a",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: 12.5,
+                          cursor: locked ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        <Download size={14} />
+                        Download PDF
+                      </button>
+                      {locked && (
+                        <button
+                          onClick={() => unlockClass(group.className)}
+                          title="Admin only: allow reprinting this class"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "8px 14px",
+                            borderRadius: 10,
+                            border: "1px solid rgba(107,114,128,0.3)",
+                            background: "#fff",
+                            color: "#6B7280",
+                            fontWeight: 700,
+                            fontSize: 12.5,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <Unlock size={14} />
+                          Allow Reprint
+                        </button>
+                      )}
                     </div>
                   </div>
 
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-                    <thead>
-                      <tr>
-                        <th style={thStyle}>#</th>
-                        <th style={thStyle}>Student ID</th>
-                        <th style={{ ...thStyle, textAlign: "left" }}>Student Name</th>
-                        {group.subjects.map((subj) => (
-                          <th key={subj} style={thStyle}>
-                            {subj}
-                          </th>
-                        ))}
-                        <th style={thStyle}>Total</th>
-                        <th style={thStyle}>Average</th>
-                        <th style={thStyle}>Grade</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {group.rows.map((row, idx) => {
-                        const g = gradeFor(row.average);
-                        return (
-                          <tr key={row.studentKey} style={{ borderTop: "1px solid #E5E7EB" }}>
-                            <td style={tdStyle}>{idx + 1}</td>
-                            <td style={tdStyle}>{row.studentId}</td>
-                            <td style={{ ...tdStyle, textAlign: "left" }} className="name-cell">
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                {row.studentPhoto ? (
-                                  <img
-                                    src={row.studentPhoto}
-                                    alt=""
-                                    className="avatar"
-                                    style={{
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: "50%",
-                                      objectFit: "cover",
-                                      flexShrink: 0,
-                                    }}
-                                  />
-                                ) : (
-                                  <div
-                                    style={{
-                                      width: 28,
-                                      height: 28,
-                                      borderRadius: "50%",
-                                      background: "#E6F5EC",
-                                      color: "#16a34a",
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                      fontSize: 11,
-                                      fontWeight: 800,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    {(row.studentName || "?").charAt(0).toUpperCase()}
-                                  </div>
-                                )}
-                                <span style={{ fontWeight: 600 }}>{row.studentName}</span>
-                              </div>
-                            </td>
-                            {group.subjects.map((subj) => (
-                              <td key={subj} style={tdStyle}>
-                                {row.subjects[subj] ? row.subjects[subj].marks : "—"}
+                  {/* Printable / exportable area */}
+                  <div
+                    ref={(el) => (printRefs.current[group.className] = el)}
+                    style={{ padding: 24, overflowX: "auto" }}
+                  >
+                    {/* Header */}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: 18,
+                        flexWrap: "wrap",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <img src={logo} alt="" style={{ width: 56, height: 56, objectFit: "contain" }} />
+                        <div>
+                          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#111827" }}>
+                            RISING STAR SCHOOL
+                          </h2>
+                          <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "#6B7280" }}>
+                            Submitted: {formatDateTime(group.submittedAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
+                        CLASS: {group.className}
+                      </div>
+                    </div>
+
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+                      <thead>
+                        <tr>
+                          <th style={thStyle}>#</th>
+                          <th style={thStyle}>Student ID</th>
+                          <th style={{ ...thStyle, textAlign: "left" }}>Student Name</th>
+                          {group.subjects.map((subj) => (
+                            <th key={subj} style={thStyle}>
+                              {subj}
+                            </th>
+                          ))}
+                          <th style={thStyle}>Total</th>
+                          <th style={thStyle}>Average</th>
+                          <th style={thStyle}>Grade</th>
+                          <th style={thStyle}>Submitted</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {group.rows.map((row, idx) => {
+                          const g = gradeFor(row.average);
+                          return (
+                            <tr key={row.studentKey} style={{ borderTop: "1px solid #E5E7EB" }}>
+                              <td style={tdStyle}>{idx + 1}</td>
+                              <td style={tdStyle}>{row.studentId}</td>
+                              <td style={{ ...tdStyle, textAlign: "left" }} className="name-cell">
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  {row.studentPhoto ? (
+                                    <img
+                                      src={row.studentPhoto}
+                                      alt=""
+                                      className="avatar"
+                                      style={{
+                                        width: 28,
+                                        height: 28,
+                                        borderRadius: "50%",
+                                        objectFit: "cover",
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: 28,
+                                        height: 28,
+                                        borderRadius: "50%",
+                                        background: "#E6F5EC",
+                                        color: "#16a34a",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        fontSize: 11,
+                                        fontWeight: 800,
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {(row.studentName || "?").charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span style={{ fontWeight: 600 }}>{row.studentName}</span>
+                                </div>
                               </td>
-                            ))}
-                            <td style={{ ...tdStyle, fontWeight: 700 }}>
-                              {row.totalMarks}/{row.totalMax}
-                            </td>
-                            <td style={{ ...tdStyle, fontWeight: 700 }}>{row.average}%</td>
-                            <td style={tdStyle}>
-                              <span
-                                style={{
-                                  background: g.bg,
-                                  color: g.color,
-                                  padding: "3px 10px",
-                                  borderRadius: 20,
-                                  fontWeight: 700,
-                                  fontSize: 11.5,
-                                }}
-                              >
-                                {g.label}
-                              </span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              {group.subjects.map((subj) => (
+                                <td key={subj} style={tdStyle}>
+                                  {row.subjects[subj] ? row.subjects[subj].marks : "—"}
+                                </td>
+                              ))}
+                              <td style={{ ...tdStyle, fontWeight: 700 }}>
+                                {row.totalMarks}/{row.totalMax}
+                              </td>
+                              <td style={{ ...tdStyle, fontWeight: 700 }}>{row.average}%</td>
+                              <td style={tdStyle}>
+                                <span
+                                  style={{
+                                    background: g.bg,
+                                    color: g.color,
+                                    padding: "3px 10px",
+                                    borderRadius: 20,
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                  }}
+                                >
+                                  {g.label}
+                                </span>
+                              </td>
+                              <td style={{ ...tdStyle, fontSize: 11, color: "#6B7280" }}>
+                                {formatDateTime(row.submittedAt)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
         </div>
       </div>
     </div>

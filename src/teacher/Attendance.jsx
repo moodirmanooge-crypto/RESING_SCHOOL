@@ -8,6 +8,7 @@ import {
   where,
   setDoc,
   doc,
+  getDoc,
 } from "firebase/firestore";
 import { Users, UserCheck, UserX, Clock } from "lucide-react";
 
@@ -96,6 +97,7 @@ export default function Attendance() {
   useEffect(() => {
     loadClasses();
     checkHoliday();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -123,22 +125,41 @@ export default function Attendance() {
     }
   };
 
+  // ---- Kaliya fasallada macallinkan gaarkiisa ah ayaa la soo aqrinayaa ----
+  // Waxaa laga soo aqriyaa document-ka teachers/{teacherId} ee macallinku
+  // ku diiwaan gashan yahay, oo leh field-ka `classes` (array ah). Marnaba
+  // lama scan gareeyo dhammaan collection-ka teachers, si aan macallin
+  // kastaa u arag KALIYA fasallada uu isaga leeyahay — fasallada
+  // macalimiinta kale ha soo bixin gabi ahaanba.
   const loadClasses = async () => {
     try {
-      const snap = await getDocs(collection(db, "teachers"));
-      const allClassNames = new Set();
+      if (!teacherId) {
+        setClasses([]);
+        return;
+      }
 
-      snap.docs.forEach((d) => {
-        const data = d.data();
-        const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
-        teacherClasses.forEach((c) => {
-          if (c.className) allClassNames.add(c.className);
-        });
-      });
+      const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
 
-      const uniqueClasses = Array.from(allClassNames)
-        .sort()
-        .map((className) => ({ id: className, className }));
+      if (!teacherSnap.exists()) {
+        setClasses([]);
+        return;
+      }
+
+      const data = teacherSnap.data();
+      const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
+
+      const uniqueClassNames = Array.from(
+        new Set(
+          teacherClasses
+            .map((c) => c.className)
+            .filter((cn) => cn && String(cn).trim() !== "")
+        )
+      ).sort();
+
+      const uniqueClasses = uniqueClassNames.map((className) => ({
+        id: className,
+        className,
+      }));
 
       setClasses(uniqueClasses);
     } catch (err) {
@@ -153,7 +174,6 @@ export default function Attendance() {
     try {
       setCheckingSchedule(true);
       const weekday = getWeekdayName(dateStr);
-      const timetableDocId = `${className}__${weekday}`;
 
       const timetableSnap = await getDocs(
         query(
