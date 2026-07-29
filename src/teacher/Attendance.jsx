@@ -167,9 +167,13 @@ export default function Attendance() {
     }
   };
 
-  // Checks the `timetable` collection for a document `${className}__${weekday}`.
-  // Only when that document exists (i.e. the class has a lesson scheduled for
-  // the chosen date's weekday) do we allow attendance to be taken.
+  // Checks the `timetable` collection for a document `${className}__${weekday}`
+  // ONLY to decide whether the teacher is allowed to SAVE attendance today
+  // (isScheduledToday controls the save-lock banner/button). The student
+  // list itself is ALWAYS loaded once a class is selected — every student
+  // registered in that class must show up (with photo, name, class), even
+  // if the class has no lesson scheduled for today's weekday and even if
+  // they have no attendance record yet for this date.
   const checkScheduleThenLoadStudents = async (className, dateStr) => {
     try {
       setCheckingSchedule(true);
@@ -186,16 +190,9 @@ export default function Attendance() {
       const scheduledToday = !timetableSnap.empty;
       setIsScheduledToday(scheduledToday);
 
-      if (!scheduledToday) {
-        // Not scheduled today: don't bother loading students/attendance,
-        // just show the "no session today" state.
-        setStudents([]);
-        setAttendance({});
-        setExistingSessions([]);
-        setSessionSaved(false);
-        return;
-      }
-
+      // Always load the class roster, regardless of whether today has a
+      // scheduled lesson. The lock (isScheduledToday) only disables the
+      // Save button / mark buttons further down, it no longer hides students.
       await loadStudents(className, dateStr);
     } catch (err) {
       console.log(err);
@@ -259,9 +256,12 @@ export default function Attendance() {
         });
         setAttendance(savedMap);
       } else {
+        // No attendance saved yet for this date/class: show every student
+        // with a neutral "Not Marked" status instead of defaulting to
+        // "Present", so the teacher explicitly marks each one.
         const initial = {};
         list.forEach((s) => {
-          initial[s.id] = "Present";
+          initial[s.id] = "Not Marked";
         });
         setAttendance(initial);
       }
@@ -331,7 +331,7 @@ export default function Attendance() {
           date,
           sessionNumber: nextSessionNumber,
           sessionTime: timeLabel,
-          status: attendance[student.id] || "Present",
+          status: attendance[student.id] === "Present" ? "Present" : "Absent",
           updatedAt: new Date(),
         });
       }
@@ -352,6 +352,9 @@ export default function Attendance() {
 
   const presentCount = students.filter((s) => attendance[s.id] === "Present").length;
   const absentCount = students.filter((s) => attendance[s.id] === "Absent").length;
+  const notMarkedCount = students.filter(
+    (s) => !attendance[s.id] || attendance[s.id] === "Not Marked"
+  ).length;
   const totalCount = students.length;
   const presentPct = totalCount ? ((presentCount / totalCount) * 100).toFixed(2) : "0.00";
   const absentPct = totalCount ? ((absentCount / totalCount) * 100).toFixed(2) : "0.00";
@@ -571,12 +574,18 @@ export default function Attendance() {
                               background:
                                 attendance[s.id] === "Present"
                                   ? "rgba(34,197,94,0.15)"
-                                  : "rgba(239,68,68,0.15)",
+                                  : attendance[s.id] === "Absent"
+                                  ? "rgba(239,68,68,0.15)"
+                                  : "rgba(148,163,184,0.15)",
                               color:
-                                attendance[s.id] === "Present" ? "#22C55E" : "#EF4444",
+                                attendance[s.id] === "Present"
+                                  ? "#22C55E"
+                                  : attendance[s.id] === "Absent"
+                                  ? "#EF4444"
+                                  : "#94A3B8",
                             }}
                           >
-                            ● {attendance[s.id] || "Present"}
+                            ● {attendance[s.id] || "Not Marked"}
                           </span>
                         </td>
                         <td style={td}>
