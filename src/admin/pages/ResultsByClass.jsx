@@ -417,9 +417,6 @@ export default function ResultsByClass() {
                         Class {group.className} · {group.rows.length} student
                         {group.rows.length !== 1 ? "s" : ""}
                       </span>
-                      <span style={{ fontSize: 12, color: "#6B7280" }}>
-                        Submitted: {formatDateTime(group.submittedAt)}
-                      </span>
                       {locked && (
                         <span
                           style={{
@@ -553,7 +550,6 @@ export default function ResultsByClass() {
                           <th style={thStyle}>Total</th>
                           <th style={thStyle}>Average</th>
                           <th style={thStyle}>Grade</th>
-                          <th style={thStyle}>Submitted</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -622,9 +618,6 @@ export default function ResultsByClass() {
                                 >
                                   {g.label}
                                 </span>
-                              </td>
-                              <td style={{ ...tdStyle, fontSize: 11, color: "#6B7280" }}>
-                                {formatDateTime(row.submittedAt)}
                               </td>
                             </tr>
                           );
