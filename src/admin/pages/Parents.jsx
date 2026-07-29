@@ -18,10 +18,15 @@ export default function Parents() {
     try {
       setLoading(true);
       const snap = await getDocs(collection(db, "students"));
-      const data = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+      const data = snap.docs
+        .map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }))
+        // Ka reeb ardayda la calaamadeeyay pendingDeletion — isla markiiba
+        // ha ka baxeen liiska Parents, xitaa haddii backend-ku uusan weli
+        // si buuxda uga tirtirin Firestore.
+        .filter((s) => !s.pendingDeletion);
       setParents(data);
     } catch (err) {
       console.log(err);
