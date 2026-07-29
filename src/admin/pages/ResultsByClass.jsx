@@ -502,7 +502,7 @@ export default function ResultsByClass() {
                 <div
                   key={group.className}
                   style={{
-                    background: "#fff",
+                    background: "#ffffff",
                     borderRadius: 18,
                     boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
                     border: "1px solid rgba(17,24,39,0.05)",
