@@ -91,6 +91,15 @@ export default function ResultsByClass() {
   // Tracks which classNames are currently "locked" (already printed/downloaded).
   const [lockedClasses, setLockedClasses] = useState({}); // { [className]: true }
 
+  // Which classes are checked for bulk print/download ("Print Selected").
+  const [selectedClasses, setSelectedClasses] = useState({}); // { [className]: true }
+
+  // Tracks in-flight print/download so we can disable buttons until the
+  // system confirms the document actually went out (afterprint / save
+  // completed), instead of unlocking immediately on click.
+  const [pendingAction, setPendingAction] = useState({}); // { [className]: "print" | "pdf" | "bulk" }
+  const [bulkPending, setBulkPending] = useState(false);
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -229,6 +238,12 @@ export default function ResultsByClass() {
     return !!lockedClasses[className];
   }
 
+  function toggleClassSelected(className) {
+    setSelectedClasses((prev) => ({ ...prev, [className]: !prev[className] }));
+  }
+
+  const anySelected = Object.values(selectedClasses).some(Boolean);
+
   function lockClass(className) {
     window.localStorage.setItem(printLockKey(className), "true");
     setLockedClasses((prev) => ({ ...prev, [className]: true }));
@@ -245,75 +260,171 @@ export default function ResultsByClass() {
     setLockedClasses((prev) => ({ ...prev, [className]: false }));
   }
 
-  function handlePrintClass(className) {
-    if (isLocked(className)) return; // safety: buttons are disabled anyway
-    const node = printRefs.current[className];
-    if (!node) return;
-
-    const printWindow = window.open("", "_blank", "width=1200,height=800");
-    printWindow.document.write(`
+  // Waxa la isticmaalaa habka print-ka si loo hubiyo in warqadu dhab ahaan
+  // "u baxday" (afterprint event-ka browser-ku wuxuu shido marka user-ku
+  // riixo Print ama Cancel dialog-ka gudaha) kahor inta aan la "lock"
+  // gareynin class-ka. Sidaas awgeed, haddii user-ku riixo Cancel print
+  // dialog-ka, warqadda wali lama xirin — waxaad mar kale isku dayi
+  // kartaa.
+  function buildPrintHtml(classNamesList) {
+    const sections = classNamesList
+      .map((className) => {
+        const node = printRefs.current[className];
+        return node ? `<div class="class-page">${node.innerHTML}</div>` : "";
+      })
+      .filter(Boolean)
+      .join("");
+    return `
       <html>
         <head>
-          <title>Class ${className} - Results</title>
+          <title>Results - ${classNamesList.join(", ")}</title>
           <style>
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+              color-adjust: exact !important;
+            }
             body { font-family: Arial, sans-serif; padding: 24px; }
             table { width: 100%; border-collapse: collapse; }
             th, td { border: 1px solid #d1d5db; padding: 6px 8px; font-size: 12px; text-align: center; }
             th { background: #1e3a8a; color: #fff; }
             td.name-cell { text-align: left; }
             img.avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+            .class-page { page-break-after: always; }
+            .class-page:last-child { page-break-after: auto; }
             @media print {
               @page { size: landscape; margin: 12mm; }
             }
           </style>
         </head>
-        <body>${node.innerHTML}</body>
+        <body>${sections}</body>
       </html>
-    `);
+    `;
+  }
+
+  function openAndPrint(classNamesList, onDone) {
+    const printWindow = window.open("", "_blank", "width=1200,height=800");
+    if (!printWindow) {
+      window.alert("Browser-ku wuu xannibay print window-ka (popup blocker). Fadlan u oggolow popups-ka boggan.");
+      onDone(false);
+      return;
+    }
+    printWindow.document.write(buildPrintHtml(classNamesList));
     printWindow.document.close();
+
+    // afterprint fires whether the user clicked "Print" or "Cancel" in the
+    // system dialog — either way the dialog is resolved, so this is the
+    // right moment to unlock the buttons / apply the lock.
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      onDone(true);
+      printWindow.close();
+    };
+    printWindow.addEventListener("afterprint", finish);
+    // Fallback in case afterprint doesn't fire in some browsers.
+    printWindow.addEventListener("beforeunload", finish);
+
     printWindow.focus();
     setTimeout(() => {
       printWindow.print();
-      printWindow.close();
     }, 300);
-
-    lockClass(className);
   }
 
-  async function handleDownloadPdf(className) {
-    if (isLocked(className)) return; // safety: buttons are disabled anyway
+  function handlePrintClass(className) {
+    if (isLocked(className) || pendingAction[className]) return;
     const node = printRefs.current[className];
     if (!node) return;
 
-    // Lazy-load html2canvas + jsPDF only when needed, isticmaal CDN ESM
-    // build si aan u fududeeyo (uma baahna bundler config gaar ah).
-    const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
-      import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
-      import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
-    ]);
-    const { jsPDF } = jsPDFModule;
-
-    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#ffffff" });
-    const imgData = canvas.toDataURL("image/png");
-
-    const pdf = new jsPDF({
-      orientation: "landscape",
-      unit: "pt",
-      format: "a4",
+    setPendingAction((prev) => ({ ...prev, [className]: "print" }));
+    openAndPrint([className], (success) => {
+      setPendingAction((prev) => {
+        const next = { ...prev };
+        delete next[className];
+        return next;
+      });
+      if (success) lockClass(className);
     });
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imgRatio = canvas.height / canvas.width;
-    let renderWidth = pageWidth - 40;
-    let renderHeight = renderWidth * imgRatio;
-    if (renderHeight > pageHeight - 40) {
-      renderHeight = pageHeight - 40;
-      renderWidth = renderHeight / imgRatio;
-    }
-    pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
-    pdf.save(`Class-${className}-Results.pdf`);
+  }
 
-    lockClass(className);
+  function handlePrintSelected() {
+    const classNamesList = classGroups
+      .map((g) => g.className)
+      .filter((cn) => selectedClasses[cn] && !isLocked(cn));
+    if (classNamesList.length === 0) {
+      window.alert("Fadlan dooro ugu yaraan hal class oo aan mar hore la daabicin.");
+      return;
+    }
+    setBulkPending(true);
+    openAndPrint(classNamesList, (success) => {
+      setBulkPending(false);
+      if (success) classNamesList.forEach(lockClass);
+    });
+  }
+
+  function handlePrintAllClasses() {
+    const classNamesList = classGroups.map((g) => g.className).filter((cn) => !isLocked(cn));
+    if (classNamesList.length === 0) {
+      window.alert("Dhammaan classes-ka mar hore ayaa la daabacay.");
+      return;
+    }
+    setBulkPending(true);
+    openAndPrint(classNamesList, (success) => {
+      setBulkPending(false);
+      if (success) classNamesList.forEach(lockClass);
+    });
+  }
+
+  async function handleDownloadPdf(className) {
+    if (isLocked(className) || pendingAction[className]) return;
+    const node = printRefs.current[className];
+    if (!node) return;
+
+    setPendingAction((prev) => ({ ...prev, [className]: "pdf" }));
+
+    try {
+      // Lazy-load html2canvas + jsPDF only when needed, isticmaal CDN ESM
+      // build si aan u fududeeyo (uma baahna bundler config gaar ah).
+      const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
+        import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
+        import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
+      ]);
+      const { jsPDF } = jsPDFModule;
+
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#ffffff" });
+      const imgData = canvas.toDataURL("image/png");
+
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "pt",
+        format: "a4",
+      });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const imgRatio = canvas.height / canvas.width;
+      let renderWidth = pageWidth - 40;
+      let renderHeight = renderWidth * imgRatio;
+      if (renderHeight > pageHeight - 40) {
+        renderHeight = pageHeight - 40;
+        renderWidth = renderHeight / imgRatio;
+      }
+      pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
+      pdf.save(`Class-${className}-Results.pdf`);
+
+      // Ka dib markii save() la yeero waxaa la hubaa in PDF-ku si guul
+      // leh u dhashay — kaliya markaas ayaan lock gareynaynaa.
+      lockClass(className);
+    } catch (err) {
+      console.error("Khalad ayaa dhacay markii PDF-ka la sameynayay:", err);
+      window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay. Fadlan isku day mar kale.");
+    } finally {
+      setPendingAction((prev) => {
+        const next = { ...prev };
+        delete next[className];
+        return next;
+      });
+    }
   }
 
   return (
