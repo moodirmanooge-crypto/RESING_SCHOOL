@@ -526,10 +526,6 @@ export default function Attendance() {
               <p style={{ padding: 20, color: "#94A3B8" }}>
                 Select a class to load students.
               </p>
-            ) : !isScheduledToday ? (
-              <p style={{ padding: 20, color: "#94A3B8" }}>
-                Xiisad malihid maanta fasalkan.
-              </p>
             ) : students.length === 0 ? (
               <p style={{ padding: 20, color: "#94A3B8" }}>
                 No students found in this class.
