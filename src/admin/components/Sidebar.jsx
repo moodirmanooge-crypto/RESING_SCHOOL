@@ -1,5 +1,8 @@
 // Sidebar.jsx
+import { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { db } from "../../firebase/firebase";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
   LayoutDashboard,
   GraduationCap,
@@ -25,12 +28,14 @@ import {
   Newspaper,
   ShieldPlus,
   ShieldCheck,
+  ClipboardCheck,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
 
 const menus = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
+  { name: "Admissions", icon: ClipboardCheck, path: "/admin/admissions" },
   { name: "Students", icon: GraduationCap, path: "/admin/students" },
   { name: "Teachers", icon: Users, path: "/admin/teachers" },
   { name: "Parents", icon: Users, path: "/admin/parents" },
@@ -88,6 +93,24 @@ export default function Sidebar() {
   const visibleMenus = isSubAdmin
     ? menus.filter((m) => permissions.includes(m.path))
     : menus;
+
+  // Live count of pending admissions — shown as a notification badge
+  // next to the "Admissions" menu item so admins immediately see how
+  // many new applications are waiting to be reviewed.
+  const [pendingAdmissions, setPendingAdmissions] = useState(0);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "Admissions"),
+      where("status", "==", "Pending")
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => setPendingAdmissions(snap.size),
+      (err) => console.log(err)
+    );
+    return () => unsub();
+  }, []);
 
   return (
     <aside
@@ -160,6 +183,7 @@ export default function Sidebar() {
         <div style={{ padding: "8px 18px", overflowY: "auto" }}>
           {visibleMenus.map((item) => {
             const Icon = item.icon;
+            const showBadge = item.path === "/admin/admissions" && pendingAdmissions > 0;
 
             return (
               <NavLink
@@ -186,7 +210,26 @@ export default function Sidebar() {
                 })}
               >
                 <Icon size={18} />
-                <span>{item.name}</span>
+                <span style={{ flex: 1 }}>{item.name}</span>
+                {showBadge && (
+                  <span
+                    style={{
+                      minWidth: 20,
+                      height: 20,
+                      padding: "0 6px",
+                      borderRadius: 999,
+                      background: "#ef4444",
+                      color: "#fff",
+                      fontSize: 11,
+                      fontWeight: 800,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {pendingAdmissions}
+                  </span>
+                )}
               </NavLink>
             );
           })}

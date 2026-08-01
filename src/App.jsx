@@ -38,6 +38,7 @@ import GalleryManager from "./admin/pages/GalleryManager";
 import NewsManager from "./admin/pages/NewsManager";
 import AddSubAdmin from "./admin/pages/AddSubAdmin";
 import ManageAdmins from "./admin/pages/ManageAdmins";
+import AdmissionsList from "./admin/pages/AdmissionsList";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -97,6 +98,12 @@ function App() {
         <Route path="/admin/news" element={<NewsManager />} />
         <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
         <Route path="/admin/manage-admins" element={<ManageAdmins />} />
+
+        {/* Admin view of all admission applications submitted from the
+            public /admissions page — lists every applicant, shows a
+            pending-count badge in the sidebar, and lets the admin
+            approve a submission. */}
+        <Route path="/admin/admissions" element={<AdmissionsList />} />
 
         {/* Public certificate verification page — QR code on the Class 8
             leaving certificate links here. No login required. */}

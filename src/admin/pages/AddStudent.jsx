@@ -73,6 +73,16 @@ export default function AddStudent() {
     }
   };
 
+  // ✅ Waxaan halkan ku ogolaynaa kaliya lambar (0-9) — xarfo iyo calaamado lama ogola
+  const handlePhoneChange = (e) => {
+    const { name, value } = e.target;
+    const digitsOnly = value.replace(/[^0-9]/g, "");
+    setStudent({
+      ...student,
+      [name]: digitsOnly,
+    });
+  };
+
   const attachStudentToClassTeachers = async (className, studentId, fullName) => {
     const teachersSnap = await getDocs(collection(db, "teachers"));
 
@@ -109,22 +119,37 @@ export default function AddStudent() {
         return;
       }
 
+      // ✅ Hubinta in Parent Phone iyo Student Phone ay yihiin lambar keliya
+      if (student.parentPhone && !/^\d+$/.test(student.parentPhone)) {
+        alert("Parent Phone waa inuu ahaadaa lambar keliya (numbers only)");
+        return;
+      }
+
+      if (student.studentPhone && !/^\d+$/.test(student.studentPhone)) {
+        alert("Student Phone waa inuu ahaadaa lambar keliya (numbers only)");
+        return;
+      }
+
+      // ✅ Sawirka ardayga waa waajib — marnaba lama tagi karo
+      if (!student.studentPhoto) {
+        alert("Fadlan soo dooro Sawirka Ardayga — waa waajib");
+        return;
+      }
+
       setSaving(true);
 
       const existingSnap = await getDocs(collection(db, "students"));
       const studentId = String(existingSnap.size + 1).padStart(4, "0");
 
       let photoURL = "";
-      if (student.studentPhoto) {
-        const photoRef = ref(
-          storage,
-          `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
-        );
+      const photoRef = ref(
+        storage,
+        `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
+      );
 
-        await uploadBytes(photoRef, student.studentPhoto);
+      await uploadBytes(photoRef, student.studentPhoto);
 
-        photoURL = await getDownloadURL(photoRef);
-      }
+      photoURL = await getDownloadURL(photoRef);
 
       const finalMonthlyFee = student.feeType === "Free" ? "0" : student.monthlyFee;
 
@@ -229,7 +254,9 @@ export default function AddStudent() {
               background: photoPreview
                 ? `url(${photoPreview}) center/cover`
                 : "rgba(139,108,245,0.08)",
-              border: "2px dashed #6d5df0",
+              border: student.studentPhoto
+                ? "2px solid #6d5df0"
+                : "2px dashed #ff6b6b",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -249,10 +276,11 @@ export default function AddStudent() {
 
           <div>
             <div style={{ fontWeight: 700, color: "#fff", fontSize: 22 }}>
-              Sawirka Ardayga
+              Sawirka Ardayga <span style={{ color: "#ff6b6b" }}>*</span>
             </div>
             <div style={{ color: "#8b87ad", fontSize: 14, marginTop: 6 }}>
-              Riix goobta si aad sawir uga soo dooratid (ikhtiyaari)
+              {/* ✅ Sawirku hadda waa waajib, ma aha ikhtiyaari */}
+              Riix goobta si aad sawir uga soo dooratid — waa waajib
             </div>
           </div>
         </div>
@@ -322,23 +350,31 @@ export default function AddStudent() {
             </Field>
           )}
 
+          {/* ✅ Parent Phone — lambar keliya ayaa la ogolaanayaa */}
           <Field icon={Phone} label="Parent Phone">
             <input
               style={input}
               name="parentPhone"
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="61xxxxxxx"
               value={student.parentPhone}
-              onChange={handleChange}
+              onChange={handlePhoneChange}
             />
           </Field>
 
+          {/* ✅ Student Phone — lambar keliya ayaa la ogolaanayaa */}
           <Field icon={Smartphone} label="Student Phone">
             <input
               style={input}
               name="studentPhone"
+              type="tel"
+              inputMode="numeric"
+              pattern="[0-9]*"
               placeholder="61xxxxxxx"
               value={student.studentPhone}
-              onChange={handleChange}
+              onChange={handlePhoneChange}
             />
           </Field>
 

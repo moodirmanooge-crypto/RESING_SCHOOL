@@ -3,6 +3,8 @@ import { useState } from "react";
 import "../styles/admissions.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
+import { db } from "../firebase/firebase";
+import { doc, setDoc } from "firebase/firestore";
 
 const SUPPORT_WHATSAPP = "252617390261";
 const SUPPORT_EMAIL = "risingstar0261@gmail.com";
@@ -75,12 +77,13 @@ export default function Admissions() {
     notes: "",
   });
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (
@@ -94,8 +97,38 @@ export default function Admissions() {
       return;
     }
 
-    // Hadda foomka waa UI oo kaliya — xogta lama kaydiyo Firestore.
-    setSubmitted(true);
+    try {
+      setSubmitting(true);
+
+      // ✅ Collection-ka "Admissions" — document id-giisu waa magaca
+      // ardayga uu waalidku soo qoray (marka mid isku magac ah horeba jiro,
+      // waxaan ku daraynaa taariikh/waqti si document-ku u kala duwanaado).
+      const cleanName = form.studentName.trim().replace(/\s+/g, " ");
+      const docId = `${cleanName}_${Date.now()}`;
+
+      await setDoc(doc(db, "Admissions", docId), {
+        studentName: form.studentName,
+        dob: form.dob,
+        desiredClass: form.desiredClass,
+        previousSchool: form.previousSchool,
+        parentName: form.parentName,
+        parentPhone: form.parentPhone,
+        parentEmail: form.parentEmail,
+        address: form.address,
+        notes: form.notes,
+        status: "Pending",
+        submittedAt: new Date(),
+      });
+
+      setSubmitted(true);
+    } catch (err) {
+      console.log(err);
+      alert(
+        "Khalad ayaa dhacay markii codsigaaga la kaydinayay. Fadlan mar kale isku day."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const resetForm = () => {
@@ -312,8 +345,16 @@ export default function Admissions() {
                   />
                 </div>
 
-                <button type="submit" className="adm-submit-btn">
-                  Submit Application
+                <button
+                  type="submit"
+                  className="adm-submit-btn"
+                  disabled={submitting}
+                  style={{
+                    opacity: submitting ? 0.7 : 1,
+                    cursor: submitting ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {submitting ? "Kaydinaya..." : "Submit Application"}
                 </button>
               </form>
             )}

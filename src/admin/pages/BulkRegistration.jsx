@@ -49,8 +49,6 @@ export default function BulkRegistration() {
     setStudents([...students, emptyRow()]);
   };
 
-  // Kaliya field-ka ugu dambeeya (Student Photo) ayaa row cusub keeni kara
-  // marka la taabto Enter ama Tab, sida macallinka uu isku daba wado.
   const handleLastFieldKeyDown = (index, e) => {
     const isLastRow = index === students.length - 1;
     if (!isLastRow) return;
@@ -94,8 +92,14 @@ export default function BulkRegistration() {
     setStudents(data);
   };
 
-  // Dhammaan macalimiinta fasalkan (className) leh ayaa loo daraa liiskooda
-  // ardayda, kaliya studentId + fullName.
+  // ✅ Parent Phone iyo Student Phone — lambar keliya (0-9) ayaa la ogolaanayaa
+  const handlePhoneChange = (index, field, value) => {
+    const digitsOnly = value.replace(/[^0-9]/g, "");
+    const data = [...students];
+    data[index][field] = digitsOnly;
+    setStudents(data);
+  };
+
   const attachStudentToClassTeachers = async (
     teachersSnap,
     className,
@@ -118,30 +122,77 @@ export default function BulkRegistration() {
     }
   };
 
+  // ✅ Hubinta xogta safka hore intaan la kaydin — sawirka + lambarrada
+  const validateStudents = () => {
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i];
+      const rowLabel = `Safka ${i + 1}`;
+
+      if (!s.fullName.trim()) {
+        alert(`${rowLabel}: Fadlan geli Magaca Ardayga`);
+        return false;
+      }
+
+      if (!s.className) {
+        alert(`${rowLabel}: Fadlan dooro Class`);
+        return false;
+      }
+
+      if (s.feeType === "Paid" && !String(s.monthlyFee).trim()) {
+        alert(`${rowLabel}: Fadlan geli Qiimaha Fee-ga bishii (Paid)`);
+        return false;
+      }
+
+      if (s.parentPhone && !/^\d+$/.test(s.parentPhone)) {
+        alert(`${rowLabel}: Parent Phone waa inuu ahaadaa lambar keliya (numbers only)`);
+        return false;
+      }
+
+      if (s.studentPhone && !/^\d+$/.test(s.studentPhone)) {
+        alert(`${rowLabel}: Student Phone waa inuu ahaadaa lambar keliya (numbers only)`);
+        return false;
+      }
+
+      // ✅ Sawirka ardayga waa waajib — marnaba lama tagi karo qaybtan
+      if (!s.studentPhoto) {
+        alert(`${rowLabel}: Fadlan soo dooro Sawirka Ardayga — waa waajib`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const saveStudents = async () => {
     try {
+      // ✅ Ka hor inta aan wax la kaydin, hubi dhammaan safafka
+      if (!validateStudents()) return;
+
       setSaving(true);
       const saved = [];
 
-      // Load teachers once, isticmaal isla liiska dhammaan safafka
+      // ✅ Sida ay ku jireen ardayda hore ee database-ka, si aan ID-yadu
+      // isugu daba socdaan oo aan wax laga tagin ama laba arday isku ID
+      // isku helin — waxaan halkan ka soo aqrinaynaa tirada ardayda jira.
+      const existingSnap = await getDocs(collection(db, "students"));
+      let nextIdNumber = existingSnap.size;
+
       const teachersSnap = await getDocs(collection(db, "teachers"));
 
       for (let i = 0; i < students.length; i++) {
         const student = students[i];
 
-        const studentId = String(i + 1).padStart(4, "0");
+        nextIdNumber += 1;
+        const studentId = String(nextIdNumber).padStart(4, "0");
 
         let photoURL = "";
-        if (student.studentPhoto) {
-          const photoRef = ref(
-            storage,
-            `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
-          );
+        const photoRef = ref(
+          storage,
+          `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
+        );
 
-          await uploadBytes(photoRef, student.studentPhoto);
+        await uploadBytes(photoRef, student.studentPhoto);
 
-          photoURL = await getDownloadURL(photoRef);
-        }
+        photoURL = await getDownloadURL(photoRef);
 
         const finalMonthlyFee = student.feeType === "Free" ? "0" : student.monthlyFee;
 
@@ -176,7 +227,6 @@ export default function BulkRegistration() {
           monthlyFee: finalMonthlyFee,
         });
 
-        // ✅ Isla marka ardayga la kaydiyo, si toos ah u samee ID Card-kiisa.
         await setDoc(doc(db, "studentIdCards", studentId), {
           studentId,
           fullName: student.fullName,
@@ -208,6 +258,10 @@ export default function BulkRegistration() {
 
       setSavedStudents(saved);
       setShowPopup(true);
+
+      // ✅ Marka la kaydiyo si guul leh, jaddwalka waa in uu mar kale
+      // ka bilaabmaa xog cusub oo faaruq ah — safkii hore lama arki doono mar dambe
+      setStudents([emptyRow()]);
     } catch (err) {
       console.log(err);
       alert(err.message);
@@ -275,7 +329,7 @@ export default function BulkRegistration() {
                 <th style={th}>Previous School</th>
                 <th style={th}>Orphan Status</th>
                 <th style={th}>Parent Password</th>
-                <th style={th}>Student Photo</th>
+                <th style={th}>Student Photo *</th>
                 <th style={{ ...th, textAlign: "center" }}></th>
               </tr>
             </thead>
@@ -359,10 +413,13 @@ export default function BulkRegistration() {
                   <td style={td}>
                     <input
                       style={input}
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="61xxxxxxx"
                       value={student.parentPhone}
                       onChange={(e) =>
-                        handleChange(index, "parentPhone", e.target.value)
+                        handlePhoneChange(index, "parentPhone", e.target.value)
                       }
                     />
                   </td>
@@ -370,10 +427,13 @@ export default function BulkRegistration() {
                   <td style={td}>
                     <input
                       style={input}
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       placeholder="61xxxxxxx"
                       value={student.studentPhone}
                       onChange={(e) =>
-                        handleChange(index, "studentPhone", e.target.value)
+                        handlePhoneChange(index, "studentPhone", e.target.value)
                       }
                     />
                   </td>
@@ -430,17 +490,19 @@ export default function BulkRegistration() {
                         display: "flex",
                         alignItems: "center",
                         gap: 6,
-                        color: "#8b87ad",
+                        color: student.studentPhoto ? "#4ade80" : "#f87171",
                         fontSize: 12,
                         cursor: "pointer",
-                        border: "1px dashed rgba(139,108,245,0.4)",
+                        border: student.studentPhoto
+                          ? "1px solid rgba(74,222,128,0.4)"
+                          : "1px dashed #f87171",
                         borderRadius: 8,
                         padding: "7px 9px",
                         whiteSpace: "nowrap",
                       }}
                     >
-                      <Upload size={13} color="#8b6cf5" />
-                      {student.studentPhoto ? student.studentPhoto.name.slice(0, 10) + "…" : "Upload"}
+                      <Upload size={13} color={student.studentPhoto ? "#4ade80" : "#f87171"} />
+                      {student.studentPhoto ? student.studentPhoto.name.slice(0, 10) + "…" : "Upload *"}
                       <input
                         type="file"
                         accept="image/*"
@@ -548,7 +610,13 @@ export default function BulkRegistration() {
             </div>
 
             <button
-              onClick={() => navigate("/admin/students")}
+              onClick={() => {
+                // ✅ Marka la aado bogga ardayda, popup-ka xir oo
+                // savedStudents nadiifi si booqasho dambe uusan u muuqan
+                setShowPopup(false);
+                setSavedStudents([]);
+                navigate("/admin/students");
+              }}
               style={{ ...btnPrimary, width: "100%", marginTop: 22, justifyContent: "center" }}
             >
               Go To Students
