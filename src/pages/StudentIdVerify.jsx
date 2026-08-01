@@ -1,39 +1,39 @@
-// src/pages/TeacherVerify.jsx
-// Public page a Teacher ID card's QR code links to. Reads the teacher's
-// snapshot straight from `teacher_id/{teacherUsername}` (the same
-// persistent record TeacherIdCard.jsx creates at issue time) and renders
+// src/pages/StudentIdVerify.jsx
+// Public page a Student ID card's QR code links to. Reads the student's
+// snapshot straight from `studentIdCards/{studentId}` (the same
+// persistent record StudentIdCard.jsx creates at issue time) and renders
 // the exact same front + back card design — no login required.
 
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
-import TeacherIdCard from "../teacher/TeacherIdCard";
+import StudentIdCard from "../student/StudentIdCard";
 
-export default function TeacherVerify() {
-  const { teacherUsername } = useParams();
-  const [teacher, setTeacher] = useState(null);
+export default function StudentIdVerify() {
+  const { studentId } = useParams();
+  const [student, setStudent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
-        const snap = await getDoc(doc(db, "teacher_id", teacherUsername));
+        const snap = await getDoc(doc(db, "studentIdCards", studentId));
         if (snap.exists()) {
-          setTeacher(snap.data());
+          setStudent(snap.data());
         } else {
           setNotFound(true);
         }
       } catch (err) {
-        console.error("Failed to load teacher ID card:", err);
+        console.error("Failed to load student ID card:", err);
         setNotFound(true);
       } finally {
         setLoading(false);
       }
     }
-    if (teacherUsername) load();
-  }, [teacherUsername]);
+    if (studentId) load();
+  }, [studentId]);
 
   return (
     <div
@@ -53,19 +53,15 @@ export default function TeacherVerify() {
         <div style={{ textAlign: "center", color: "#fff" }}>
           <h2 style={{ margin: 0, fontSize: 20 }}>ID Card lama helin</h2>
           <p style={{ color: "#8b97b0", fontSize: 13.5, marginTop: 8 }}>
-            Username-kan macallinka lama helin xogta school-ka.
+            Lambarka Student ID-gan lama helin xogta school-ka.
           </p>
         </div>
       ) : (
         <>
           <div style={{ color: "#fff", marginBottom: 8, fontSize: 13, opacity: 0.7 }}>
-            Rising Star School — Official Teacher ID Verification
+            Rising Star School — Official Student ID Verification
           </div>
-          <TeacherIdCard
-            teacher={teacher}
-            teacherUsername={teacherUsername}
-            readOnly
-          />
+          <StudentIdCard student={student} studentId={studentId} />
         </>
       )}
     </div>

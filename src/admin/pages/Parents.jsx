@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
-import { Search, Users } from "lucide-react";
+import { Search, Users, User } from "lucide-react";
 
 export default function Parents() {
   const [parents, setParents] = useState([]);
@@ -52,9 +52,17 @@ export default function Parents() {
   // U shaqeeya si dabacsan: haddii payments/{studentId} yahay hal document
   // leh 'amountPaid', ama haddii uu leeyahay liis 'entries'/'history' oo
   // dhammaantood la isku daro.
+  //
+  // Ardayda "Free" ah (monthlyFee === 0) marwalba waa "Full Paid" —
+  // wax lacag ah kama laha school-ka, sidaas darteed ma xiisayn karto
+  // in ay lahaadaan payments record, xitaa haddii aan mid la sameyn.
   function getPaymentInfo(studentId, monthlyFee) {
     const record = payments[studentId];
     const fee = Number(monthlyFee) || 0;
+
+    if (fee === 0) {
+      return { paidTotal: 0, remaining: 0, status: "Full Paid" };
+    }
 
     let paidTotal = 0;
 
@@ -81,9 +89,8 @@ export default function Parents() {
     const remaining = Math.max(fee - paidTotal, 0);
 
     let status = "Unpaid";
-    if (fee > 0 && paidTotal >= fee) status = "Paid";
+    if (paidTotal >= fee) status = "Full Paid";
     else if (paidTotal > 0 && paidTotal < fee) status = "Partial";
-    else if (fee === 0 && record) status = "Paid";
 
     return { paidTotal, remaining, status };
   }
@@ -101,7 +108,7 @@ export default function Parents() {
   }, [parents, search]);
 
   const statusStyle = (status) => {
-    if (status === "Paid")
+    if (status === "Full Paid")
       return { color: "#4ade80", background: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.35)" };
     if (status === "Partial")
       return { color: "#f59e0b", background: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.35)" };
@@ -126,9 +133,10 @@ export default function Parents() {
       </div>
 
       <div style={{ overflowX: "auto", borderRadius: 16, border: "1px solid rgba(139,108,245,0.2)" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1150 }}>
           <thead>
             <tr style={{ background: "rgba(139,108,245,0.1)" }}>
+              <th style={th}>Photo</th>
               <th style={th}>Student ID</th>
               <th style={th}>Student Name</th>
               <th style={th}>Class</th>
@@ -145,13 +153,13 @@ export default function Parents() {
           <tbody>
             {loading ? (
               <tr>
-                <td style={td} colSpan={10}>
+                <td style={td} colSpan={11}>
                   <span style={{ color: "#8b87ad" }}>Loading...</span>
                 </td>
               </tr>
             ) : filtered.length === 0 ? (
               <tr>
-                <td style={td} colSpan={10}>
+                <td style={td} colSpan={11}>
                   <span style={{ color: "#8b87ad" }}>Wax arday ah lama helin.</span>
                 </td>
               </tr>
@@ -165,6 +173,36 @@ export default function Parents() {
 
                 return (
                   <tr key={item.id}>
+                    <td style={td}>
+                      {item.studentPhoto ? (
+                        <img
+                          src={item.studentPhoto}
+                          alt={item.fullName}
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: "50%",
+                            objectFit: "cover",
+                            border: "1px solid rgba(139,108,245,0.3)",
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: "50%",
+                            background: "rgba(139,108,245,0.12)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "#8b87ad",
+                          }}
+                        >
+                          <User size={17} />
+                        </div>
+                      )}
+                    </td>
                     <td style={td}>{item.studentId}</td>
                     <td style={{ ...td, color: "#fff", fontWeight: 600 }}>{item.fullName}</td>
                     <td style={td}>{item.className}</td>

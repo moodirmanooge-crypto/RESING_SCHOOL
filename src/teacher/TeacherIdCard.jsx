@@ -13,13 +13,16 @@
 // On first view (if no card doc exists yet), the full teacher record is
 // duplicated into the `teacher_id` Firestore collection, keyed by the
 // teacher's username, so issued cards have their own persistent snapshot.
+// This write only happens when `readOnly` is false (i.e. the teacher's own
+// authenticated Profile page) — public verify views never attempt to
+// write to Firestore.
 //
 // QR CODE: encodes the school's public verify page
-// (https://risingstarschools.com/verify/teacher/{teacherUsername}) — NOT
+// (https://resingstarschools.com/verify/teacher/{teacherUsername}) — NOT
 // just the bare website. Scanning it opens TeacherVerify.jsx, which reads
-// the teacher_id/{teacherUsername} snapshot from Firestore and displays
-// the full ID card details (name, subject, phone, photo, joining date) —
-// exactly the same info printed on the card itself.
+// the teacher_id/{teacherUsername} snapshot from Firestore and renders
+// this exact same component (with readOnly) — same design, same data,
+// no login required.
 
 import { useEffect, useState } from "react";
 import {
@@ -37,7 +40,7 @@ const SCHOOL = {
   name2: "PRIMARY & SECONDARY",
   name3: "SCHOOL",
   tagline: "Teaching Today, Transforming Tomorrow",
-  website: "risingstarschools.com",
+  website: "resingstarschools.com",
   location: "Mogadishu, Somalia",
   noticeTell: "+252 61 7390261",
   noticeEmail: "risingstar0261@gmail.com",
@@ -638,18 +641,24 @@ function CardBack({ teacherUsername }) {
   );
 }
 
-// Teacher self-view: front + back only, no print/export control.
-// Nothing in this component lets the signed-in teacher download,
-// print, or otherwise take a copy of their own ID card — it is
-// view-only on their Profile page.
-export default function TeacherIdCard({ teacher, teacherUsername }) {
+// Teacher self-view (readOnly = false, default): front + back only, no
+// print/export control. Nothing here lets the signed-in teacher
+// download, print, or otherwise take a copy of their own ID card — it
+// is view-only on their Profile page.
+//
+// Public verify view (readOnly = true): used by TeacherVerify.jsx when
+// the QR code is scanned. Skips the Firestore write entirely, since an
+// anonymous visitor should never attempt to create/update teacher_id
+// records — it only ever reads and displays the snapshot it was handed.
+export default function TeacherIdCard({ teacher, teacherUsername, readOnly = false }) {
   // Duplicate the full teacher record into `teacher_id/{teacherUsername}`
   // the first time this card is viewed, so each issued card has its own
   // persistent snapshot independent of later edits to the original
   // teacher record. This is also the exact record TeacherVerify.jsx reads
-  // when the QR code is scanned.
+  // when the QR code is scanned. Only runs for the teacher's own
+  // authenticated self-view (readOnly === false).
   useEffect(() => {
-    if (!teacherUsername || !teacher) return;
+    if (readOnly || !teacherUsername || !teacher) return;
 
     let cancelled = false;
 
@@ -673,7 +682,7 @@ export default function TeacherIdCard({ teacher, teacherUsername }) {
     return () => {
       cancelled = true;
     };
-  }, [teacherUsername, teacher]);
+  }, [teacherUsername, teacher, readOnly]);
 
   return (
     <div>

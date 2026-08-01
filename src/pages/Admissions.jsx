@@ -3,8 +3,9 @@ import { useState } from "react";
 import "../styles/admissions.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
-import { db } from "../firebase/firebase";
+import { db, storage } from "../firebase/firebase";
 import { doc, setDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const SUPPORT_WHATSAPP = "252617390261";
 const SUPPORT_EMAIL = "risingstar0261@gmail.com";
@@ -64,18 +65,22 @@ const classOptions = [
   "Form 4",
 ];
 
+const emptyForm = {
+  studentName: "",
+  studentPhone: "",
+  dob: "",
+  desiredClass: "",
+  previousSchool: "",
+  parentName: "",
+  parentPhone: "",
+  address: "",
+  notes: "",
+};
+
 export default function Admissions() {
-  const [form, setForm] = useState({
-    studentName: "",
-    dob: "",
-    desiredClass: "",
-    previousSchool: "",
-    parentName: "",
-    parentPhone: "",
-    parentEmail: "",
-    address: "",
-    notes: "",
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [photo, setPhoto] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -83,39 +88,75 @@ export default function Admissions() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
+  const handlePhoneChange = (e) => {
+    const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 9);
+    setForm({ ...form, [e.target.name]: digitsOnly });
+  };
+
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setPhoto(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (
-      !form.studentName.trim() ||
-      !form.desiredClass ||
-      !form.parentPhone.trim()
-    ) {
-      alert(
-        "Fadlan buuxi meelaha muhiimka ah: Magaca ardayga, Fasalka, iyo Telefoonka waalidka."
-      );
+    if (!form.studentName.trim()) {
+      alert("Fadlan geli Magaca Ardayga.");
+      return;
+    }
+    if (!form.desiredClass) {
+      alert("Fadlan dooro Fasalka.");
+      return;
+    }
+    if (!form.dob) {
+      alert("Fadlan geli Taariikhda Dhalashada.");
+      return;
+    }
+    if (!form.studentPhone || form.studentPhone.length !== 9) {
+      alert("Fadlan geli Telefoonka Ardayga oo ah 9 lambar (tiro oo kaliya).");
+      return;
+    }
+    if (!form.parentName.trim()) {
+      alert("Fadlan geli Magaca Waalidka.");
+      return;
+    }
+    if (!form.parentPhone || form.parentPhone.length !== 9) {
+      alert("Fadlan geli Telefoonka Waalidka oo ah 9 lambar (tiro oo kaliya).");
+      return;
+    }
+    if (!form.address.trim()) {
+      alert("Fadlan geli Cinwaanka/Degmada.");
+      return;
+    }
+    if (!photo) {
+      alert("Fadlan soo geli sawirka ardayga.");
       return;
     }
 
     try {
       setSubmitting(true);
 
-      // ✅ Collection-ka "Admissions" — document id-giisu waa magaca
-      // ardayga uu waalidku soo qoray (marka mid isku magac ah horeba jiro,
-      // waxaan ku daraynaa taariikh/waqti si document-ku u kala duwanaado).
       const cleanName = form.studentName.trim().replace(/\s+/g, " ");
       const docId = `${cleanName}_${Date.now()}`;
 
+      const photoRef = ref(storage, `admissions/${docId}/${Date.now()}_${photo.name}`);
+      await uploadBytes(photoRef, photo);
+      const photoUrl = await getDownloadURL(photoRef);
+
       await setDoc(doc(db, "Admissions", docId), {
         studentName: form.studentName,
+        studentPhone: form.studentPhone,
         dob: form.dob,
         desiredClass: form.desiredClass,
         previousSchool: form.previousSchool,
         parentName: form.parentName,
         parentPhone: form.parentPhone,
-        parentEmail: form.parentEmail,
         address: form.address,
         notes: form.notes,
+        studentPhoto: photoUrl,
         status: "Pending",
         submittedAt: new Date(),
       });
@@ -133,17 +174,9 @@ export default function Admissions() {
 
   const resetForm = () => {
     setSubmitted(false);
-    setForm({
-      studentName: "",
-      dob: "",
-      desiredClass: "",
-      previousSchool: "",
-      parentName: "",
-      parentPhone: "",
-      parentEmail: "",
-      address: "",
-      notes: "",
-    });
+    setForm(emptyForm);
+    setPhoto(null);
+    setPhotoPreview(null);
   };
 
   return (
@@ -244,11 +277,29 @@ export default function Admissions() {
             ) : (
               <form className="adm-form" onSubmit={handleSubmit}>
                 <div className="adm-form-section-label">
+                  Sawirka Ardayga (waajib)
+                </div>
+                <label htmlFor="studentPhoto" className="adm-photo-input">
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="" />
+                  ) : (
+                    <span>Riix si aad sawir uga soo dooratid</span>
+                  )}
+                </label>
+                <input
+                  id="studentPhoto"
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoChange}
+                  style={{ display: "none" }}
+                />
+
+                <div className="adm-form-section-label">
                   Student Information
                 </div>
                 <div className="adm-form-grid">
                   <div className="adm-field">
-                    <label>Student Full Name *</label>
+                    <label>Student Full Name (waajib)</label>
                     <input
                       name="studentName"
                       value={form.studentName}
@@ -257,7 +308,18 @@ export default function Admissions() {
                     />
                   </div>
                   <div className="adm-field">
-                    <label>Date of Birth</label>
+                    <label>Student Phone Number (waajib)</label>
+                    <input
+                      name="studentPhone"
+                      inputMode="numeric"
+                      value={form.studentPhone}
+                      onChange={handlePhoneChange}
+                      placeholder="61xxxxxxx"
+                      maxLength={9}
+                    />
+                  </div>
+                  <div className="adm-field">
+                    <label>Date of Birth (waajib)</label>
                     <input
                       type="date"
                       name="dob"
@@ -266,7 +328,7 @@ export default function Admissions() {
                     />
                   </div>
                   <div className="adm-field">
-                    <label>Desired Class *</label>
+                    <label>Desired Class (waajib)</label>
                     <select
                       name="desiredClass"
                       value={form.desiredClass}
@@ -281,12 +343,12 @@ export default function Admissions() {
                     </select>
                   </div>
                   <div className="adm-field">
-                    <label>Previous School</label>
+                    <label>Previous School (waajib)</label>
                     <input
                       name="previousSchool"
                       value={form.previousSchool}
                       onChange={handleChange}
-                      placeholder="Optional"
+                      placeholder="Dugsigii hore"
                     />
                   </div>
                 </div>
@@ -296,7 +358,7 @@ export default function Admissions() {
                 </div>
                 <div className="adm-form-grid">
                   <div className="adm-field">
-                    <label>Parent / Guardian Name</label>
+                    <label>Parent / Guardian Name (waajib)</label>
                     <input
                       name="parentName"
                       value={form.parentName}
@@ -305,26 +367,18 @@ export default function Admissions() {
                     />
                   </div>
                   <div className="adm-field">
-                    <label>Phone Number *</label>
+                    <label>Parent Phone Number (waajib)</label>
                     <input
                       name="parentPhone"
+                      inputMode="numeric"
                       value={form.parentPhone}
-                      onChange={handleChange}
+                      onChange={handlePhoneChange}
                       placeholder="61xxxxxxx"
+                      maxLength={9}
                     />
                   </div>
                   <div className="adm-field">
-                    <label>Email</label>
-                    <input
-                      type="email"
-                      name="parentEmail"
-                      value={form.parentEmail}
-                      onChange={handleChange}
-                      placeholder="Optional"
-                    />
-                  </div>
-                  <div className="adm-field">
-                    <label>Address</label>
+                    <label>Address (waajib)</label>
                     <input
                       name="address"
                       value={form.address}

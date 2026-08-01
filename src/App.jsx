@@ -70,11 +70,13 @@ import AllIdCards from "./admin/pages/AllIdCards";
 import VerifyCertificate from "./pages/VerifyCertificate";
 import TeacherVerify from "./pages/TeacherVerify";
 import PendingDeletions from "./admin/pages/Pendingdeletions";
+import StudentIdVerify from "./pages/StudentIdVerify";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/verify/student/:studentId" element={<StudentIdVerify />} />
         <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
         <Route path="/" element={<Home />} />
         <Route path="/about" element={<About />} />

@@ -5,13 +5,25 @@
 // Selecting a row opens that card (front + back) with Print (native
 // browser print dialog) and Download (PNG via html2canvas) controls.
 //
-// DELETE support (added):
+// STRICT SOURCE-OF-TRUTH FILTER (added):
+//   - A studentIdCards/{id} card is only ever shown if its studentId
+//     still exists as a real document in the `students` collection.
+//     Cards for a studentId that has no matching students doc at all
+//     (not even a pendingDeletion one — fully absent from Firestore)
+//     are never read into the list.
+//   - Same for teacher_id/{id}: only shown if that id still exists as a
+//     real document in the `teachers` collection. A teacher_id record
+//     with no matching teachers doc is never shown.
+//   - This is on top of (not instead of) the existing pendingDeletion
+//     hide-immediately behavior below.
+//
+// DELETE support:
 //   - Checkbox column per row + "select all" checkbox in header
 //   - "Delete Selected" bulk-delete button (shows count, asks confirmation)
 //   - Single "Delete" button inside the selected-card preview panel
 //   - Deletes go straight to Firestore: studentIdCards/{id} or teacher_id/{id}
 //
-// PENDING DELETION support (added):
+// PENDING DELETION support:
 //   - Student ID cards belonging to a student currently marked
 //     pendingDeletion (in the `students` collection) are hidden from this
 //     list immediately, even though studentIdCards/{id} itself is not
@@ -75,47 +87,53 @@ export default function AllIdCards() {
   async function fetchAllCards() {
     try {
       setLoading(true);
-      const [studentSnap, teacherSnap, pendingStudentsSnap, pendingTeachersSnap] = await Promise.all([
+      const [studentCardSnap, teacherCardSnap, studentsSnap, teachersSnap] = await Promise.all([
         getDocs(collection(db, "studentIdCards")),
         getDocs(collection(db, "teacher_id")),
-        // Loo baahan yahay si loo hubiyo studentId-yada ardayda hadda
-        // sugaya in la tirtiro (pendingDeletion: true) oo aan lahayn
-        // pendingDeletion field studentIdCards document-kooda gudihiisa.
+        // Source of truth for which studentIds are real, live records —
+        // both for the pendingDeletion check AND the "must still exist
+        // at all" check below.
         getDocs(collection(db, "students")),
-        // Isla sababtaas: teacher_id docs-ku ma haystaan pendingDeletion,
-        // waxay ku jirtaa document-ka macalinka ee "teachers" collection-ka.
-        // teacher_id doc id-gu wuxuu la mid yahay teachers doc id-ga
-        // (username), sidaas darteed waa la is barbar dhigi karaa si toos ah.
+        // Source of truth for which teacher_id doc ids are real, live
+        // teacher records — teacher_id doc id == teachers doc id (username).
         getDocs(collection(db, "teachers")),
       ]);
 
-      // Set ah studentId-yada ardayda pendingDeletion ah — waxaa loo
-      // isticmaalayaa in card-yadooda si toos ah looga qariyo liiska,
-      // xitaa haddii backend-ku uusan weli si buuxda uga tirtirin
-      // Firestore.
-      const pendingStudentIds = new Set(
-        pendingStudentsSnap.docs
-          .map((d) => d.data())
-          .filter((s) => s.pendingDeletion)
-          .map((s) => s.studentId)
-      );
+      // Every studentId that currently has a real document in `students`,
+      // and separately, the subset of those marked pendingDeletion.
+      const liveStudentIds = new Set();
+      const pendingStudentIds = new Set();
+      studentsSnap.docs.forEach((d) => {
+        const data = d.data();
+        if (data.studentId) {
+          liveStudentIds.add(data.studentId);
+          if (data.pendingDeletion) pendingStudentIds.add(data.studentId);
+        }
+      });
 
-      // Set ah teacher doc id-yada (== username) ee pendingDeletion ah —
-      // isla mabda'a: card-kooda toos ahaan waa laga qariyaa liiska.
+      // Every teacher doc id currently live in `teachers`, and the
+      // subset marked pendingDeletion.
+      const liveTeacherIds = new Set(teachersSnap.docs.map((d) => d.id));
       const pendingTeacherIds = new Set(
-        pendingTeachersSnap.docs
-          .filter((d) => d.data().pendingDeletion)
-          .map((d) => d.id)
+        teachersSnap.docs.filter((d) => d.data().pendingDeletion).map((d) => d.id)
       );
 
       setStudents(
-        studentSnap.docs
+        studentCardSnap.docs
           .map((d) => ({ id: d.id, type: "student", ...d.data() }))
+          // Kaliya card-yada studentId-gooda uu weli si dhab ah ugu jiro
+          // `students` collection-ka — haddii studentId-gu gebi ahaanba
+          // Firestore-ka lagama helin, card-kan marnaba lama soo aqrin.
+          .filter((s) => liveStudentIds.has(s.studentId))
           .filter((s) => !pendingStudentIds.has(s.studentId))
       );
       setTeachers(
-        teacherSnap.docs
+        teacherCardSnap.docs
           .map((d) => ({ id: d.id, type: "teacher", ...d.data() }))
+          // Kaliya card-yada macallinkooda uu weli si dhab ah ugu jiro
+          // `teachers` collection-ka — haddii doc id-gu gebi ahaanba
+          // Firestore-ka lagama helin, card-kan marnaba lama soo aqrin.
+          .filter((t) => liveTeacherIds.has(t.id))
           .filter((t) => !pendingTeacherIds.has(t.id))
       );
     } catch (err) {

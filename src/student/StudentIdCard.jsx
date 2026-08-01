@@ -450,13 +450,8 @@ function CardFront({ student, studentId, issued, expiry }) {
 }
 
 function CardBack({ student, studentId }) {
-  const qrRawData = JSON.stringify({
-    studentId: studentId || "",
-    fullName: student?.fullName || "",
-    className: student?.className || "",
-    shift: student?.shift || student?.classShift || "",
-  });
-  const qrValue = encodeURIComponent(qrRawData);
+  const verifyUrl = `${window.location.origin}/verify/student/${studentId}`;
+  const qrValue = encodeURIComponent(verifyUrl);
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&margin=0&data=${qrValue}`;
 
   return (

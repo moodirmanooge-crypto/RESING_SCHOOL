@@ -36,6 +36,17 @@ import {
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 
+// Different registration flows over time have saved the photo URL under
+// slightly different field names (studentPhoto is current, but photoUrl
+// / photo show up on some older records) — check all of them, and trim
+// stray whitespace some records picked up (e.g. a trailing space after
+// the URL), which otherwise breaks the browser's ability to load it.
+function getStudentPhotoUrl(student) {
+  const raw =
+    student.studentPhoto || student.photoUrl || student.photo || "";
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
 export default function Students() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -91,9 +102,9 @@ export default function Students() {
       previousSchool: student.previousSchool || "",
       orphanStatus: student.orphanStatus || "No",
       parentPassword: student.parentPassword || "",
-      studentPhoto: student.studentPhoto || "",
+      studentPhoto: getStudentPhotoUrl(student),
     });
-    setPhotoPreview(student.studentPhoto || null);
+    setPhotoPreview(getStudentPhotoUrl(student) || null);
     setPhotoFile(null);
   }
 
@@ -141,7 +152,7 @@ export default function Students() {
           `students/${selectedStudent.studentId}/${Date.now()}_${photoFile.name}`
         );
         await uploadBytes(photoRef, photoFile);
-        photoUrl = await getDownloadURL(photoRef);
+        photoUrl = (await getDownloadURL(photoRef)).trim();
       }
 
       const updatedFields = {
@@ -257,52 +268,74 @@ export default function Students() {
               <p style={{ color: "#8b87ad" }}>Wax arday ah lama helin.</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredStudents.map((student) => (
-                  <div key={student.id} style={studentRow}>
-                    <div
-                      style={{
-                        width: 46,
-                        height: 46,
-                        minWidth: 46,
-                        borderRadius: "50%",
-                        background: student.studentPhoto
-                          ? `url(${student.studentPhoto}) center/cover`
-                          : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: 15,
-                      }}
-                    >
-                      {!student.studentPhoto &&
-                        (student.fullName || "?").slice(0, 2).toUpperCase()}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 160 }}>
-                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
-                        {student.fullName || "—"}
+                {filteredStudents.map((student) => {
+                  const photoUrl = getStudentPhotoUrl(student);
+                  return (
+                    <div key={student.id} style={studentRow}>
+                      {photoUrl ? (
+                        <img
+                          src={photoUrl}
+                          alt={student.fullName || "Student"}
+                          style={{
+                            width: 46,
+                            height: 46,
+                            minWidth: 46,
+                            borderRadius: "50%",
+                            objectFit: "cover",
+                            display: "block",
+                          }}
+                          onError={(e) => {
+                            // If the stored URL is broken/unreachable,
+                            // fall back to the initials avatar instead
+                            // of a permanently broken image icon.
+                            e.currentTarget.style.display = "none";
+                            e.currentTarget.nextSibling.style.display =
+                              "flex";
+                          }}
+                        />
+                      ) : null}
+                      <div
+                        style={{
+                          width: 46,
+                          height: 46,
+                          minWidth: 46,
+                          borderRadius: "50%",
+                          background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                          display: photoUrl ? "none" : "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: 15,
+                        }}
+                      >
+                        {(student.fullName || "?").slice(0, 2).toUpperCase()}
                       </div>
-                      <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
-                        ID: {student.studentId || "—"}
+
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
+                          {student.fullName || "—"}
+                        </div>
+                        <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
+                          ID: {student.studentId || "—"}
+                        </div>
+                      </div>
+
+                      <span style={tag}>Class {student.className || "—"}</span>
+                      <span style={tag}>{student.studentPhone || "—"}</span>
+                      <span style={tag}>${student.monthlyFee || "0"}/bishii</span>
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => openEdit(student)} style={iconBtnEdit}>
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => deleteStudent(student)} style={iconBtnDelete}>
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </div>
-
-                    <span style={tag}>Class {student.className || "—"}</span>
-                    <span style={tag}>{student.studentPhone || "—"}</span>
-                    <span style={tag}>${student.monthlyFee || "0"}/bishii</span>
-
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => openEdit(student)} style={iconBtnEdit}>
-                        <Pencil size={15} />
-                      </button>
-                      <button onClick={() => deleteStudent(student)} style={iconBtnDelete}>
-                        <Trash2 size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
