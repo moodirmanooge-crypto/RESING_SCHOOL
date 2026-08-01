@@ -1,0 +1,331 @@
+/* src/styles/admissions.css */
+.adm-page {
+  min-height: 100vh;
+  background: var(--rs-bg, #f6f8fa);
+  color: var(--rs-ink, #111827);
+}
+
+.adm-hero {
+  background: linear-gradient(135deg, #0a2e22, #14532d);
+  padding: 48px clamp(16px, 4vw, 48px) 40px;
+  text-align: center;
+  color: #fff;
+}
+
+.adm-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.adm-hero-title {
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 900;
+  margin: 0 0 10px;
+}
+
+.adm-hero-sub {
+  font-size: 14.5px;
+  color: #d7e6dc;
+  max-width: 620px;
+  margin: 0 auto 18px;
+  line-height: 1.6;
+}
+
+.adm-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #22a05f;
+  color: #fff;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 8px 18px;
+  border-radius: 999px;
+}
+
+.adm-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+}
+
+.adm-content {
+  padding: 36px clamp(16px, 4vw, 48px) 50px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.adm-section-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #14532d;
+  margin: 0 0 20px;
+}
+
+.adm-steps-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 30px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  box-shadow: 0 6px 20px rgba(17, 24, 39, 0.06);
+  margin-bottom: 24px;
+}
+
+.adm-steps-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 18px;
+}
+
+.adm-step {
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.adm-step-num {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #e6f5ec;
+  color: #14532d;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.adm-step-title {
+  font-weight: 700;
+  font-size: 14.5px;
+  margin-bottom: 6px;
+}
+
+.adm-step-desc {
+  font-size: 12.5px;
+  color: #6b7280;
+  line-height: 1.5;
+}
+
+.adm-main-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.adm-form-card,
+.adm-side-card {
+  background: #fff;
+  border-radius: 20px;
+  padding: 28px 30px;
+  border: 1px solid rgba(17, 24, 39, 0.08);
+  box-shadow: 0 6px 20px rgba(17, 24, 39, 0.06);
+}
+
+.adm-form-section-label {
+  font-weight: 800;
+  font-size: 13px;
+  color: #14532d;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 18px 0 12px;
+}
+
+.adm-form-section-label:first-of-type {
+  margin-top: 0;
+}
+
+.adm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.adm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.adm-field-full {
+  margin-top: 18px;
+}
+
+.adm-field label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #374151;
+}
+
+.adm-field input,
+.adm-field select,
+.adm-field textarea {
+  border: 1.5px solid rgba(17, 24, 39, 0.12);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  color: #111827;
+  outline: none;
+  font-family: inherit;
+  background: #fff;
+}
+
+.adm-field input:focus,
+.adm-field select:focus,
+.adm-field textarea:focus {
+  border-color: #22a05f;
+}
+
+.adm-submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 22px;
+  background: #14532d;
+  color: #fff;
+  border: none;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 13px 26px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 10px 22px rgba(20, 83, 45, 0.25);
+}
+
+.adm-submit-btn:hover {
+  transform: translateY(-1px);
+}
+
+.adm-success {
+  text-align: center;
+  padding: 30px 10px;
+}
+
+.adm-success-icon {
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
+.adm-success h3 {
+  color: #14532d;
+  margin: 0 0 10px;
+}
+
+.adm-success p {
+  color: #6b7280;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 46ch;
+  margin: 0 auto 20px;
+}
+
+.adm-reset-btn {
+  border: 1.5px solid #22a05f;
+  color: #14532d;
+  background: #e6f5ec;
+  font-weight: 700;
+  font-size: 13px;
+  padding: 10px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.adm-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.adm-side-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #14532d;
+  margin: 0 0 14px;
+}
+
+.adm-doc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adm-doc-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.4;
+}
+
+.adm-doc-check {
+  color: #22a05f;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.adm-contact-card {
+  background: #e6f5ec;
+  border-color: rgba(20, 83, 45, 0.15);
+}
+
+.adm-side-text {
+  font-size: 13px;
+  color: #374151;
+  margin: 0 0 14px;
+  line-height: 1.5;
+}
+
+.adm-contact-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #14532d;
+  text-decoration: none;
+  padding: 10px 0;
+  border-top: 1px solid rgba(20, 83, 45, 0.12);
+}
+
+.adm-contact-link:first-of-type {
+  border-top: none;
+}
+
+@media (max-width: 1000px) {
+  .adm-steps-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .adm-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .adm-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .adm-steps-grid {
+    grid-template-columns: 1fr;
+  }
+  .adm-form-card,
+  .adm-side-card,
+  .adm-steps-card {
+    padding: 20px 18px;
+  }
+}

@@ -177,7 +177,6 @@ const NAV_ITEMS = [
   { key: "certificate", label: "Certificate", icon: "🎓" },
   { key: "timetable", label: "Timetable", icon: "🗓️" },
   { key: "examTimetable", label: "Exam Timetable", icon: "📝" },
-  { key: "results", label: "Results", icon: "📄" },
   { key: "attendance", label: "Attendance", icon: "📅" },
   { key: "payments", label: "Payments", icon: "💳" },
   { key: "messages", label: "Messages", icon: "💬" },
@@ -254,7 +253,6 @@ export default function StudentDashboard() {
   const studentId = localStorage.getItem("studentId");
 
   const [student, setStudent] = useState(null);
-  const [results, setResults] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [messages, setMessages] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -436,20 +434,6 @@ export default function StudentDashboard() {
       individualMsgs = [];
     }
 
-    // Live exam results feed — updates instantly when a teacher/admin adds a result
-    let unsubscribeResults = () => {};
-    try {
-      const resultsQ = query(
-        collection(db, "results"),
-        where("studentId", "==", studentId)
-      );
-      unsubscribeResults = onSnapshot(resultsQ, (snap) => {
-        setResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      });
-    } catch (e) {
-      setResults([]);
-    }
-
     // Live payments feed — updates instantly when the cashier records a payment
     let unsubscribe = () => {};
     try {
@@ -465,7 +449,6 @@ export default function StudentDashboard() {
     }
 
     return () => {
-      unsubscribeResults();
       unsubscribe();
       unsubscribeBroadcast();
       unsubscribeIndividual();
@@ -602,11 +585,6 @@ export default function StudentDashboard() {
                 label="Attendance rate"
                 value={attendanceRate !== null ? `${attendanceRate}%` : "No data"}
                 accent={COLORS.accent}
-              />
-              <StatCard
-                label="Exam results recorded"
-                value={results.length}
-                accent={COLORS.warn}
               />
               <StatCard
                 label="Total paid"
@@ -873,68 +851,6 @@ export default function StudentDashboard() {
                   </div>
                 );
               })()}
-            </section>
-          )}
-
-          {tab === "results" && (
-            <section className="rs-panel" style={styles.panel}>
-              <div style={styles.panelTitle}>Exam results — all classes</div>
-              {results.length === 0 ? (
-                <EmptyState text="No exam results have been recorded yet." />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                  {groupByClass(results).map(([className, classResults]) => (
-                    <div key={className}>
-                      <div style={styles.classGroupLabel}>Class {className}</div>
-                      <div className="rs-table-wrap">
-                        <table className="rs-table" style={styles.table}>
-                          <thead>
-                            <tr>
-                              <th style={styles.th}>Subject</th>
-                              <th style={styles.th}>Exam</th>
-                              <th style={styles.th}>Marks</th>
-                              <th style={styles.th}>%</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {classResults.map((r) => {
-                              const marks = Number(r.marks);
-                              const maxMarks = Number(r.maxMarks);
-                              const pct =
-                                !isNaN(marks) && maxMarks
-                                  ? Math.round((marks / maxMarks) * 100)
-                                  : null;
-                              return (
-                                <tr key={r.id}>
-                                  <td style={styles.td}>{r.subject || "—"}</td>
-                                  <td style={styles.td}>{r.examName || r.term || "—"}</td>
-                                  <td style={styles.td}>
-                                    {!isNaN(marks) ? `${marks} / ${maxMarks || "—"}` : "—"}
-                                  </td>
-                                  <td style={styles.td}>
-                                    {pct !== null ? (
-                                      <span
-                                        style={{
-                                          color: pct >= 50 ? COLORS.accent : COLORS.danger,
-                                          fontWeight: 600,
-                                        }}
-                                      >
-                                        {pct}%
-                                      </span>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </section>
           )}
 

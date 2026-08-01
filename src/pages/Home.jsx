@@ -6,165 +6,99 @@ import { Link } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { collection, getCountFromServer } from "firebase/firestore";
 import { db } from "../firebase/firebase";
+import {
+  Users,
+  UserCog,
+  Users2,
+  DollarSign,
+  Calendar,
+  BookOpen,
+  Award,
+  QrCode,
+  ClipboardList,
+} from "lucide-react";
 
-const ROLES = [
-  {
-    key: "teacher",
-    to: "/teacher-login",
-    emoji: "👩‍🏫",
-    title: "TEACHER",
-    desc: "Manage classes, attendance, exams and more",
-    cta: "Go to Teacher Panel",
-  },
+// Admin contact info — waxaa loo isticmaalaa qaybta "Contact" iyo "Need Help?"
+const SUPPORT_WHATSAPP = "252617390261"; // international format, no + or leading 0
+const SUPPORT_EMAIL = "risingstar0261@gmail.com";
+const SUPPORT_PHONE_DISPLAY = "+252 61 7390261";
+const SUPPORT_LOCATION = "Mogadishu, Somalia";
+
+const NAV_LINKS = [
+  { label: "Home", to: "/" },
+  { label: "About Us", to: "/about" },
+  { label: "Admissions", to: "/admissions" },
+  { label: "Academics", to: "/academics" },
+  { label: "Gallery", to: "/gallery" },
+  { label: "News & Events", to: "/news" },
+  { label: "Contact", to: "/contact" },
+];
+
+const FEATURE_STRIP = [
+  { icon: "📖", label: "Quality Education" },
+  { icon: "👥", label: "Experienced Teachers" },
+  { icon: "🛡️", label: "Safe Environment" },
+  { icon: "⭐", label: "Holistic Development" },
+  { icon: "👨‍👩‍👧", label: "Strong Community" },
+];
+
+const PORTALS = [
   {
     key: "student",
+    emoji: "🎒",
+    title: "Student Portal",
+    desc: "Access your profile, materials, results and more.",
     to: "/student-login",
-    emoji: "🎓",
-    title: "STUDENT",
-    desc: "Access results, homework, timetable and profile",
-    cta: "Go to Student Portal",
+    color: "blue",
   },
   {
-    key: "cashier",
-    to: "/cashier-login",
-    emoji: "💰",
-    title: "CASHIER",
-    desc: "Record payments and manage school fees",
-    cta: "Go to Cashier Panel",
+    key: "teacher",
+    emoji: "👨‍🏫",
+    title: "Teacher Portal",
+    desc: "Manage classes, resources and assignments.",
+    to: "/teacher-login",
+    color: "green",
   },
   {
     key: "parent",
+    emoji: "👩‍🦱",
+    title: "Parent Portal",
+    desc: "Track your child's progress and activities.",
     to: "/parent-login",
-    emoji: "👨‍👩‍👧",
-    title: "PARENT",
-    desc: "Track your child's progress and performance",
-    cta: "Go to Parent Portal",
+    color: "purple",
+  },
+  {
+    key: "cashier",
+    emoji: "💰",
+    title: "Cashier Portal",
+    desc: "Record payments and manage school fees.",
+    to: "/cashier-login",
+    color: "orange",
+  },
+  {
+    key: "admission",
+    emoji: "📋",
+    title: "Online Admission",
+    desc: "Apply online for admissions easily and quickly.",
+    to: "/admissions",
+    color: "purple",
   },
 ];
 
-const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
+const ABOUT_STATS = [
+  { icon: "🎓", value: "800+", label: "Students" },
+  { icon: "👥", value: "60+", label: "Teachers" },
+  { icon: "🏫", value: "25+", label: "Classrooms" },
+  { icon: "🏆", value: "100%", label: "Pass Rate" },
 ];
 
-// Admin contact info — waxaa loo isticmaalaa "Need Help?" menu-ga
-const SUPPORT_WHATSAPP = "252617390261"; // international format, no + or leading 0
-const SUPPORT_EMAIL = "risingstar0261@gmail.com";
-
-function buildCalendarGrid(year, month) {
-  const firstDay = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const daysInPrevMonth = new Date(year, month, 0).getDate();
-
-  const cells = [];
-  for (let i = firstDay - 1; i >= 0; i--) {
-    cells.push({ day: daysInPrevMonth - i, muted: true });
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push({ day: d, muted: false });
-  }
-  while (cells.length % 7 !== 0) {
-    cells.push({ day: cells.length - (firstDay + daysInMonth) + 1, muted: true });
-  }
-  return cells;
-}
-
-function MiniCalendar() {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
-
-  const cells = buildCalendarGrid(viewYear, viewMonth);
-  const isCurrentMonth =
-    viewYear === today.getFullYear() && viewMonth === today.getMonth();
-
-  const goPrev = () => {
-    if (viewMonth === 0) {
-      setViewMonth(11);
-      setViewYear((y) => y - 1);
-    } else {
-      setViewMonth((m) => m - 1);
-    }
-  };
-
-  const goNext = () => {
-    if (viewMonth === 11) {
-      setViewMonth(0);
-      setViewYear((y) => y + 1);
-    } else {
-      setViewMonth((m) => m + 1);
-    }
-  };
-
-  const goToday = () => {
-    setViewYear(today.getFullYear());
-    setViewMonth(today.getMonth());
-  };
-
-  return (
-    <div className="calendar-card">
-      <h3 className="calendar-title">Calendar</h3>
-
-      <div className="calendar-nav">
-        <button
-          type="button"
-          className="calendar-arrow"
-          aria-label="Previous month"
-          onClick={goPrev}
-        >
-          ‹
-        </button>
-        <span className="calendar-month-label">
-          {MONTH_NAMES[viewMonth]} {viewYear}
-        </span>
-        <button
-          type="button"
-          className="calendar-arrow"
-          aria-label="Next month"
-          onClick={goNext}
-        >
-          ›
-        </button>
-        <button type="button" className="calendar-today-btn" onClick={goToday}>
-          Today
-        </button>
-      </div>
-
-      <div className="calendar-weekdays">
-        {WEEKDAYS.map((w) => (
-          <span key={w}>{w}</span>
-        ))}
-      </div>
-
-      <div className="calendar-grid">
-        {cells.map((cell, i) => {
-          const isToday =
-            isCurrentMonth && !cell.muted && cell.day === today.getDate();
-          return (
-            <span
-              key={i}
-              className={
-                "calendar-cell" +
-                (cell.muted ? " muted" : "") +
-                (isToday ? " today" : "")
-              }
-            >
-              {cell.day}
-            </span>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+const GALLERY_PREVIEW = [heroPhoto, heroPhoto, heroPhoto, heroPhoto, heroPhoto];
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const menuRef = useRef(null);
   const helpRef = useRef(null);
-  const rolesRef = useRef(null);
 
   const [statsData, setStatsData] = useState({
     students: null,
@@ -194,31 +128,6 @@ export default function Home() {
     loadStats();
   }, []);
 
-  const STATS = [
-    {
-      key: "students",
-      icon: "👥",
-      value: statsData.students === null ? "…" : String(statsData.students),
-      label: "Students",
-      color: "green",
-    },
-    {
-      key: "teachers",
-      icon: "👤",
-      value: statsData.teachers === null ? "…" : String(statsData.teachers),
-      label: "Teachers",
-      color: "orange",
-    },
-    {
-      key: "classes",
-      icon: "📘",
-      value: statsData.classes === null ? "…" : String(statsData.classes),
-      label: "Classes",
-      color: "blue",
-    },
-    { key: "attendance", icon: "✅", value: "96%", label: "Attendance", color: "green" },
-  ];
-
   useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -232,31 +141,35 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const scrollToRoles = (e) => {
-    e.preventDefault();
-    rolesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   return (
     <div className="home">
-      <header className="home-header">
-        <div className="brand">
-          <img src={logo} className="brand-logo" alt="Rising School logo" />
+      {/* ---------- Top Nav ---------- */}
+      <header className="home-nav">
+        <Link to="/" className="brand">
+          <img src={logo} className="brand-logo" alt="Rising Star School logo" />
           <div className="brand-text">
-            <span className="brand-name">RISING STAR PRIMARY &amp; SECONDARY SCHOOL</span>
-            <span className="brand-tagline">School Management System</span>
+            <span className="brand-name">RISING STAR SCHOOL</span>
+            <span className="brand-tagline">RISING STAR PRIMARY &amp; SECONDARY SCHOOL</span>
           </div>
-        </div>
+        </Link>
+
+        <nav className="home-nav-links">
+          {NAV_LINKS.map((l) => (
+            <Link key={l.to} to={l.to} className="home-nav-link">
+              {l.label}
+            </Link>
+          ))}
+        </nav>
 
         <div className="header-actions">
           <div className="menu-wrap" ref={helpRef}>
             <button
               type="button"
-              className="help-pill"
+              className="help-pill-hidden"
               onClick={() => setHelpOpen((v) => !v)}
+              aria-label="Need help?"
             >
-              <span className="help-icon">?</span>
-              Need Help?
+              ?
             </button>
 
             {helpOpen && (
@@ -277,9 +190,14 @@ export default function Home() {
           </div>
 
           <div className="menu-wrap" ref={menuRef}>
+            <Link to="/admin-login" className="login-portal-btn">
+              <span className="login-portal-icon">👤</span>
+              Login / Portal
+            </Link>
+
             <button
               type="button"
-              className="dots-btn"
+              className="dots-btn-hidden"
               aria-label="More options"
               onClick={() => setMenuOpen((v) => !v)}
             >
@@ -294,80 +212,123 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          <Link to="/profile" className="header-avatar" aria-label="Profile">
-            <img src={heroPhoto} alt="" />
-          </Link>
         </div>
       </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="hero-eyebrow">Welcome to</p>
-          <h1 className="hero-title">
-            RISING STAR
-            <br />
-            PRIMARY &amp;
-            <br />
-            SECONDARY SCHOOL
-          </h1>
-          <h2 className="hero-subtitle">School Management System</h2>
-          <div className="hero-rule" />
-          <p className="hero-lede">
-            Education Is Life It Self
-          </p>
-          <a href="#roles" className="hero-cta" onClick={scrollToRoles}>
-            <span className="hero-cta-icon">▦</span>
-            Get Started
-          </a>
-        </div>
+      {/* ---------- Hero + System Panel ---------- */}
+      <section className="hero-grid">
+        <div className="hero-left">
+          <div className="hero-card">
+            <h1 className="hero-title">
+              NURTURING MINDS,
+              <br />
+              <span className="hero-title-accent">BUILDING FUTURES</span>
+            </h1>
+            <div className="hero-rule" />
+            <p className="hero-lede">
+              Providing quality education in a safe, caring and inspiring
+              environment where every child can achieve greatness.
+            </p>
 
-        <div className="hero-art">
-          <img src={heroPhoto} alt="Rising Star School students" className="hero-photo" />
-        </div>
-
-        <div className="hero-side">
-          <MiniCalendar />
-        </div>
-      </section>
-
-      <section className="stats-grid">
-        {STATS.map((s) => (
-          <div className={`stat-card stat-${s.color}`} key={s.key}>
-            <span className="stat-icon">{s.icon}</span>
-            <div className="stat-body">
-              <span className="stat-value">{s.value}</span>
-              <span className="stat-label">{s.label}</span>
+            <div className="hero-cta-row">
+              <Link to="/admissions" className="hero-cta hero-cta-primary">
+                Apply for Admission <span>➜</span>
+              </Link>
+              <Link to="/about" className="hero-cta hero-cta-secondary">
+                Learn More <span>➜</span>
+              </Link>
             </div>
-            <svg className="stat-sparkline" viewBox="0 0 100 30" preserveAspectRatio="none">
-              <polyline points="0,22 15,18 30,24 45,12 60,16 75,6 100,4" />
-            </svg>
+
+            <img src={heroPhoto} alt="Rising Star School students" className="hero-photo" />
+
+            <div className="feature-strip">
+              {FEATURE_STRIP.map((f) => (
+                <span key={f.label} className="feature-strip-item">
+                  <span className="feature-strip-icon">{f.icon}</span>
+                  {f.label}
+                </span>
+              ))}
+            </div>
           </div>
-        ))}
+
+          {/* About Our School */}
+          <div className="about-preview-card">
+            <h2 className="about-preview-title">About Our School</h2>
+            <p className="about-preview-text">
+              At Rising Star School, we are dedicated to nurturing young
+              minds through academic excellence, character building and
+              innovative learning. Our mission is to prepare students to
+              become responsible global citizens and future leaders.
+            </p>
+
+            <div className="about-stats-grid">
+              {ABOUT_STATS.map((s) => (
+                <div className="about-stat-box" key={s.label}>
+                  <span className="about-stat-icon">{s.icon}</span>
+                  <span className="about-stat-value">{s.value}</span>
+                  <span className="about-stat-label">{s.label}</span>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="gallery-preview-title">Gallery</h3>
+            <div className="gallery-preview-grid">
+              {GALLERY_PREVIEW.map((img, i) => (
+                <img key={i} src={img} alt="" className="gallery-preview-img" />
+              ))}
+            </div>
+            <Link to="/gallery" className="view-more-btn">
+              View More Photos <span>➜</span>
+            </Link>
+          </div>
+        </div>
+
+        <aside className="hero-right">
+          <div className="portals-card">
+            <h3 className="portals-title">
+              <span className="portals-title-icon">🌐</span>
+              Online System
+            </h3>
+            <div className="portals-grid">
+              {PORTALS.map((p) => (
+                <div className={`portal-box portal-${p.color}`} key={p.key}>
+                  <span className="portal-emoji">{p.emoji}</span>
+                  <div className="portal-title">{p.title}</div>
+                  <p className="portal-desc">{p.desc}</p>
+                  <Link to={p.to} className="portal-btn">
+                    {p.key === "admission" ? "Apply Now" : "Login"}
+                  </Link>
+
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </section>
 
-      <section className="roles-grid" id="roles" ref={rolesRef}>
-        {ROLES.map((role) => (
-          <Link key={role.key} className={`role-card role-${role.key}`} to={role.to}>
-            <span className="role-corner" aria-hidden="true" />
-            <span className="role-avatar">{role.emoji}</span>
-            <h3 className="role-title">{role.title}</h3>
-            <p className="role-desc">{role.desc}</p>
-            <span className="role-cta">
-              {role.cta}
-              <span className="role-arrow">➜</span>
-            </span>
-          </Link>
-        ))}
-      </section>
-
+      {/* ---------- Footer ---------- */}
       <footer className="home-footer">
-        <span>© {new Date().getFullYear()} Rising Star School. All rights reserved.</span>
-        <span className="footer-links">
-          <a href="/privacy">Privacy Policy</a>
-          <span className="footer-divider">|</span>
-          <a href="/terms">Terms of Service</a>
-        </span>
+        <div className="home-footer-left">
+          <img src={logo} className="footer-logo" alt="Rising Star School logo" />
+          <div>
+            <div className="footer-school-name">RISING STAR SCHOOL</div>
+            <div className="footer-school-tagline">
+              RISING STAR PRIMARY &amp; SECONDARY SCHOOL
+            </div>
+          </div>
+        </div>
+
+        <div className="home-footer-contact">
+          <a href={`tel:${SUPPORT_PHONE_DISPLAY.replace(/\s/g, "")}`}>
+            📞 {SUPPORT_PHONE_DISPLAY}
+          </a>
+          <a href={`mailto:${SUPPORT_EMAIL}`}>✉️ {SUPPORT_EMAIL}</a>
+          <span>📍 {SUPPORT_LOCATION}</span>
+        </div>
+
+        <div className="home-footer-quote">
+          “Excellence in Education, Bright Future for Every Child.”
+        </div>
       </footer>
     </div>
   );

@@ -147,7 +147,6 @@ const NAV_ITEMS = [
   { key: "overview", label: "Overview", icon: "🏠" },
   { key: "timetable", label: "Timetable", icon: "🗓️" },
   { key: "examTimetable", label: "Exam Timetable", icon: "📝" },
-  { key: "results", label: "Results", icon: "📄" },
   { key: "attendance", label: "Attendance", icon: "📅" },
   { key: "payments", label: "Payments", icon: "💳" },
   { key: "reports", label: "Reports", icon: "⚠️" },
@@ -159,7 +158,6 @@ export default function ParentDashboard() {
   const studentId = localStorage.getItem("studentId");
 
   const [student, setStudent] = useState(null);
-  const [results, setResults] = useState([]);
   const [attendance, setAttendance] = useState([]);
   const [messages, setMessages] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -294,19 +292,6 @@ export default function ParentDashboard() {
       // ignore
     }
 
-    let unsubscribeResults = () => {};
-    try {
-      const resultsQ = query(
-        collection(db, "results"),
-        where("studentId", "==", studentId)
-      );
-      unsubscribeResults = onSnapshot(resultsQ, (snap) => {
-        setResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      });
-    } catch (e) {
-      setResults([]);
-    }
-
     let unsubscribe = () => {};
     try {
       const paymentsQ = query(
@@ -321,7 +306,6 @@ export default function ParentDashboard() {
     }
 
     return () => {
-      unsubscribeResults();
       unsubscribe();
       unsubMsgsGroup();
       unsubMsgsDirect();
@@ -368,18 +352,9 @@ export default function ParentDashboard() {
       ? Math.round((attendanceStats.present / attendanceStats.total) * 100)
       : null;
 
-  const resultsWithPct = results.map((r) => {
-    const marks = Number(r.marks);
-    const maxMarks = Number(r.maxMarks);
-    const pct = !isNaN(marks) && maxMarks ? Math.round((marks / maxMarks) * 100) : null;
-    return { ...r, pct };
-  });
-  const lowScoreResults = resultsWithPct.filter((r) => r.pct !== null && r.pct < 50);
-
   const hasConcern =
     (attendanceRate !== null && attendanceRate < 75) ||
-    attendanceStats.absent >= 3 ||
-    lowScoreResults.length > 0;
+    attendanceStats.absent >= 3;
 
   const unreadMessages = messages.filter((m) => m.read === false).length;
 
@@ -472,11 +447,6 @@ export default function ParentDashboard() {
                 label="Attendance rate"
                 value={attendanceRate !== null ? `${attendanceRate}%` : "No data"}
                 accent={hasConcern ? COLORS.danger : COLORS.accent}
-              />
-              <StatCard
-                label="Exam results recorded"
-                value={results.length}
-                accent={COLORS.warn}
               />
               <StatCard
                 label="Total paid"
@@ -648,68 +618,6 @@ export default function ParentDashboard() {
             </section>
           )}
 
-          {tab === "results" && (
-            <section className="pd-panel" style={styles.panel}>
-              <div style={styles.panelTitle}>Exam results — all classes</div>
-              {results.length === 0 ? (
-                <EmptyState text="No exam results have been recorded yet." />
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-                  {groupByClass(results).map(([className, classResults]) => (
-                    <div key={className}>
-                      <div style={styles.classGroupLabel}>Class {className}</div>
-                      <div className="pd-table-wrap">
-                        <table className="pd-table" style={styles.table}>
-                          <thead>
-                            <tr>
-                              <th style={styles.th}>Subject</th>
-                              <th style={styles.th}>Exam</th>
-                              <th style={styles.th}>Marks</th>
-                              <th style={styles.th}>%</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {classResults.map((r) => {
-                              const marks = Number(r.marks);
-                              const maxMarks = Number(r.maxMarks);
-                              const pct =
-                                !isNaN(marks) && maxMarks
-                                  ? Math.round((marks / maxMarks) * 100)
-                                  : null;
-                              return (
-                                <tr key={r.id}>
-                                  <td style={styles.td}>{r.subject || "—"}</td>
-                                  <td style={styles.td}>{r.examName || r.term || "—"}</td>
-                                  <td style={styles.td}>
-                                    {!isNaN(marks) ? `${marks} / ${maxMarks || "—"}` : "—"}
-                                  </td>
-                                  <td style={styles.td}>
-                                    {pct !== null ? (
-                                      <span
-                                        style={{
-                                          color: pct >= 50 ? COLORS.accent : COLORS.danger,
-                                          fontWeight: 600,
-                                        }}
-                                      >
-                                        {pct}%
-                                      </span>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
-
           {tab === "attendance" && (
             <section className="pd-panel" style={styles.panel}>
               <div style={styles.panelTitle}>Attendance — all classes</div>
@@ -812,21 +720,9 @@ export default function ParentDashboard() {
                       </div>
                     </div>
                   )}
-                  {lowScoreResults.map((r) => (
-                    <div key={r.id} style={styles.concernCard}>
-                      <div style={styles.concernTitle}>
-                        Low score in {r.subject || "an exam"}
-                      </div>
-                      <div style={styles.concernBody}>
-                        {`Your child scored ${r.marks}/${r.maxMarks} (${r.pct}%) on ${
-                          r.examName || "an exam"
-                        }, below the 50% pass mark. Consider following up with the teacher.`}
-                      </div>
-                    </div>
-                  ))}
                 </div>
               ) : (
-                <EmptyState text="No attendance or performance concerns at this time." />
+                <EmptyState text="No attendance concerns at this time." />
               )}
             </section>
           )}

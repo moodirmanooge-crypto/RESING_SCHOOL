@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { db } from "../../firebase/firebase";
+import { db, storage } from "../../firebase/firebase";
 import {
   collection,
   getDocs,
@@ -8,6 +8,7 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import {
@@ -43,6 +44,7 @@ export default function Students() {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editData, setEditData] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -92,28 +94,28 @@ export default function Students() {
       studentPhoto: student.studentPhoto || "",
     });
     setPhotoPreview(student.studentPhoto || null);
+    setPhotoFile(null);
   }
 
   function closeEdit() {
     setSelectedStudent(null);
-    setEditData(null);  
+    setEditData(null);
     setPhotoPreview(null);
+    setPhotoFile(null);
   }
 
   function handleEditChange(field, value) {
     setEditData({ ...editData, [field]: value });
   }
 
-  // ---- Sawirka cusub -> u beddel base64 si loogu kaydiyo Firestore ----
+  // ---- Sawirka cusub: kaydi file-ka gudaha state-ka si aan u soo
+  // shubno Firebase Storage marka la kaydinayo (saveEdit), preview-ga
+  // oo kaliya ayaa local ah ilaa saveEdit la riixo. ----
   function handlePhotoChange(e) {
     const file = e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoPreview(reader.result);
-      setEditData((prev) => ({ ...prev, studentPhoto: reader.result }));
-    };
-    reader.readAsDataURL(file);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
   }
 
   async function saveEdit() {
@@ -128,7 +130,21 @@ export default function Students() {
 
     try {
       setSaving(true);
-      await updateDoc(doc(db, "students", selectedStudent.id), {
+
+      // Haddii sawir cusub la doortay, kor u soo shub Firebase Storage
+      // ka hor inta aan Firestore la kaydin, si photoUrl-ku uu noqdo
+      // link toos ah oo cusub — isla habka AddStudent.jsx u shaqeeyo.
+      let photoUrl = editData.studentPhoto || "";
+      if (photoFile) {
+        const photoRef = ref(
+          storage,
+          `students/${selectedStudent.studentId}/${Date.now()}_${photoFile.name}`
+        );
+        await uploadBytes(photoRef, photoFile);
+        photoUrl = await getDownloadURL(photoRef);
+      }
+
+      const updatedFields = {
         fullName: editData.fullName,
         className: editData.className,
         monthlyFee: editData.monthlyFee,
@@ -138,12 +154,14 @@ export default function Students() {
         previousSchool: editData.previousSchool,
         orphanStatus: editData.orphanStatus,
         parentPassword: editData.parentPassword,
-        studentPhoto: editData.studentPhoto || editData.studentPhoto || "",
-      });
+        studentPhoto: photoUrl,
+      };
+
+      await updateDoc(doc(db, "students", selectedStudent.id), updatedFields);
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === selectedStudent.id ? { ...s, ...editData } : s
+          s.id === selectedStudent.id ? { ...s, ...updatedFields } : s
         )
       );
 

@@ -3,6 +3,12 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { MessagesProvider } from "./context/MessagesContext";
 
 import Home from "./pages/Home";
+import About from "./pages/About";
+import Admissions from "./pages/Admissions";
+import Academics from "./pages/Academics";
+import Gallery from "./pages/Gallery";
+import News from "./pages/News";
+import Contact from "./pages/Contact";
 import Login from "./pages/Login";
 
 // ADMIN
@@ -28,6 +34,10 @@ import Shifts from "./admin/pages/Shifts";
 import Certificates from "./admin/pages/Certificates";
 import ResultsByClass from "./admin/pages/ResultsByClass";
 import Holidays from "./admin/pages/Holidays";
+import GalleryManager from "./admin/pages/GalleryManager";
+import NewsManager from "./admin/pages/NewsManager";
+import AddSubAdmin from "./admin/pages/AddSubAdmin";
+import ManageAdmins from "./admin/pages/ManageAdmins";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -66,6 +76,12 @@ function App() {
       <Routes>
         <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
         <Route path="/" element={<Home />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/admissions" element={<Admissions />} />
+        <Route path="/academics" element={<Academics />} />
+        <Route path="/gallery" element={<Gallery />} />
+        <Route path="/news" element={<News />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/admin/receipts" element={<Receipts />} />
         <Route path="/admin-login" element={<Login role="Admin" />} />
         <Route path="/teacher-login" element={<Login role="Teacher" />} />
@@ -77,6 +93,10 @@ function App() {
         <Route path="/admin/id-cards" element={<AllIdCards />} />
         <Route path="/admin/results-by-class" element={<ResultsByClass />} />
         <Route path="/admin/holidays" element={<Holidays />} />
+        <Route path="/admin/gallery" element={<GalleryManager />} />
+        <Route path="/admin/news" element={<NewsManager />} />
+        <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
+        <Route path="/admin/manage-admins" element={<ManageAdmins />} />
 
         {/* Public certificate verification page — QR code on the Class 8
             leaving certificate links here. No login required. */}

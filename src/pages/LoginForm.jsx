@@ -57,7 +57,17 @@ export default function LoginForm({ role }) {
           ) {
             found = true;
             localStorage.setItem("adminId", item.id);
-            localStorage.setItem("adminName", data.name || data.username || "Admin");
+            localStorage.setItem("adminName", data.fullName || data.name || data.username || "Admin");
+            // Sub-admins have role: "subadmin" and a `permissions` array
+            // of sidebar paths (see AddSubAdmin.jsx). The original Super
+            // Admin doc has no `role` field or role: "admin" — treat
+            // anything else as a sub-admin so Sidebar.jsx knows whether
+            // to filter its menu.
+            localStorage.setItem("adminRole", data.role || "admin");
+            localStorage.setItem(
+              "adminPermissions",
+              JSON.stringify(Array.isArray(data.permissions) ? data.permissions : [])
+            );
           }
         }
 

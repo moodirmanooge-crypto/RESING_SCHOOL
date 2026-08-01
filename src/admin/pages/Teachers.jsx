@@ -187,16 +187,22 @@ export default function Teachers() {
 
     try {
       setSaving(true);
-      await updateDoc(doc(db, "teachers", selectedTeacher.id), {
+
+      const updatedFields = {
         fullName: editData.fullName,
         username: editData.username,
         password: editData.password,
         classes: editData.classes,
-      });
+      };
 
+      await updateDoc(doc(db, "teachers", selectedTeacher.id), updatedFields);
+
+      // Isla markiiba cusboonaysii state-ka local-ka ah si liiska
+      // Teacher List uu isla markiiba u muujiyo xogta cusub — iyada
+      // oo aan loo baahnayn in bogga dib loo soo shubo (refresh).
       setTeachers((prev) =>
         prev.map((t) =>
-          t.id === selectedTeacher.id ? { ...t, ...editData } : t
+          t.id === selectedTeacher.id ? { ...t, ...updatedFields } : t
         )
       );
 
@@ -296,7 +302,9 @@ export default function Teachers() {
                         height: 44,
                         minWidth: 44,
                         borderRadius: "50%",
-                        background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                        background: teacher.teacherPhoto
+                          ? `url(${teacher.teacherPhoto}) center/cover`
+                          : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -305,7 +313,8 @@ export default function Teachers() {
                         fontSize: 15,
                       }}
                     >
-                      {(teacher.fullName || "?").slice(0, 2).toUpperCase()}
+                      {!teacher.teacherPhoto &&
+                        (teacher.fullName || "?").slice(0, 2).toUpperCase()}
                     </div>
 
                     <div style={{ flex: 1, minWidth: 0 }}>

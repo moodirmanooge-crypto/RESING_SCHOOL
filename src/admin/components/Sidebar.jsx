@@ -21,6 +21,10 @@ import {
   Receipt,
   FileSpreadsheet,
   CalendarOff,
+  Image as ImageIcon,
+  Newspaper,
+  ShieldPlus,
+  ShieldCheck,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -41,6 +45,8 @@ const menus = [
   { name: "ID Cards", icon: IdCard, path: "/admin/id-cards" },
   { name: "Certificates", icon: Award, path: "/admin/certificates" },
   { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
+  { name: "Gallery", icon: ImageIcon, path: "/admin/gallery" },
+  { name: "News", icon: Newspaper, path: "/admin/news" },
   { name: "Add Cashier", icon: Wallet, path: "/admin/add-cashier" },
   { name: "Receipts", icon: Receipt, path: "/admin/receipts" },
   { name: "Messages", icon: MessageCircle, path: "/admin/messages" },
@@ -48,10 +54,41 @@ const menus = [
   { name: "Settings", icon: Settings, path: "/admin/settings" },
 ];
 
+// Super-Admin-only menu items — never filtered by permissions, never
+// shown to a sub-admin regardless of what was assigned to them.
+const superAdminOnlyMenus = [
+  { name: "Add Sub-Admin", icon: ShieldPlus, path: "/admin/add-sub-admin" },
+  { name: "Manage Admins", icon: ShieldCheck, path: "/admin/manage-admins" },
+];
+
 const SUPPORT_WHATSAPP = "252617390261"; // international format, no + or leading 0
 const SUPPORT_EMAIL = "risingstar0261@gmail.com";
 
 export default function Sidebar() {
+  // A sub-admin's session carries adminRole: "subadmin" and an
+  // adminPermissions JSON array of allowed paths (set at login in
+  // LoginForm.jsx from their `admin/{email}` doc). The original Super
+  // Admin account has no role field (or role: "admin") and always sees
+  // every menu item, unfiltered.
+  const adminRole = localStorage.getItem("adminRole") || "admin";
+  const isSubAdmin = adminRole === "subadmin";
+
+  let permissions = [];
+  if (isSubAdmin) {
+    try {
+      permissions = JSON.parse(localStorage.getItem("adminPermissions") || "[]");
+    } catch (e) {
+      permissions = [];
+    }
+  }
+
+  // Sub-admins only ever see the menu items they were explicitly handed
+  // — everything else is left out of the list entirely, not just
+  // disabled, per how this sidebar was scoped.
+  const visibleMenus = isSubAdmin
+    ? menus.filter((m) => permissions.includes(m.path))
+    : menus;
+
   return (
     <aside
       style={{
@@ -121,7 +158,7 @@ export default function Sidebar() {
 
         {/* Menu */}
         <div style={{ padding: "8px 18px", overflowY: "auto" }}>
-          {menus.map((item) => {
+          {visibleMenus.map((item) => {
             const Icon = item.icon;
 
             return (
@@ -153,6 +190,56 @@ export default function Sidebar() {
               </NavLink>
             );
           })}
+
+          {!isSubAdmin && (
+            <>
+              <div
+                style={{
+                  margin: "14px 4px 8px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#9CA3AF",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  borderTop: "1px solid rgba(15,61,46,0.08)",
+                  paddingTop: 14,
+                }}
+              >
+                Super Admin
+              </div>
+              {superAdminOnlyMenus.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.path}
+                    to={item.path}
+                    style={({ isActive }) => ({
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 14,
+                      padding: "12px 18px",
+                      marginBottom: 4,
+                      textDecoration: "none",
+                      color: isActive ? "#fff" : "#4b5563",
+                      borderRadius: 12,
+                      transition: "all .2s ease",
+                      fontWeight: isActive ? 700 : 500,
+                      fontSize: 14,
+                      background: isActive
+                        ? "linear-gradient(90deg,#f59e0b,#d97706)"
+                        : "transparent",
+                      boxShadow: isActive
+                        ? "0 8px 16px rgba(245,158,11,0.25)"
+                        : "none",
+                    })}
+                  >
+                    <Icon size={18} />
+                    <span>{item.name}</span>
+                  </NavLink>
+                );
+              })}
+            </>
+          )}
         </div>
       </div>
 
