@@ -1,362 +1,413 @@
 // src/admin/pages/Settings.jsx
-import { useState, useEffect } from "react";
+//
+// Personal settings for the currently logged-in admin (Super Admin OR
+// sub-admin) — each admin edits ONLY their own account here: their own
+// password and their own profile photo. Nothing here is shared between
+// admins; the doc read/written is `admin/{adminId}`, where adminId is
+// whatever localStorage.getItem("adminId") stored at login (see
+// LoginForm.jsx — that's the Firestore doc id, e.g. an email or
+// username, unique per admin).
+
+import { useEffect, useState } from "react";
+import { db, storage } from "../../firebase/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { db } from "../../firebase/firebase";
-import { useNavigate } from "react-router-dom";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
-import { Mail, Lock, Eye, EyeOff, ShieldCheck } from "lucide-react";
-
-/*
-  Sida ay u shaqeyso (nidaamkan xogta admin-ku ku jirto Firestore, oo aan
-  isticmaalin Firebase Auth — login-ku wuxuu ka akhriyaa collection "admin"):
-
-  1. Marka bogga la furo, waxaan ku raadinaa doc-ga admin-ka ee Firestore
-     annagoo isticmaalayna "adminId" ee localStorage (kaas oo LoginForm.jsx
-     lagu keydiyay marka la soo galay).
-  2. Isbedelka email/password waxaa loo baahan yahay in la geliyo
-     password-ka HADDA JIRA — waxaan ku hubinaa isaga oo la barbardhigayo
-     qiimaha field-ka "password" ee doc-ga (plain text, sidii uu u shaqeeyo
-     LoginForm.jsx).
-  3. Marka la xaqiijiyo, si toos ah ayaan Firestore ugu update gareynaa
-     field-ka "email" iyo/ama "password" doc-ga admin-ka. Marka xigta uu
-     login sameeyo, xogtan cusub ayuu isticmaali doonaa (sida LoginForm.jsx
-     ayaa u shaqeysa — waxay ka akhrisaa Firestore).
-*/
+import { Settings as SettingsIcon, Camera, Lock, Save, Loader2, ShieldCheck } from "lucide-react";
 
 export default function Settings() {
-  const navigate = useNavigate();
-  const adminId = localStorage.getItem("adminId");
+  const adminId = localStorage.getItem("adminId") || "";
+  const adminRole = localStorage.getItem("adminRole") || "admin";
 
-  const [adminData, setAdminData] = useState(null);
-  const [currentIdentity, setCurrentIdentity] = useState(""); // email or username shown
-  const [newEmail, setNewEmail] = useState("");
+  const [admin, setAdmin] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoFile, setPhotoFile] = useState(null);
+
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  const [showCurrentPw, setShowCurrentPw] = useState(false);
-  const [showNewPw, setShowNewPw] = useState(false);
-
-  const [pageLoading, setPageLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState(null); // { type: "success" | "error", text }
+  const [savingPhoto, setSavingPhoto] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
 
   useEffect(() => {
-    loadAdmin();
+    fetchAdmin();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadAdmin() {
+  async function fetchAdmin() {
     if (!adminId) {
-      setMessage({ type: "error", text: "Ma jiro session admin ah. Fadlan mar kale soo gal." });
-      setPageLoading(false);
+      setLoading(false);
       return;
     }
-
     try {
+      setLoading(true);
       const snap = await getDoc(doc(db, "admin", adminId));
-      if (!snap.exists()) {
-        setMessage({ type: "error", text: "Xogta admin-kan lama helin. Fadlan mar kale soo gal." });
-        setPageLoading(false);
-        return;
+      if (snap.exists()) {
+        const data = { id: snap.id, ...snap.data() };
+        setAdmin(data);
+        setPhotoPreview(data.photoUrl || null);
       }
-      const data = snap.data();
-      setAdminData(data);
-      setCurrentIdentity(data.email || data.username || "");
     } catch (err) {
-      console.error("Khalad admin-ka la soo qaadanayay:", err);
-      setMessage({ type: "error", text: "Khalad ayaa dhacay markii xogta admin-ka la soo qaadanayay." });
-    } finally {
-      setPageLoading(false);
-    }
-  }
-
-  async function handleSave(e) {
-    e.preventDefault();
-    setMessage(null);
-
-    if (!adminId || !adminData) {
-      setMessage({ type: "error", text: "Ma jiro session admin ah. Fadlan mar kale soo gal." });
-      return;
-    }
-
-    const wantsEmailChange = newEmail.trim() !== "" && newEmail.trim() !== (adminData.email || "");
-    const wantsPasswordChange = newPassword.trim() !== "";
-
-    if (!wantsEmailChange && !wantsPasswordChange) {
-      setMessage({ type: "error", text: "Fadlan geli email cusub ama password cusub si aad wax u beddesho." });
-      return;
-    }
-
-    if (!currentPassword) {
-      setMessage({ type: "error", text: "Waxaad u baahan tahay inaad gelisid password-kaaga hadda jira si loo xaqiijiyo isbedelka." });
-      return;
-    }
-
-    if (currentPassword !== adminData.password) {
-      setMessage({ type: "error", text: "Password-ka hadda jira ee aad gelisay sax ma aha." });
-      return;
-    }
-
-    if (wantsPasswordChange) {
-      if (newPassword.length < 4) {
-        setMessage({ type: "error", text: "Password-ka cusub waa inuu ka koobnaadaa ugu yaraan 4 xaraf." });
-        return;
-      }
-      if (newPassword !== confirmPassword) {
-        setMessage({ type: "error", text: "Password-ka cusub iyo xaqiijinta password-ku isku mid ma aha." });
-        return;
-      }
-    }
-
-    setLoading(true);
-    try {
-      const updates = {};
-      if (wantsEmailChange) updates.email = newEmail.trim();
-      if (wantsPasswordChange) updates.password = newPassword.trim();
-
-      await updateDoc(doc(db, "admin", adminId), updates);
-
-      const updatedData = { ...adminData, ...updates };
-      setAdminData(updatedData);
-      setCurrentIdentity(updatedData.email || updatedData.username || "");
-
-      setMessage({
-        type: "success",
-        text: "Xogta si guul leh ayaa loo cusboonaysiiyay. Marka aad mar kale soo gasho, xogtan cusub ayaa loo isticmaali doonaa.",
-      });
-      setNewEmail("");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err) {
-      console.error("Khalad settings update:", err);
-      setMessage({ type: "error", text: "Khalad ayaa dhacay markii la kaydinayay. Fadlan isku day mar kale." });
+      console.error(err);
     } finally {
       setLoading(false);
     }
   }
 
-  if (pageLoading) {
+  function handlePhotoChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  // Saves ONLY this admin's own photo — writes to admin/{adminId}, never
+  // touches any other admin's document, so each admin's photo stays
+  // separate from every other admin's.
+  async function savePhoto() {
+    if (!photoFile) {
+      alert("Fadlan dooro sawir cusub kahor intaadan kaydin.");
+      return;
+    }
+    try {
+      setSavingPhoto(true);
+
+      const photoRef = ref(
+        storage,
+        `admin/${adminId}/${Date.now()}_${photoFile.name}`
+      );
+      await uploadBytes(photoRef, photoFile);
+      const photoUrl = (await getDownloadURL(photoRef)).trim();
+
+      await updateDoc(doc(db, "admin", adminId), { photoUrl });
+
+      setAdmin((prev) => (prev ? { ...prev, photoUrl } : prev));
+      setPhotoFile(null);
+      alert("Sawirkaaga waa la cusboonaysiiyay.");
+    } catch (err) {
+      console.error(err);
+      alert("Khalad ayaa dhacay markii sawirka la kaydinayay: " + err.message);
+    } finally {
+      setSavingPhoto(false);
+    }
+  }
+
+  // Changes ONLY this admin's own password — writes to admin/{adminId}.
+  // Requires the current password to match what's on file first, so an
+  // admin can't change another admin's password even if they somehow
+  // guessed their adminId.
+  async function changePassword() {
+    if (!currentPassword.trim()) {
+      alert("Fadlan geli password-kaaga hadda jira.");
+      return;
+    }
+    if (!admin || String(admin.password || "") !== currentPassword.trim()) {
+      alert("Password-ka hadda jira waa khalad.");
+      return;
+    }
+    if (!newPassword.trim() || newPassword.trim().length < 4) {
+      alert("Password-ka cusub waa inuu ugu yaraan 4 xaraf ahaadaa.");
+      return;
+    }
+    if (newPassword.trim() !== confirmPassword.trim()) {
+      alert("Password-ka cusub iyo xaqiijintiisu isku mid ma aha.");
+      return;
+    }
+
+    try {
+      setSavingPassword(true);
+      await updateDoc(doc(db, "admin", adminId), {
+        password: newPassword.trim(),
+      });
+      setAdmin((prev) => (prev ? { ...prev, password: newPassword.trim() } : prev));
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      alert("Password-kaaga waa la beddelay.");
+    } catch (err) {
+      console.error(err);
+      alert("Khalad ayaa dhacay markii password-ka la beddelayay: " + err.message);
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  if (loading) {
     return (
-      <div style={{ display: "flex", minHeight: "100vh", background: "#F3F4F8" }}>
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
         <Sidebar />
-        <div style={{ flex: 1, padding: 30, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
-          <Topbar />
-          <p style={{ marginTop: 20, color: "#6B7280", fontSize: 14 }}>Soo raraya...</p>
+        <div style={{ flex: 1, padding: 30 }}>
+          <p style={{ color: "#8b87ad" }}>Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!admin) {
+    return (
+      <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
+        <Sidebar />
+        <div style={{ flex: 1, padding: 30 }}>
+          <p style={{ color: "#8b87ad" }}>
+            Xogtaada admin-ka lama helin. Fadlan mar kale soo gal (log in).
+          </p>
         </div>
       </div>
     );
   }
 
   return (
-    <div
-      style={{
-        display: "flex",
-        minHeight: "100vh",
-        background: "#F3F4F8",
-        fontFamily: "'Inter','Segoe UI',sans-serif",
-      }}
-    >
+    <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
       <Sidebar />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ padding: "22px 26px 0" }}>
-          <Topbar />
+        <div style={{ padding: "20px 24px 0" }}>
+          <Topbar title="Settings" />
         </div>
 
-        <div style={{ padding: "26px 30px", maxWidth: 640 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#111827", margin: "0 0 4px" }}>
-            Settings
-          </h1>
-          <p style={{ fontSize: 13.5, color: "#6B7280", margin: "0 0 24px" }}>
-            Halkan ka beddel email-ka iyo password-ka account-ka admin-ka.
-          </p>
-
-          {!adminId || !adminData ? (
+        <div style={{ padding: "26px 30px", maxWidth: 720 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
             <div
               style={{
-                background: "#FEE2E2",
-                color: "#DC2626",
-                padding: "16px 18px",
+                width: 50,
+                height: 50,
                 borderRadius: 14,
-                fontSize: 13.5,
-                fontWeight: 600,
+                background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
               }}
             >
-              {message?.text || "Ma jiro session admin ah. Fadlan mar kale soo gal."}
+              <SettingsIcon color="#fff" size={24} />
             </div>
-          ) : (
-            <form
-              onSubmit={handleSave}
-              style={{
-                background: "#fff",
-                borderRadius: 18,
-                padding: "26px 26px",
-                boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-                border: "1px solid rgba(17,24,39,0.05)",
-              }}
-            >
-              {/* Current identity display */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Email/Username-ka Hadda</label>
-                <div style={{ ...inputWrapStyle, background: "#F9FAFB" }}>
-                  <Mail size={16} color="#9CA3AF" />
-                  <input
-                    type="text"
-                    value={currentIdentity}
-                    disabled
-                    style={{ ...inputStyle, color: "#6B7280" }}
-                  />
-                </div>
-              </div>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#fff" }}>
+                Settings
+              </h1>
+              <p style={{ margin: "3px 0 0", color: "#8b87ad", fontSize: 13 }}>
+                Halkan waxaad kaliya wax ka bedeli kartaa akoonkaaga gaarka ah
+              </p>
+            </div>
+          </div>
 
-              {/* New email */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Email Cusub (ka bogeeya haddii aadan beddelin)</label>
-                <div style={inputWrapStyle}>
-                  <Mail size={16} color="#9CA3AF" />
-                  <input
-                    type="email"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    placeholder="tusaale@rising.edu"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(139,108,245,0.1)",
+              border: "1px solid rgba(139,108,245,0.3)",
+              color: "#c4b5fd",
+              fontSize: 12.5,
+              fontWeight: 700,
+              padding: "8px 16px",
+              borderRadius: 999,
+              marginBottom: 24,
+            }}
+          >
+            <ShieldCheck size={14} />
+            {admin.fullName || admin.username || adminId}
+            {" — "}
+            {adminRole === "subadmin" ? "Sub-Admin" : "Super Admin"}
+          </div>
 
-              <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
+          {/* ---- Sawirka ---- */}
+          <div
+            style={{
+              background: "linear-gradient(160deg,#151233,#181341)",
+              borderRadius: 20,
+              padding: 26,
+              border: "1px solid rgba(139,108,245,0.25)",
+              marginBottom: 24,
+            }}
+          >
+            <h3 style={{ margin: "0 0 18px", color: "#fff", fontSize: 15.5 }}>
+              Sawirka Profile-kaaga
+            </h3>
 
-              {/* New password */}
-              <div style={{ marginBottom: 18 }}>
-                <label style={labelStyle}>Password Cusub (ka bogeeya haddii aadan beddelin)</label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showNewPw ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Ugu yaraan 4 xaraf"
-                    style={inputStyle}
-                  />
-                  <button type="button" onClick={() => setShowNewPw((s) => !s)} style={eyeBtnStyle}>
-                    {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>Xaqiiji Password Cusub</label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showNewPw ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="Ku celi password-ka cusub"
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <hr style={{ border: "none", borderTop: "1px solid #F3F4F6", margin: "22px 0" }} />
-
-              {/* Current password (required for both) */}
-              <div style={{ marginBottom: 22 }}>
-                <label style={labelStyle}>
-                  <ShieldCheck size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
-                  Password-ka Hadda Jira (waajib si loo xaqiijiyo)
-                </label>
-                <div style={inputWrapStyle}>
-                  <Lock size={16} color="#9CA3AF" />
-                  <input
-                    type={showCurrentPw ? "text" : "password"}
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    placeholder="Geli password-kaaga hadda"
-                    style={inputStyle}
-                  />
-                  <button type="button" onClick={() => setShowCurrentPw((s) => !s)} style={eyeBtnStyle}>
-                    {showCurrentPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
-
-              {message && (
-                <div
-                  style={{
-                    padding: "12px 14px",
-                    borderRadius: 10,
-                    fontSize: 13,
-                    marginBottom: 18,
-                    background: message.type === "success" ? "#DCFCE7" : "#FEE2E2",
-                    color: message.type === "success" ? "#166534" : "#DC2626",
-                    fontWeight: 600,
-                  }}
-                >
-                  {message.text}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading}
+            <div style={{ display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" }}>
+              <label
+                htmlFor="adminPhoto"
                 style={{
-                  width: "100%",
-                  padding: "13px 0",
-                  borderRadius: 12,
-                  border: "none",
-                  background: loading ? "#86efac" : "#16a34a",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: loading ? "not-allowed" : "pointer",
+                  width: 96,
+                  height: 96,
+                  minWidth: 96,
+                  borderRadius: "50%",
+                  background: photoPreview
+                    ? `url(${photoPreview}) center/cover`
+                    : "rgba(139,108,245,0.08)",
+                  border: "2px dashed #6d5df0",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  overflow: "hidden",
                 }}
               >
-                {loading ? "Kaydinaya..." : "Kaydi Isbedelada"}
+                {!photoPreview && <Camera color="#8b6cf5" size={28} />}
+              </label>
+              <input
+                id="adminPhoto"
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoChange}
+                style={{ display: "none" }}
+              />
+
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <p style={{ color: "#8b87ad", fontSize: 13, margin: "0 0 14px" }}>
+                  Riix goobta si aad sawir cusub uga soo dooratid. Sawirkan waxaa
+                  kaliya arkaya adiga — admin-yada kale sawirkooda gaarka ah ayay
+                  leeyihiin.
+                </p>
+                <button
+                  onClick={savePhoto}
+                  disabled={savingPhoto || !photoFile}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "linear-gradient(90deg,#6d5df0,#8b6cf5)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 10,
+                    padding: "11px 22px",
+                    fontWeight: 700,
+                    fontSize: 13.5,
+                    cursor: savingPhoto || !photoFile ? "not-allowed" : "pointer",
+                    opacity: savingPhoto || !photoFile ? 0.6 : 1,
+                  }}
+                >
+                  {savingPhoto ? (
+                    <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                  ) : (
+                    <Save size={15} />
+                  )}
+                  {savingPhoto ? "Kaydinaya..." : "Kaydi Sawirka"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Password ---- */}
+          <div
+            style={{
+              background: "linear-gradient(160deg,#151233,#181341)",
+              borderRadius: 20,
+              padding: 26,
+              border: "1px solid rgba(139,108,245,0.25)",
+            }}
+          >
+            <h3
+              style={{
+                margin: "0 0 18px",
+                color: "#fff",
+                fontSize: 15.5,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <Lock size={17} color="#8b6cf5" />
+              Beddel Password-ka
+            </h3>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 380 }}>
+              <div>
+                <label style={label}>Password-ka Hadda</label>
+                <input
+                  type="password"
+                  style={input}
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div>
+                <label style={label}>Password-ka Cusub</label>
+                <input
+                  type="password"
+                  style={input}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+              <div>
+                <label style={label}>Xaqiiji Password-ka Cusub</label>
+                <input
+                  type="password"
+                  style={input}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
+
+              <button
+                onClick={changePassword}
+                disabled={savingPassword}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                  background: "linear-gradient(90deg,#6d5df0,#8b6cf5)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "12px 22px",
+                  fontWeight: 700,
+                  fontSize: 13.5,
+                  cursor: savingPassword ? "not-allowed" : "pointer",
+                  opacity: savingPassword ? 0.6 : 1,
+                  marginTop: 4,
+                }}
+              >
+                {savingPassword ? (
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                ) : (
+                  <Save size={15} />
+                )}
+                {savingPassword ? "Kaydinaya..." : "Kaydi Password-ka Cusub"}
               </button>
-            </form>
-          )}
+            </div>
+          </div>
         </div>
       </div>
+
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        input::placeholder { color: #6b6890; }
+      `}</style>
     </div>
   );
 }
 
-const labelStyle = {
+const label = {
   display: "block",
   fontSize: 12.5,
-  fontWeight: 700,
-  color: "#374151",
-  marginBottom: 8,
+  fontWeight: 600,
+  color: "#a9a6c4",
+  marginBottom: 6,
 };
 
-const inputWrapStyle = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  border: "1px solid #E5E7EB",
-  borderRadius: 12,
+const input = {
+  width: "100%",
   padding: "11px 14px",
-  background: "#fff",
-};
-
-const inputStyle = {
-  border: "none",
-  outline: "none",
-  flex: 1,
+  boxSizing: "border-box",
+  border: "1.5px solid rgba(139,108,245,0.3)",
+  borderRadius: 10,
   fontSize: 13.5,
-  color: "#111827",
-  background: "transparent",
-};
-
-const eyeBtnStyle = {
-  border: "none",
-  background: "transparent",
-  cursor: "pointer",
-  color: "#9CA3AF",
-  display: "flex",
-  alignItems: "center",
+  color: "#e5e3f7",
+  background: "rgba(255,255,255,0.02)",
+  outline: "none",
 };

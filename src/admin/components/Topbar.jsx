@@ -12,8 +12,18 @@ export default function Topbar() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [photoUrl, setPhotoUrl] = useState("");
+  const [adminName, setAdminName] = useState("Admin User");
+  const [adminRoleLabel, setAdminRoleLabel] = useState("Super Admin");
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+
+  // Every admin (Super Admin or sub-admin) has their own Firestore doc id,
+  // stored at login time in localStorage.adminId (see LoginForm.jsx). Using
+  // that here — instead of a hard-coded "admin" doc id — is what makes each
+  // admin's photo/name their own instead of one shared record everyone
+  // reads and overwrites.
+  const adminId = localStorage.getItem("adminId") || "";
+  const adminRole = localStorage.getItem("adminRole") || "admin";
 
   useEffect(() => {
     const msgQ = query(collection(db, "messages"), where("read", "==", false));
@@ -36,32 +46,45 @@ export default function Topbar() {
     };
   }, []);
 
-  // Load the admin's saved profile photo (admin/admin -> photoUrl) on mount.
+  // Load THIS admin's own saved profile photo + name (admin/{adminId}) on
+  // mount — never the shared "admin/admin" doc, so each admin only ever
+  // sees their own photo here.
   useEffect(() => {
     async function loadAdminPhoto() {
+      if (!adminId) return;
       try {
-        const snap = await getDoc(doc(db, "admin", "admin"));
-        if (snap.exists() && snap.data().photoUrl) {
-          setPhotoUrl(snap.data().photoUrl);
+        const snap = await getDoc(doc(db, "admin", adminId));
+        if (snap.exists()) {
+          const data = snap.data();
+          if (data.photoUrl) setPhotoUrl(data.photoUrl);
+          if (data.fullName || data.username) {
+            setAdminName(data.fullName || data.username);
+          }
+          setAdminRoleLabel(
+            (data.role || adminRole) === "subadmin" ? "Sub-Admin" : "Super Admin"
+          );
         }
       } catch (err) {
         console.log(err);
       }
     }
     loadAdminPhoto();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminId]);
 
   async function handlePhotoChange(e) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !adminId) return;
 
     try {
       setUploading(true);
-      const storageRef = ref(storage, `adminPhotos/admin-${Date.now()}-${file.name}`);
+      // Path is namespaced by adminId too, so each admin's uploaded files
+      // never collide with another admin's in Storage.
+      const storageRef = ref(storage, `adminPhotos/${adminId}-${Date.now()}-${file.name}`);
       await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
+      const url = (await getDownloadURL(storageRef)).trim();
 
-      await updateDoc(doc(db, "admin", "admin"), { photoUrl: url });
+      await updateDoc(doc(db, "admin", adminId), { photoUrl: url });
       setPhotoUrl(url);
     } catch (err) {
       console.error("Khalad sawirka admin-ka la soo shubayay:", err);
@@ -189,8 +212,8 @@ export default function Topbar() {
             />
           </div>
           <div style={{ lineHeight: 1.2 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111827" }}>Admin User</div>
-            <div style={{ fontSize: 11.5, color: "#9CA3AF" }}>Super Admin</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111827" }}>{adminName}</div>
+            <div style={{ fontSize: 11.5, color: "#9CA3AF" }}>{adminRoleLabel}</div>
           </div>
           <ChevronDown size={16} color="#9CA3AF" />
         </div>
