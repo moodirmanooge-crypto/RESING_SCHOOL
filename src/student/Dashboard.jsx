@@ -173,7 +173,6 @@ function ResponsiveStyles() {
 
 const NAV_ITEMS = [
   { key: "overview", label: "Overview", icon: "🏠" },
-  { key: "idCard", label: "ID Card", icon: "🪪" },
   { key: "certificate", label: "Certificate", icon: "🎓" },
   { key: "timetable", label: "Timetable", icon: "🗓️" },
   { key: "examTimetable", label: "Exam Timetable", icon: "📝" },
@@ -587,10 +586,14 @@ export default function StudentDashboard() {
                 accent={COLORS.accent}
               />
               <StatCard
-                label="Total paid"
-                value={`$${totalPaid.toLocaleString()}`}
-                accent={COLORS.accent}
-              />
+  label={student?.feeType === "Free" ? "Fee Status" : "Monthly Fee"}
+  value={
+    student?.feeType === "Free"
+      ? "Free"
+      : `$${Number(student?.monthlyFee || 0).toLocaleString()}`
+  }
+  accent={COLORS.accent}
+/>
               <StatCard
                 label="Messages from admin"
                 value={messages.length}

@@ -1,10 +1,11 @@
 // src/teacher/TeacherIdCard.jsx
 // Renders the official Rising Star School Teacher ID card — front + back —
-// matching the printed reference design exactly. Pulls all data straight
-// from the teacher's own Firestore record (fullName, username, phone,
-// subjects, createdAt, teacherPhoto). The "Teacher ID" shown on the card
-// is the teacher's login username (e.g. "moodir1"), exactly as stored in
-// Firestore doc id / username field — nothing is typed by the teacher.
+// matching the printed badge-style reference design. Pulls all data
+// straight from the teacher's own Firestore record (fullName, username,
+// phone, motherName, createdAt, teacherPhoto). The "Teacher ID" shown on
+// the card is the teacher's login username (e.g. "guul2"), exactly as
+// stored in Firestore doc id / username field — nothing is typed by the
+// teacher.
 //
 // NOTE: this is the teacher's own self-view of their ID card (shown on
 // their Profile page). There is intentionally no print/download control
@@ -23,6 +24,10 @@
 // the teacher_id/{teacherUsername} snapshot from Firestore and renders
 // this exact same component (with readOnly) — same design, same data,
 // no login required.
+//
+// CARD SIZE: matches StudentIdCard.jsx exactly (340px wide, 214px min
+// height, same border-radius) so both ID card types render at identical
+// dimensions across the app.
 
 import { useEffect, useState } from "react";
 import {
@@ -37,9 +42,7 @@ import principalSignature from "../admin/assets/signature-principal.png";
 
 const SCHOOL = {
   name1: "RISING STAR",
-  name2: "PRIMARY & SECONDARY",
-  name3: "SCHOOL",
-  tagline: "Teaching Today, Transforming Tomorrow",
+  name2: "PRIMARY & SECONDARY SCHOOL",
   website: "resingstarschools.com",
   location: "Mogadishu, Somalia",
   noticeTell: "+252 61 7390261",
@@ -50,13 +53,10 @@ function formatDate(d) {
   if (!d) return null;
   const dateObj = d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
   if (isNaN(dateObj.getTime())) return null;
-  const months = [
-    "JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC",
-  ];
   const day = String(dateObj.getDate()).padStart(2, "0");
-  const month = months[dateObj.getMonth()];
+  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
   const year = dateObj.getFullYear();
-  return { day, month, year, str: `${day} ${month} ${year}` };
+  return { day, month, year, str: `${day}/${month}/${year}` };
 }
 
 function CardStyles() {
@@ -65,418 +65,393 @@ function CardStyles() {
       .tidc-wrap {
         display: flex;
         flex-wrap: wrap;
-        gap: 34px;
+        gap: 28px;
         justify-content: center;
         padding: 24px 0;
       }
 
-      .tidc-card-outer {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0;
-      }
-
-      .tidc-side-label {
-        background: #14532d;
-        color: #fff;
-        font-weight: 800;
-        font-size: 13px;
-        letter-spacing: 2px;
-        padding: 6px 26px;
-        border-radius: 8px;
-        margin-bottom: -14px;
-        z-index: 3;
-        position: relative;
-        box-shadow: 0 4px 10px rgba(20,83,45,0.3);
-      }
-
+      /* Same footprint as StudentIdCard's .idc-card */
       .tidc-card {
-        width: 400px;
+        width: 340px;
         max-width: 100%;
-        aspect-ratio: 640 / 780;
-        border-radius: 22px;
+        min-height: 214px;
+        border-radius: 14px;
         overflow: hidden;
         position: relative;
         background: #ffffff;
-        box-shadow: 0 18px 44px rgba(0,0,0,0.28);
+        box-shadow: 0 18px 44px rgba(0,0,0,0.35);
         font-family: 'Poppins','Inter','Segoe UI',system-ui,sans-serif;
+        border: 1px solid #e8e8e8;
         display: flex;
         flex-direction: column;
-        border: 1px solid #eef1ee;
       }
 
-      .tidc-band-top {
+      .tidc-hole {
         position: absolute;
-        top: 0; left: 0; right: 0;
-        z-index: 0;
+        top: 6px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 40px;
+        height: 11px;
+        background: rgba(255,255,255,0.55);
+        border: 1.5px solid rgba(255,255,255,0.85);
+        border-radius: 7px;
+        z-index: 5;
       }
-      .tidc-band-bottom {
-        position: absolute;
-        bottom: 0; left: 0; right: 0;
-        z-index: 0;
-      }
-      .tidc-band-top svg, .tidc-band-bottom svg { display: block; width: 100%; }
 
-      .tidc-header {
-        position: relative;
-        z-index: 2;
+      .tidc-front-header {
+        background: #14532d;
+        padding: 14px 14px 10px;
         display: flex;
-        flex-direction: column;
         align-items: center;
-        gap: 4px;
-        padding: 20px 22px 4px;
-        text-align: center;
+        gap: 8px;
+        position: relative;
+      }
+      .tidc-front-header::after {
+        content: "";
+        position: absolute;
+        left: 0; right: 0; bottom: -3px;
+        height: 3px;
+        background: #f5a623;
       }
       .tidc-logo-badge {
-        width: 70px;
-        height: 70px;
+        width: 42px;
+        height: 42px;
+        min-width: 42px;
         border-radius: 50%;
         background: #fff;
-        border: 2.5px solid #1c6b3a;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-        position: relative;
         overflow: hidden;
-        margin-bottom: 6px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       }
       .tidc-logo-badge img {
         width: 100%;
         height: 100%;
-        object-fit: contain;
-        border-radius: 50%;
+        object-fit: cover;
       }
-      .tidc-school-block { line-height: 1.1; }
+      .tidc-school-block { line-height: 1.1; color: #fff; }
       .tidc-school-name1 {
-        font-size: 20px;
-        font-weight: 800;
-        color: #14532d;
+        font-size: 14px;
+        font-weight: 900;
         letter-spacing: 0.3px;
       }
       .tidc-school-name2 {
-        font-size: 12px;
+        font-size: 8.5px;
         font-weight: 700;
-        color: #16202b;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-      }
-      .tidc-school-name3 {
-        font-size: 15px;
-        font-weight: 700;
-        color: #16202b;
-        letter-spacing: 4px;
+        letter-spacing: 0.2px;
+        margin-top: 1px;
       }
 
-      .tidc-title-bar {
+      .tidc-front-body {
         position: relative;
-        z-index: 2;
-        margin: 10px 22px 12px;
-        background: #14532d;
-        border-radius: 8px;
-        padding: 8px 16px;
-        display: flex;
-        align-items: baseline;
-        justify-content: center;
-        gap: 7px;
-        box-shadow: 0 6px 14px rgba(20,83,45,0.25);
-      }
-      .tidc-title-1 { color: #fff; font-weight: 700; font-size: 16px; letter-spacing: 1px; }
-      .tidc-title-2 { color: #f5a623; font-weight: 800; font-size: 16px; letter-spacing: 1px; }
-
-      .tidc-body {
-        position: relative;
-        z-index: 2;
         flex: 1;
         display: flex;
-        padding: 0 22px;
-        gap: 12px;
+        padding: 11px 12px 0;
+        gap: 9px;
       }
+
+      .tidc-side-label {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        background: #14532d;
+        color: #fff;
+        font-weight: 800;
+        font-size: 9px;
+        letter-spacing: 1.6px;
+        padding: 8px 4px;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        align-self: stretch;
+      }
+
+      .tidc-photo-wrap {
+        width: 82px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .tidc-photo {
+        width: 76px;
+        height: 90px;
+        object-fit: cover;
+        border-radius: 6px;
+        border: 2px solid #14532d;
+        background: #eef1ee;
+      }
+      .tidc-photo-placeholder {
+        width: 76px;
+        height: 90px;
+        border-radius: 6px;
+        border: 2px solid #14532d;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #eef1ee;
+        overflow: hidden;
+      }
+      .tidc-photo-placeholder svg { width: 44px; height: 44px; color: #b9c2ba; }
 
       .tidc-fields {
         flex: 1;
         display: flex;
         flex-direction: column;
-        justify-content: flex-start;
-        gap: 9px;
+        justify-content: center;
+        gap: 6px;
         min-width: 0;
+        padding-top: 2px;
       }
       .tidc-field-row {
         display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        font-size: 11.5px;
-      }
-      .tidc-field-icon {
-        width: 19px;
-        height: 19px;
-        border-radius: 6px;
-        background: #1c6b3a;
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 9.5px;
-        flex-shrink: 0;
+        align-items: baseline;
+        gap: 5px;
+        font-size: 8px;
       }
       .tidc-field-label {
-        font-weight: 700;
+        font-weight: 800;
         color: #16202b;
-        min-width: 96px;
-        letter-spacing: 0.2px;
-        white-space: nowrap;
-        font-size: 10.5px;
+        min-width: 66px;
+        letter-spacing: 0.1px;
         flex-shrink: 0;
-        padding-top: 1px;
+        text-transform: uppercase;
       }
-      .tidc-field-colon { color: #16202b; font-weight: 700; flex-shrink: 0; padding-top: 1px; }
+      .tidc-field-colon { color: #16202b; font-weight: 700; flex-shrink: 0; }
       .tidc-field-value {
         font-weight: 700;
-        color: #1c6b3a;
-        overflow-wrap: break-word;
-        word-break: break-word;
-        white-space: normal;
-        line-height: 1.25;
-        min-width: 0;
-      }
-
-      .tidc-photo-wrap {
-        width: 88px;
-        flex-shrink: 0;
-        display: flex;
-        align-items: flex-start;
-        justify-content: center;
-        padding-top: 2px;
-      }
-      .tidc-photo {
-        width: 86px;
-        height: 104px;
-        object-fit: cover;
-        border-radius: 8px;
-        border: 3px solid #1c6b3a;
-        background: #eef3ee;
-      }
-      .tidc-photo-placeholder {
-        width: 86px;
-        height: 104px;
-        border-radius: 8px;
-        border: 2px dashed #9db8a4;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 9.5px;
-        color: #6b8a73;
-        text-align: center;
-        padding: 4px;
-      }
-
-      /* Signature is now the last element above the bottom band since the
-         QR code was removed from the front (QR lives on the back only). */
-      .tidc-signature {
-        position: relative;
-        z-index: 2;
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        padding: 4px 22px 0;
-        margin-top: 10px;
-        margin-bottom: 18px;
-      }
-      .tidc-signature-img {
-        width: 118px;
-        height: 34px;
-        object-fit: contain;
-        object-position: bottom center;
-      }
-      .tidc-signature-line {
-        width: 118px;
-        border-top: 1px solid #16202b;
-        margin-top: 2px;
-        padding-top: 3px;
-        text-align: center;
-        font-size: 8.5px;
-        font-weight: 700;
-        color: #16202b;
-        letter-spacing: 0.3px;
-      }
-
-      .tidc-footer {
-        position: relative;
-        z-index: 2;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 3px;
-        padding: 8px 18px 6px;
-        margin-top: 6px;
-      }
-      .tidc-qr {
-        width: 54px;
-        height: 54px;
-        background: #fff;
-        border: 1px solid #d8e3da;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 3px;
-      }
-      .tidc-qr img { width: 100%; height: 100%; }
-      .tidc-qr-caption {
-        font-size: 7.5px;
-        font-weight: 700;
         color: #14532d;
-        letter-spacing: 0.3px;
-        text-align: center;
+        border-bottom: 1px solid #16202b33;
+        flex: 1;
+        padding-bottom: 1px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
-      .tidc-slogan {
+      .tidc-front-footer {
         position: relative;
-        z-index: 2;
-        text-align: center;
-        color: #fff;
-        font-weight: 700;
-        font-size: 12px;
-        font-style: italic;
-        padding-bottom: 14px;
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        padding: 5px 12px 9px;
+        margin-top: 4px;
+      }
+      .tidc-signature-block { text-align: center; }
+      .tidc-signature-img { height: 22px; object-fit: contain; }
+      .tidc-signature-line {
+        border-top: 1.5px solid #16202b;
+        margin-top: 2px;
+        padding-top: 2px;
+        font-size: 6.5px;
+        font-weight: 800;
+        letter-spacing: 0.6px;
+        color: #16202b;
+      }
+      .tidc-slogan-badge {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        color: #14532d;
+        font-weight: 800;
+        font-size: 6.8px;
+        letter-spacing: 0.2px;
+      }
+
+      .tidc-front-wave {
+        height: 16px;
+        background: linear-gradient(90deg, #14532d, #f5a623 50%, #14532d);
+        position: relative;
+        flex-shrink: 0;
+      }
+      .tidc-front-wave::before {
+        content: "";
+        position: absolute;
+        top: -10px; left: 0; right: 0;
+        height: 12px;
+        background: #fff;
+        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
       }
 
       /* ---------- BACK ---------- */
-      .tidc-back-content {
-        position: relative;
-        z-index: 2;
-        padding: 24px 24px 0;
-        flex: 1;
-      }
       .tidc-back-header {
-        display: flex;
-        justify-content: center;
-        margin-bottom: 14px;
-      }
-      .tidc-back-logo {
-        width: 68px;
-        height: 68px;
-        border-radius: 50%;
-        background: #fff;
-        border: 2.5px solid #1c6b3a;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
-      .tidc-back-logo img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-        border-radius: 50%;
-      }
-      .tidc-section-bar {
         background: #14532d;
-        color: #fff;
-        font-weight: 800;
-        font-size: 13px;
-        letter-spacing: 0.5px;
+        padding: 10px 14px 11px;
         text-align: center;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin-bottom: 10px;
-        box-shadow: 0 6px 14px rgba(20,83,45,0.2);
+        position: relative;
+        flex-shrink: 0;
       }
-      .tidc-terms-list {
+      .tidc-back-header::after {
+        content: "";
+        position: absolute;
+        left: 0; right: 0; bottom: -3px;
+        height: 3px;
+        background: #f5a623;
+      }
+      .tidc-back-title {
+        color: #fff;
+        font-weight: 900;
+        font-size: 14px;
+        letter-spacing: 0.4px;
+      }
+      .tidc-back-subtitle {
+        color: #cfe8d7;
+        font-weight: 700;
+        font-size: 7.5px;
+        letter-spacing: 0.7px;
+        margin-top: 2px;
+      }
+
+      .tidc-back-body {
+        flex: 1;
+        padding: 8px 14px 4px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .tidc-rights-badge {
+        background: #eaf3ec;
+        color: #14532d;
+        font-weight: 800;
+        font-size: 7.5px;
+        letter-spacing: 0.3px;
+        text-align: center;
+        padding: 3px 0;
+        border-radius: 4px;
+        margin-bottom: 5px;
+        flex-shrink: 0;
+      }
+
+      .tidc-rights-list {
         list-style: none;
-        margin: 0 0 16px;
+        margin: 0 0 5px;
         padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 6px;
-      }
-      .tidc-terms-list li {
-        font-size: 10.5px;
-        color: #16202b;
-        display: flex;
-        gap: 7px;
-        align-items: flex-start;
-        line-height: 1.4;
-      }
-      .tidc-terms-check {
-        color: #fff;
-        background: #1c6b3a;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        font-size: 8px;
-        font-weight: 800;
+        gap: 2px;
         flex-shrink: 0;
+      }
+      .tidc-rights-list li {
+        display: flex;
+        gap: 4px;
+        font-size: 5.6px;
+        line-height: 1.25;
+        color: #232b26;
+      }
+      .tidc-rights-check {
+        color: #16a34a;
+        font-weight: 900;
+        flex-shrink: 0;
+      }
+
+      .tidc-return-block {
+        border-top: 1px solid #dfe6e0;
+        padding-top: 4px;
+        text-align: center;
+        flex-shrink: 0;
+      }
+      .tidc-return-title {
+        font-weight: 800;
+        font-size: 6.2px;
+        color: #14532d;
+        letter-spacing: 0.2px;
+        margin-bottom: 2px;
+      }
+      .tidc-return-row {
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-top: 1px;
+        gap: 3px;
+        font-size: 5.5px;
+        color: #232b26;
+        margin-bottom: 1px;
       }
+      .tidc-return-icon { flex-shrink: 0; }
 
-      .tidc-emergency-block {
-        background: rgba(28,107,58,0.06);
-        border-radius: 10px;
-        padding: 12px 14px;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        margin-bottom: 10px;
-      }
-      .tidc-emergency-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 10.5px;
-        color: #16202b;
-      }
-      .tidc-emergency-icon {
-        width: 18px; height: 18px;
-        border-radius: 5px;
-        background: #1c6b3a;
-        color: #fff;
-        display: flex; align-items: center; justify-content: center;
-        font-size: 9px;
-        flex-shrink: 0;
-      }
-      .tidc-emergency-label { font-weight: 700; min-width: 90px; letter-spacing: 0.2px; }
-
-      .tidc-back-qr-wrap {
+      .tidc-back-footer {
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 3px;
+        padding: 6px 0 10px;
+        flex-shrink: 0;
+      }
+      .tidc-verify-label {
+        font-weight: 800;
+        font-size: 6.5px;
+        color: #14532d;
+        letter-spacing: 0.3px;
+      }
+      .tidc-qr {
+        width: 46px;
+        height: 46px;
+        background: #fff;
+        border: 1px solid #dfe6e0;
+        border-radius: 5px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px;
+        box-sizing: border-box;
+        flex-shrink: 0;
+      }
+      .tidc-qr img { width: 100%; height: 100%; display: block; }
+
+      .tidc-back-wave {
+        height: 20px;
         position: relative;
-        z-index: 2;
-        margin-top: 4px;
+        background: #14532d;
+        flex-shrink: 0;
+      }
+      .tidc-back-wave::before {
+        content: "";
+        position: absolute;
+        top: -10px; left: 0; right: 0;
+        height: 12px;
+        background: #fff;
+        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+      }
+      .tidc-back-wave-triangle {
+        position: absolute;
+        bottom: 0; left: 50%;
+        transform: translateX(-50%);
+        width: 0; height: 0;
+        border-left: 16px solid transparent;
+        border-right: 16px solid transparent;
+        border-bottom: 10px solid #2563a8;
+      }
+      .tidc-back-wave-star {
+        position: absolute;
+        bottom: 1px; left: 50%;
+        transform: translateX(-50%);
+        color: #fff;
+        font-size: 8px;
+      }
+
+      @media print {
+        body { margin: 0; }
+        .tidc-print-hide { display: none !important; }
+        .tidc-wrap { gap: 0; padding: 0; }
+        .tidc-card { box-shadow: none; page-break-inside: avoid; }
       }
     `}</style>
   );
 }
 
-function BandTop() {
+function PersonIcon() {
   return (
-    <svg viewBox="0 0 400 46" preserveAspectRatio="none">
-      <path d="M0,0 H400 V14 C300,32 260,4 200,18 C140,32 100,8 0,20 Z" fill="#f5a623" />
-      <path d="M0,0 H400 V6 C300,22 260,-2 200,10 C140,22 100,0 0,12 Z" fill="#14532d" />
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z" />
     </svg>
   );
 }
 
-function BandBottom() {
-  return (
-    <svg viewBox="0 0 400 70" preserveAspectRatio="none">
-      <path d="M0,70 H400 V26 C300,4 260,40 200,22 C140,4 100,32 0,16 Z" fill="#f5a623" />
-      <path d="M0,70 H400 V38 C300,18 260,50 200,34 C140,18 100,44 0,30 Z" fill="#14532d" />
-    </svg>
-  );
-}
-
-function CardFront({ teacher, teacherUsername }) {
-  const joined = formatDate(teacher?.createdAt);
-
+function CardFront({ teacher, teacherUsername, joined }) {
   const motherNameText =
     teacher?.motherName || teacher?.matherName || teacher?.parentName || "—";
 
@@ -489,82 +464,70 @@ function CardFront({ teacher, teacherUsername }) {
   const photoSrc = teacher?.teacherPhoto || teacher?.photoUrl || "";
 
   return (
-    <div className="tidc-card-outer">
-      <span className="tidc-side-label">FRONT</span>
-      <div className="tidc-card" id="tidc-print-front">
-        <div className="tidc-band-top"><BandTop /></div>
+    <div className="tidc-card" id="tidc-print-front">
+      <div className="tidc-hole" />
 
-        <div className="tidc-header">
-          <div className="tidc-logo-badge">
-            <img src={schoolLogo} alt="Rising Star School logo" />
-          </div>
-          <div className="tidc-school-block">
-            <div className="tidc-school-name1">{SCHOOL.name1}</div>
-            <div className="tidc-school-name2">{SCHOOL.name2}</div>
-            <div className="tidc-school-name3">{SCHOOL.name3}</div>
-          </div>
+      <div className="tidc-front-header">
+        <div className="tidc-logo-badge">
+          <img src={schoolLogo} alt="Rising Star School logo" />
         </div>
-
-        <div className="tidc-title-bar">
-          <span className="tidc-title-1">TEACHER</span>
-          <span className="tidc-title-2">ID CARD</span>
+        <div className="tidc-school-block">
+          <div className="tidc-school-name1">RISING STAR</div>
+          <div className="tidc-school-name2">{SCHOOL.name2}</div>
         </div>
-
-        <div className="tidc-body">
-          <div className="tidc-fields">
-            <div className="tidc-field-row">
-              <span className="tidc-field-icon">🪪</span>
-              <span className="tidc-field-label">TEACHER ID</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{teacherUsername || "—"}</span>
-            </div>
-            <div className="tidc-field-row">
-              <span className="tidc-field-icon">👤</span>
-              <span className="tidc-field-label">TEACHER NAME</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{fullNameText}</span>
-            </div>
-            <div className="tidc-field-row">
-              <span className="tidc-field-icon">👥</span>
-              <span className="tidc-field-label">MOTHER'S NAME</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{motherNameText}</span>
-            </div>
-            <div className="tidc-field-row">
-              <span className="tidc-field-icon">📞</span>
-              <span className="tidc-field-label">PHONE NUMBER</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{teacher?.phone || teacher?.phoneNumber || "—"}</span>
-            </div>
-            <div className="tidc-field-row">
-              <span className="tidc-field-icon">📅</span>
-              <span className="tidc-field-label">DATE OF JOINING</span>
-              <span className="tidc-field-colon">:</span>
-              <span className="tidc-field-value">{joined?.str || "—"}</span>
-            </div>
-          </div>
-
-          <div className="tidc-photo-wrap">
-            {photoSrc ? (
-              <img className="tidc-photo" src={photoSrc} alt={fullNameText} />
-            ) : (
-              <div className="tidc-photo-placeholder">No Photo</div>
-            )}
-          </div>
-        </div>
-
-        <div className="tidc-signature">
-          <img
-            className="tidc-signature-img"
-            src={principalSignature}
-            alt="Principal's signature"
-          />
-          <div className="tidc-signature-line">PRINCIPAL'S SIGNATURE</div>
-        </div>
-
-        <div className="tidc-band-bottom"><BandBottom /></div>
-        <div className="tidc-slogan">"Education Is Life It Self"</div>
       </div>
+
+      <div className="tidc-front-body">
+        <div className="tidc-side-label">TEACHER ID CARD</div>
+
+        <div className="tidc-photo-wrap">
+          {photoSrc ? (
+            <img className="tidc-photo" src={photoSrc} alt={fullNameText} />
+          ) : (
+            <div className="tidc-photo-placeholder">
+              <PersonIcon />
+            </div>
+          )}
+        </div>
+
+        <div className="tidc-fields">
+          <div className="tidc-field-row">
+            <span className="tidc-field-label">TEACHER ID</span>
+            <span className="tidc-field-colon">:</span>
+            <span className="tidc-field-value">{teacherUsername || "—"}</span>
+          </div>
+          <div className="tidc-field-row">
+            <span className="tidc-field-label">NAME</span>
+            <span className="tidc-field-colon">:</span>
+            <span className="tidc-field-value">{fullNameText}</span>
+          </div>
+          <div className="tidc-field-row">
+            <span className="tidc-field-label">MOTHER'S NAME</span>
+            <span className="tidc-field-colon">:</span>
+            <span className="tidc-field-value">{motherNameText}</span>
+          </div>
+          <div className="tidc-field-row">
+            <span className="tidc-field-label">PHONE</span>
+            <span className="tidc-field-colon">:</span>
+            <span className="tidc-field-value">{teacher?.phone || teacher?.phoneNumber || "—"}</span>
+          </div>
+          <div className="tidc-field-row">
+            <span className="tidc-field-label">JOINED</span>
+            <span className="tidc-field-colon">:</span>
+            <span className="tidc-field-value">{joined?.str || "—"}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="tidc-front-footer">
+        <div className="tidc-signature-block">
+          <img className="tidc-signature-img" src={principalSignature} alt="Principal's signature" />
+          <div className="tidc-signature-line">PRINCIPAL</div>
+        </div>
+        <div className="tidc-slogan-badge">★ EDUCATION IS LIFE IT SELF</div>
+      </div>
+
+      <div className="tidc-front-wave" />
     </div>
   );
 }
@@ -573,90 +536,82 @@ function CardBack({ teacherUsername }) {
   const verifyUrl = `https://${SCHOOL.website}/verify/teacher/${encodeURIComponent(
     teacherUsername || ""
   )}`;
-  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&margin=0&data=${encodeURIComponent(
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
     verifyUrl
   )}`;
 
   return (
-    <div className="tidc-card-outer">
-      <span className="tidc-side-label">BACK</span>
-      <div className="tidc-card" id="tidc-print-back">
-        <div className="tidc-band-top"><BandTop /></div>
+    <div className="tidc-card" id="tidc-print-back">
+      <div className="tidc-hole" />
 
-        <div className="tidc-back-content">
-          <div className="tidc-back-header">
-            <div className="tidc-back-logo">
-              <img src={schoolLogo} alt="Rising Star School logo" />
-            </div>
+      <div className="tidc-back-header">
+        <div className="tidc-back-title">RISING STAR</div>
+        <div className="tidc-back-subtitle">★ PRIMARY &amp; SECONDARY SCHOOL ★</div>
+      </div>
+
+      <div className="tidc-back-body">
+        <div className="tidc-rights-badge">CARD HOLDER RIGHTS</div>
+
+        <ul className="tidc-rights-list">
+          <li>
+            <span className="tidc-rights-check">✔</span>
+            This card is the property of Rising Star Primary &amp; Secondary School.
+          </li>
+          <li>
+            <span className="tidc-rights-check">✔</span>
+            This card must be carried by the teacher at all times within the school premises.
+          </li>
+          <li>
+            <span className="tidc-rights-check">✔</span>
+            This card is non-transferable and must be used only by the person to whom it is issued.
+          </li>
+          <li>
+            <span className="tidc-rights-check">✔</span>
+            If this card is lost or found, please report to the school office immediately.
+          </li>
+          <li>
+            <span className="tidc-rights-check">✔</span>
+            Misuse of this card may result in disciplinary action.
+          </li>
+        </ul>
+
+        <div className="tidc-return-block">
+          <div className="tidc-return-title">IN CASE OF FINDING THIS CARD, PLEASE RETURN TO:</div>
+          <div className="tidc-return-row">
+            <span className="tidc-return-icon">📍</span>
+            <span>{SCHOOL.location}</span>
           </div>
-
-          <div className="tidc-section-bar">TERMS &amp; CONDITIONS</div>
-          <ul className="tidc-terms-list">
-            <li><span className="tidc-terms-check">✔</span> This ID card is the property of Rising Star School.</li>
-            <li><span className="tidc-terms-check">✔</span> This card is issued for official identification only.</li>
-            <li><span className="tidc-terms-check">✔</span> This card is non-transferable and must be surrendered upon request.</li>
-            <li><span className="tidc-terms-check">✔</span> If found, please return it to the school administration.</li>
-          </ul>
-
-          <div className="tidc-section-bar">IN CASE OF EMERGENCY</div>
-          <div className="tidc-emergency-block">
-            <div className="tidc-emergency-row">
-              <span className="tidc-emergency-icon">📞</span>
-              <span className="tidc-emergency-label">CONTACT NUMBER</span>
-              <span>: {SCHOOL.noticeTell}</span>
-            </div>
-            <div className="tidc-emergency-row">
-              <span className="tidc-emergency-icon">✉</span>
-              <span className="tidc-emergency-label">EMAIL</span>
-              <span>: {SCHOOL.noticeEmail}</span>
-            </div>
-            <div className="tidc-emergency-row">
-              <span className="tidc-emergency-icon">🌐</span>
-              <span className="tidc-emergency-label">WEBSITE</span>
-              <span>: {SCHOOL.website}</span>
-            </div>
-            <div className="tidc-emergency-row">
-              <span className="tidc-emergency-icon">📍</span>
-              <span className="tidc-emergency-label">ADDRESS</span>
-              <span>: {SCHOOL.location}</span>
-            </div>
+          <div className="tidc-return-row">
+            <span className="tidc-return-icon">📞</span>
+            <span>{SCHOOL.noticeTell}</span>
           </div>
-
-          <div className="tidc-back-qr-wrap">
-            <div className="tidc-qr">
-              <img src={qrSrc} alt="QR code" />
-            </div>
-            <div className="tidc-qr-caption">
-              SCAN TO VERIFY
-              <br />
-              TEACHER ID
-            </div>
+          <div className="tidc-return-row">
+            <span className="tidc-return-icon">✉️</span>
+            <span>{SCHOOL.noticeEmail}</span>
+          </div>
+          <div className="tidc-return-row">
+            <span className="tidc-return-icon">🌐</span>
+            <span>{SCHOOL.website}</span>
           </div>
         </div>
 
-        <div className="tidc-band-bottom"><BandBottom /></div>
-        <div className="tidc-slogan">"Excellence Today, Leaders Tomorrow"</div>
+        <div className="tidc-back-footer">
+          <div className="tidc-verify-label">SCAN TO VERIFY</div>
+          <div className="tidc-qr">
+            <img src={qrSrc} alt="QR code" />
+          </div>
+        </div>
+      </div>
+
+      <div className="tidc-back-wave">
+        <div className="tidc-back-wave-triangle" />
+        <div className="tidc-back-wave-star">★</div>
       </div>
     </div>
   );
 }
 
-// Teacher self-view (readOnly = false, default): front + back only, no
-// print/export control. Nothing here lets the signed-in teacher
-// download, print, or otherwise take a copy of their own ID card — it
-// is view-only on their Profile page.
-//
-// Public verify view (readOnly = true): used by TeacherVerify.jsx when
-// the QR code is scanned. Skips the Firestore write entirely, since an
-// anonymous visitor should never attempt to create/update teacher_id
-// records — it only ever reads and displays the snapshot it was handed.
 export default function TeacherIdCard({ teacher, teacherUsername, readOnly = false }) {
-  // Duplicate the full teacher record into `teacher_id/{teacherUsername}`
-  // the first time this card is viewed, so each issued card has its own
-  // persistent snapshot independent of later edits to the original
-  // teacher record. This is also the exact record TeacherVerify.jsx reads
-  // when the QR code is scanned. Only runs for the teacher's own
-  // authenticated self-view (readOnly === false).
   useEffect(() => {
     if (readOnly || !teacherUsername || !teacher) return;
 
@@ -684,12 +639,14 @@ export default function TeacherIdCard({ teacher, teacherUsername, readOnly = fal
     };
   }, [teacherUsername, teacher, readOnly]);
 
+  const joined = formatDate(teacher?.createdAt);
+
   return (
     <div>
       <CardStyles />
 
       <div className="tidc-wrap">
-        <CardFront teacher={teacher} teacherUsername={teacherUsername} />
+        <CardFront teacher={teacher} teacherUsername={teacherUsername} joined={joined} />
         <CardBack teacherUsername={teacherUsername} />
       </div>
     </div>

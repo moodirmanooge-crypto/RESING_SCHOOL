@@ -248,53 +248,7 @@ export default function Dashboard() {
             {/* Shift Clock In / Out */}
             <ShiftClock />
 
-            {/* My Teacher ID Card */}
-            <div
-              className="td-panel"
-              style={{
-                background: "#0B1120",
-                borderRadius: 20,
-                padding: 24,
-                marginBottom: 24,
-                border: "1px solid rgba(255,255,255,.06)",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                  gap: 8,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <IdCard size={20} color="#8B5CF6" />
-                  <h3 style={{ margin: 0, color: "#fff" }}>My Teacher ID Card</h3>
-                </div>
-                <button
-                  onClick={() => setShowIdCard((v) => !v)}
-                  style={{
-                    background: "none",
-                    border: "1px solid rgba(139,92,246,.4)",
-                    color: "#8B5CF6",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: "bold",
-                    borderRadius: 10,
-                    padding: "8px 16px",
-                  }}
-                >
-                  {showIdCard ? "Hide ID Card" : "View / Print ID Card"}
-                </button>
-              </div>
-
-              {showIdCard && (
-                <div style={{ marginTop: 16 }}>
-                  <TeacherIdCard teacher={teacherData} teacherUsername={teacherUsername} />
-                </div>
-              )}
-            </div>
+            
 
             {/* Fariimaha ugu dambeeyay */}
             <div
