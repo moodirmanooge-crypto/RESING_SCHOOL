@@ -27,6 +27,25 @@ const CORE_VALUES = [
   { icon: "🌍", title: "Global Citizenship", desc: "Preparing students to lead and contribute both locally and on the world stage." },
 ];
 
+// Mission pillars — kuwan waxay ka soo baxayaan Mission Statement-ka
+const MISSION_PILLARS = [
+  {
+    icon: "🏅",
+    title: "Excellence in Teaching",
+    desc: "Delivering a comprehensive curriculum that blends modern educational methodologies with foundational values to foster critical thinking and lifelong learning.",
+  },
+  {
+    icon: "🌱",
+    title: "Holistic Development",
+    desc: "Nurturing students' moral, social, and intellectual growth, preparing them to become responsible, ethical, and capable leaders.",
+  },
+  {
+    icon: "🚀",
+    title: "Innovation & Future-Readiness",
+    desc: "Integrating modern tools, scientific inquiry, and technological literacy to ensure students are fully prepared for higher education and the demands of the modern global workforce.",
+  },
+];
+
 const HISTORY_TIMELINE = [
   { year: "2023", text: "Rising Star Primary & Secondary School was founded in Mogadishu with a mission to raise the next generation of leaders." },
   { year: "2024", text: "Expanded classrooms and introduced a dedicated science and computer lab for hands-on learning." },
@@ -188,23 +207,45 @@ export default function About() {
 
         <div className="about-mission-cards">
           <div className="about-mission-card">
-            <span className="about-mission-card-icon">🎯</span>
-            <h3>Our Mission</h3>
-            <p>
-              To provide quality, holistic education in a safe and inspiring
-              environment, equipping every student with the knowledge,
-              values and confidence to achieve greatness.
-            </p>
-          </div>
-          <div className="about-mission-card">
             <span className="about-mission-card-icon">🔭</span>
             <h3>Our Vision</h3>
             <p>
-              To be Somalia's leading school for academic excellence and
-              character development, raising a generation of principled
-              leaders who serve their community and the world.
+              To be a leading, world-class educational institution in Mogadishu,
+              Somalia, recognized for academic excellence, innovation, and holistic
+              development in primary and secondary education, empowering
+              generations of students to master languages, advance in sciences,
+              and drive positive transformation in their communities and the
+              global society.
             </p>
           </div>
+          <div className="about-mission-card">
+            <span className="about-mission-card-icon">🎯</span>
+            <h3>Our Mission</h3>
+            <p>
+              To cultivate an inspiring, rigorous, and supportive learning
+              environment that equips students with exceptional academic
+              foundations, advanced linguistic capabilities, and essential
+              scientific knowledge.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- Mission Pillars ---------- */}
+      <section className="about-section about-section-alt">
+        <h2 className="about-section-title">How We Deliver Our Mission</h2>
+        <p className="about-section-sub">
+          Three pillars that shape every classroom, every lesson, and every student at Rising Star School.
+        </p>
+
+        <div className="mission-pillars-grid">
+          {MISSION_PILLARS.map((p) => (
+            <div className="mission-pillar-card" key={p.title}>
+              <span className="mission-pillar-icon">{p.icon}</span>
+              <h3 className="mission-pillar-title">{p.title}</h3>
+              <p className="mission-pillar-desc">{p.desc}</p>
+            </div>
+          ))}
         </div>
       </section>
 
