@@ -1,25 +1,18 @@
 // src/student/StudentIdCard.jsx
-// Renders the official Rising Star School Student ID card — front + back —
-// matching the printed reference design exactly. Pulls all data from the
-// student's own Firestore record (fullName, studentId, className, shift,
-// studentPhoto); nothing is typed here. Includes a "Print ID Card" button
-// that opens a clean print window with both sides, sized for a standard
-// CR80 card (85.6mm x 54mm) at 300dpi print scale.
-
+import React from "react";
 import schoolLogo from "../assets/rising-star-logo.png";
-import principalSignature from "../admin/assets/signature-principal.png";
 
 const SCHOOL = {
-  name1: "RISING STAR",
-  name2: "PRIMARY & SECONDARY SCHOOL",
-  address1: "Wadajir District, Ceelqalow Area",
-  address2: "Near Hormuud Company, Mogadishu - Somalia",
-  phone: "+252 61 1234567 / +252 61 7654321",
-  email: "info@resingstarschools.com",
-  website: "resingstarschools.com",
-  slogan: "EDUCATION IS LIFE IT SELF",
+  name1: "RISING STAR PRIMARY",
+  name2: "& SECONDARY SCHOOL",
+  slogan: '"Education is life it`s self"',
+  officeLine1: "Primary Office: Wadajir,",
+  officeLine2: "Mogadishu-Somalia",
+  phone: "+252-617390261",
+  email: "risingstar0261@gmail.com",
 };
 
+// Card is valid for exactly one year from the issue date.
 function formatDate(d) {
   if (!d) return null;
   const dateObj = d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
@@ -27,7 +20,14 @@ function formatDate(d) {
   const day = String(dateObj.getDate()).padStart(2, "0");
   const month = String(dateObj.getMonth() + 1).padStart(2, "0");
   const year = dateObj.getFullYear();
-  return { day, month, year, str: `${day}/${month}/${year}` };
+  return { day, month, year, dateObj, str: `${day}-${month}-${year}` };
+}
+
+function addOneYear(issued) {
+  if (!issued?.dateObj) return null;
+  const expireDate = new Date(issued.dateObj);
+  expireDate.setFullYear(expireDate.getFullYear() + 1);
+  return formatDate(expireDate);
 }
 
 function CardStyles() {
@@ -36,376 +36,315 @@ function CardStyles() {
       .idc-wrap {
         display: flex;
         flex-wrap: wrap;
-        gap: 28px;
+        gap: 32px;
         justify-content: center;
         padding: 24px 0;
       }
 
       .idc-card {
-        width: 340px;
-        max-width: 100%;
-        min-height: 214px;
-        border-radius: 14px;
+        width: 320px;
+        height: 500px;
+        border-radius: 0px;
         overflow: hidden;
         position: relative;
         background: #ffffff;
-        box-shadow: 0 18px 44px rgba(0,0,0,0.35);
-        font-family: 'Poppins','Inter','Segoe UI',system-ui,sans-serif;
-        border: 1px solid #e8e8e8;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        font-family: Arial, Helvetica, sans-serif;
+        border: 1px solid #dcdcdc;
+        box-sizing: border-box;
       }
 
       /* ---------- FRONT ---------- */
-      .idc-front { display: flex; flex-direction: column; }
+      .idc-front {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        padding: 14px 16px 16px;
+        position: relative;
+        background: #ffffff;
+      }
 
       .idc-front-header {
-        background: #14532d;
-        padding: 10px 14px;
         display: flex;
         align-items: center;
-        gap: 8px;
-        position: relative;
+        gap: 10px;
+        text-align: left;
+        width: 100%;
+        margin-bottom: 6px;
       }
-      .idc-front-header::after {
-        content: "";
-        position: absolute;
-        left: 0; right: 0; bottom: -3px;
-        height: 3px;
-        background: #f5a623;
-      }
+
       .idc-logo-badge {
-        width: 42px;
-        height: 42px;
-        min-width: 42px;
+        width: 52px;
+        height: 52px;
+        min-width: 52px;
         border-radius: 50%;
-        background: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: center;
         flex-shrink: 0;
         overflow: hidden;
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
       }
+
       .idc-logo-badge img {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
       }
-      .idc-school-block { line-height: 1.1; color: #fff; }
+
+      .idc-school-block { 
+        line-height: 1.15; 
+      }
+
       .idc-school-name1 {
         font-size: 14px;
         font-weight: 900;
-        letter-spacing: 0.3px;
+        color: #008744;
+        letter-spacing: -0.2px;
       }
+
       .idc-school-name2 {
-        font-size: 8.5px;
-        font-weight: 700;
-        letter-spacing: 0.2px;
-        margin-top: 1px;
+        font-size: 14px;
+        font-weight: 900;
+        color: #008744;
+        letter-spacing: -0.2px;
       }
 
-      .idc-front-body {
+      .idc-school-slogan {
+        font-size: 9.5px;
+        font-style: italic;
+        color: #111111;
+        margin-top: 3px;
+      }
+
+      .idc-title {
+        font-size: 16px;
+        font-weight: 900;
+        color: #000000;
+        letter-spacing: 0.5px;
+        margin-top: 4px;
+        margin-bottom: 4px;
+        width: 100%;
+        text-align: center;
+      }
+
+      /* Green/blue chevron wave background for Front Photo */
+      .idc-wave-wrap {
         position: relative;
-        flex: 1;
+        width: 100%;
+        height: 155px;
         display: flex;
-        padding: 11px 12px 0;
-        gap: 9px;
+        justify-content: center;
+        align-items: flex-end;
       }
 
-      .idc-side-label {
-        writing-mode: vertical-rl;
-        transform: rotate(180deg);
-        background: #14532d;
-        color: #fff;
-        font-weight: 800;
-        font-size: 9px;
-        letter-spacing: 1.6px;
-        padding: 8px 4px;
-        border-radius: 5px;
+      .idc-wave-svg {
+        position: absolute;
+        top: 0;
+        left: -16px;
+        width: calc(100% + 32px);
+        height: 100%;
+        z-index: 0;
+        pointer-events: none;
+      }
+
+      .idc-photo-frame {
+        position: relative;
+        z-index: 1;
+        width: 124px;
+        height: 138px;
+        border: 2px solid #00a651;
+        border-radius: 12px 12px 55px 55px;
+        background: #ffffff;
+        overflow: hidden;
         display: flex;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
-        align-self: stretch;
       }
 
-      .idc-photo-wrap {
-        width: 82px;
-        flex-shrink: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-      }
-      .idc-photo {
-        width: 76px;
-        height: 90px;
+      .idc-photo-frame img {
+        width: 100%;
+        height: 100%;
         object-fit: cover;
-        border-radius: 6px;
-        border: 2px solid #14532d;
-        background: #eef1ee;
       }
-      .idc-photo-placeholder {
-        width: 76px;
-        height: 90px;
-        border-radius: 6px;
-        border: 2px solid #14532d;
+
+      .idc-photo-placeholder svg { 
+        width: 56px; 
+        height: 56px; 
+        color: #cccccc; 
+      }
+
+      .idc-student-name {
+        margin-top: 10px;
+        font-size: 18px;
+        font-weight: 800;
+        color: #000000;
+        line-height: 1.2;
+      }
+
+      .idc-grade-badge {
+        margin-top: 4px;
+        font-size: 15px;
+        font-weight: 800;
+        color: #1e295d;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #eef1ee;
-        overflow: hidden;
+        gap: 6px;
       }
-      .idc-photo-placeholder svg { width: 44px; height: 44px; color: #b9c2ba; }
 
-      .idc-fields {
-        flex: 1;
+      .idc-grade-badge .dash { 
+        color: #00a651; 
+        font-weight: 900; 
+        font-size: 18px;
+      }
+
+      /* Fixed Info Block Spacing & Layout */
+      .idc-info-block {
+        margin-top: 12px;
+        width: 82%;
         display: flex;
         flex-direction: column;
-        justify-content: center;
-        gap: 7px;
-        min-width: 0;
-        padding-top: 2px;
+        gap: 3px;
       }
-      .idc-field-row {
+
+      .idc-info-row {
         display: flex;
-        align-items: baseline;
-        gap: 5px;
-        font-size: 9px;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 15px;
+        color: #000000;
+        line-height: 1.25;
       }
-      .idc-field-label {
-        font-weight: 800;
-        color: #16202b;
-        min-width: 58px;
-        letter-spacing: 0.1px;
-        flex-shrink: 0;
-      }
-      .idc-field-colon { color: #16202b; font-weight: 700; flex-shrink: 0; }
-      .idc-field-value {
-        font-weight: 600;
-        color: #16202b;
-        border-bottom: 1px solid #16202b33;
-        flex: 1;
-        padding-bottom: 1px;
-        overflow: hidden;
-        text-overflow: ellipsis;
+
+      .idc-info-label { 
+        font-weight: 500; 
+        text-align: left; 
         white-space: nowrap;
       }
 
-      .idc-front-footer {
-        position: relative;
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        padding: 5px 12px 9px;
-        margin-top: 4px;
-      }
-      .idc-signature-block {
-        text-align: center;
-      }
-      .idc-signature-img {
-        height: 22px;
-        object-fit: contain;
-      }
-      .idc-signature-line {
-        border-top: 1.5px solid #16202b;
-        margin-top: 2px;
-        padding-top: 2px;
-        font-size: 6.5px;
-        font-weight: 800;
-        letter-spacing: 0.6px;
-        color: #16202b;
-      }
-      .idc-slogan-badge {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        color: #14532d;
-        font-weight: 800;
-        font-size: 6.8px;
-        letter-spacing: 0.2px;
+      .idc-info-value { 
+        font-weight: 500; 
+        text-align: right; 
+        white-space: nowrap;
       }
 
-      .idc-front-wave {
-        height: 16px;
-        background: linear-gradient(90deg, #14532d, #f5a623 50%, #14532d);
-        position: relative;
+      .idc-barcode-wrap {
+        margin-top: 10px;
+        width: 100%;
+        display: flex;
+        justify-content: center;
       }
-      .idc-front-wave::before {
-        content: "";
-        position: absolute;
-        top: -10px; left: 0; right: 0;
-        height: 12px;
-        background: #fff;
-        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+
+      .idc-barcode-wrap img {
+        height: 38px;
+        max-width: 80%;
+        object-fit: contain;
       }
 
       /* ---------- BACK ---------- */
-      .idc-back { display: flex; flex-direction: column; }
-
-      .idc-back-header {
-        background: #14532d;
-        padding: 10px 14px 11px;
-        text-align: center;
+      .idc-back {
         position: relative;
-        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        background: #e0f4ff;
       }
-      .idc-back-header::after {
-        content: "";
+
+      .idc-back-wave-top {
         position: absolute;
-        left: 0; right: 0; bottom: -3px;
-        height: 3px;
-        background: #f5a623;
-      }
-      .idc-back-title {
-        color: #fff;
-        font-weight: 900;
-        font-size: 14px;
-        letter-spacing: 0.4px;
-      }
-      .idc-back-subtitle {
-        color: #cfe8d7;
-        font-weight: 700;
-        font-size: 7.5px;
-        letter-spacing: 0.7px;
-        margin-top: 2px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 5px;
-      }
-
-      .idc-back-body {
-        flex: 1;
-        padding: 8px 14px 4px;
-        display: flex;
-        flex-direction: column;
-      }
-
-      .idc-rights-badge {
-        background: #eaf3ec;
-        color: #14532d;
-        font-weight: 800;
-        font-size: 7.5px;
-        letter-spacing: 0.3px;
-        text-align: center;
-        padding: 3px 0;
-        border-radius: 4px;
-        margin-bottom: 5px;
-        flex-shrink: 0;
-      }
-
-      .idc-rights-list {
-        list-style: none;
-        margin: 0 0 5px;
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        flex-shrink: 0;
-      }
-      .idc-rights-list li {
-        display: flex;
-        gap: 4px;
-        font-size: 5.6px;
-        line-height: 1.25;
-        color: #232b26;
-      }
-      .idc-rights-check {
-        color: #16a34a;
-        font-weight: 900;
-        flex-shrink: 0;
-      }
-
-      .idc-return-block {
-        border-top: 1px solid #dfe6e0;
-        padding-top: 4px;
-        text-align: center;
-        flex-shrink: 0;
-      }
-      .idc-return-title {
-        font-weight: 800;
-        font-size: 6.2px;
-        color: #14532d;
-        letter-spacing: 0.2px;
-        margin-bottom: 2px;
-      }
-      .idc-return-row {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 3px;
-        font-size: 5.5px;
-        color: #232b26;
-        margin-bottom: 1px;
-      }
-      .idc-return-icon { flex-shrink: 0; }
-
-      /* Back-body now grows to fit its content (no overflow:hidden / no
-         forced aspect-ratio height), so the return-info block and the
-         QR footer both always have the room they need and never get
-         visually clipped. */
-      .idc-back-footer {
-        position: relative;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 3px;
-        padding: 6px 0 10px;
-        flex-shrink: 0;
-      }
-      .idc-verify-label {
-        font-weight: 800;
-        font-size: 6.5px;
-        color: #14532d;
-        letter-spacing: 0.3px;
-      }
-      .idc-qr {
-        width: 46px;
-        height: 46px;
-        background: #fff;
-        border: 1px solid #dfe6e0;
-        border-radius: 5px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 2px;
-        box-sizing: border-box;
-        flex-shrink: 0;
-      }
-      .idc-qr img {
+        top: 0; left: 0; right: 0;
         width: 100%;
-        height: 100%;
-        display: block;
+        height: 90px;
+        z-index: 0;
       }
 
-      .idc-back-wave {
-        height: 20px;
+      .idc-back-wave-bottom {
+        position: absolute;
+        bottom: 0; left: 0; right: 0;
+        width: 100%;
+        height: 90px;
+        z-index: 0;
+      }
+
+      .idc-back-content {
         position: relative;
-        background: #14532d;
+        z-index: 1;
+        padding-top: 105px;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      .idc-back-intro {
+        font-size: 14.5px;
+        color: #000000;
+        margin-bottom: 2px;
+        font-weight: 500;
+      }
+
+      .idc-back-school {
+        font-size: 16.5px;
+        font-weight: 900;
+        color: #000000;
+        margin-bottom: 4px;
+        letter-spacing: 0.2px;
+      }
+
+      .idc-back-address {
+        font-size: 14.5px;
+        color: #000000;
+        line-height: 1.35;
+        margin-bottom: 22px;
+        font-weight: 500;
+      }
+
+      .idc-back-contact-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+        width: 80%;
+        justify-content: flex-start;
+      }
+
+      .idc-contact-icon {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        border: 2px solid #00a651;
+        background: #ffffff;
+        color: #00a651;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         flex-shrink: 0;
       }
-      .idc-back-wave::before {
-        content: "";
-        position: absolute;
-        top: -10px; left: 0; right: 0;
-        height: 12px;
-        background: #fff;
-        border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+
+      .idc-contact-icon svg { 
+        width: 18px; 
+        height: 18px; 
       }
-      .idc-back-wave-triangle {
-        position: absolute;
-        bottom: 0; left: 50%;
-        transform: translateX(-50%);
-        width: 0; height: 0;
-        border-left: 16px solid transparent;
-        border-right: 16px solid transparent;
-        border-bottom: 10px solid #2563a8;
+
+      .idc-back-contact-text {
+        font-size: 14px;
+        color: #000000;
+        font-weight: 600;
+        text-align: left;
       }
-      .idc-back-wave-star {
-        position: absolute;
-        bottom: 1px; left: 50%;
-        transform: translateX(-50%);
-        color: #fff;
-        font-size: 8px;
+
+      .idc-back-qr-wrap {
+        margin-top: 10px;
+        padding: 5px;
+        background: #ffffff;
+        border: 2px solid #00a651;
+        border-radius: 0px;
+        display: inline-block;
+      }
+
+      .idc-back-qr-wrap img {
+        width: 95px;
+        height: 95px;
+        display: block;
       }
 
       @media print {
@@ -426,8 +365,60 @@ function PersonIcon() {
   );
 }
 
-function CardFront({ student, studentId, issued }) {
-  const shift = student?.shift || student?.classShift || "";
+function PhoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 6-10 7L2 6" />
+    </svg>
+  );
+}
+
+// Chevron wave shapes behind photo
+function ChevronWave() {
+  return (
+    <svg className="idc-wave-svg" viewBox="0 0 320 155" preserveAspectRatio="none">
+      {/* Blue inner chevron layer */}
+      <path d="M0,0 L160,110 L320,0 L320,40 L160,150 L0,40 Z" fill="#0099e5" />
+      {/* Green outer chevron layer */}
+      <path d="M0,0 L160,85 L320,0 L320,30 L160,115 L0,30 Z" fill="#00a651" />
+    </svg>
+  );
+}
+
+// Back card top background curves
+function BackWaveTop() {
+  return (
+    <svg className="idc-back-wave-top" viewBox="0 0 320 90" preserveAspectRatio="none">
+      <path d="M0,0 H320 V50 C240,85 80,75 0,45 Z" fill="#00a651" />
+      <path d="M0,0 H320 V35 C240,70 80,60 0,30 Z" fill="#0099e5" />
+    </svg>
+  );
+}
+
+// Back card bottom background curves
+function BackWaveBottom() {
+  return (
+    <svg className="idc-back-wave-bottom" viewBox="0 0 320 90" preserveAspectRatio="none">
+      <path d="M0,90 H320 V40 C240,10 80,20 0,50 Z" fill="#0099e5" />
+      <path d="M0,90 H320 V55 C240,25 80,35 0,65 Z" fill="#00a651" />
+    </svg>
+  );
+}
+
+function CardFront({ student, studentId, issued, expired }) {
+  const fullNameText = student?.fullName || "Mohamed Omar Abdulle";
+  const gradeText = student?.className
+    ? `GRADE ${student.className}`
+    : "GRADE 6";
 
   return (
     <div className="idc-card idc-front" id="idc-print-front">
@@ -436,141 +427,107 @@ function CardFront({ student, studentId, issued }) {
           <img src={schoolLogo} alt="Rising Star School logo" />
         </div>
         <div className="idc-school-block">
-          <div className="idc-school-name1">RISING STAR</div>
+          <div className="idc-school-name1">{SCHOOL.name1}</div>
           <div className="idc-school-name2">{SCHOOL.name2}</div>
+          <div className="idc-school-slogan">{SCHOOL.slogan}</div>
         </div>
       </div>
 
-      <div className="idc-front-body">
-        <div className="idc-side-label">STUDENT ID CARD</div>
+      <div className="idc-title">STUDENT ID CARD</div>
 
-        <div className="idc-photo-wrap">
+      <div className="idc-wave-wrap">
+        <ChevronWave />
+        <div className="idc-photo-frame">
           {student?.studentPhoto ? (
-            <img className="idc-photo" src={student.studentPhoto} alt={student.fullName || "Student"} />
+            <img src={student.studentPhoto} alt={fullNameText} />
           ) : (
             <div className="idc-photo-placeholder">
               <PersonIcon />
             </div>
           )}
         </div>
+      </div>
 
-        <div className="idc-fields">
-          <div className="idc-field-row">
-            <span className="idc-field-label">NAME</span>
-            <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{student?.fullName || "—"}</span>
-          </div>
-          <div className="idc-field-row">
-            <span className="idc-field-label">STUDENT ID</span>
-            <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{studentId || "—"}</span>
-          </div>
-          <div className="idc-field-row">
-            <span className="idc-field-label">CLASS</span>
-            <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{student?.className || "—"}</span>
-          </div>
-          <div className="idc-field-row">
-            <span className="idc-field-label">SHIFT</span>
-            <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{shift ? String(shift).toUpperCase() : "—"}</span>
-          </div>
-          <div className="idc-field-row">
-            <span className="idc-field-label">ISSUE</span>
-            <span className="idc-field-colon">:</span>
-            <span className="idc-field-value">{issued?.str || "—"}</span>
-          </div>
+      <div className="idc-student-name">{fullNameText}</div>
+      <div className="idc-grade-badge">
+        <span className="dash">—</span>
+        <span>{gradeText}</span>
+        <span className="dash">—</span>
+      </div>
+
+      <div className="idc-info-block">
+        <div className="idc-info-row">
+          <span className="idc-info-label">ID No:#</span>
+          <span className="idc-info-value">{studentId || "0001"}</span>
+        </div>
+        <div className="idc-info-row">
+          <span className="idc-info-label">Issue Date:</span>
+          <span className="idc-info-value">{issued?.str || "30-07-2026"}</span>
+        </div>
+        <div className="idc-info-row">
+          <span className="idc-info-label">Expire Date:</span>
+          <span className="idc-info-value">{expired?.str || "30-07-2027"}</span>
         </div>
       </div>
 
-      <div className="idc-front-footer">
-        <div className="idc-signature-block">
-          <img className="idc-signature-img" src={principalSignature} alt="Principal's signature" />
-          <div className="idc-signature-line">PRINCIPAL</div>
-        </div>
-        <div className="idc-slogan-badge">★ {SCHOOL.slogan}</div>
+      <div className="idc-barcode-wrap">
+        <img
+          src={`https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(
+            studentId || "0001"
+          )}&code=Code128&translate-esc=false`}
+          alt="Student ID barcode"
+        />
       </div>
-
-      <div className="idc-front-wave" />
     </div>
   );
 }
 
 function CardBack({ student, studentId }) {
-  // Points straight at the public verify page for this exact card — the
-  // same design/data, scanned no-login-required. Uses the bare domain
-  // (no "www.") because that's the DNS record that's actually live —
-  // "www.resingstarschools.com" has no A/CNAME record yet, which is why
-  // scanning previously hit ERR_NAME_NOT_RESOLVED.
-  const verifyUrl = `https://resingstarschools.com/verify/student/${studentId || ""}`;
+  const qrTarget =
+    student?.idCardPageUrl ||
+    (studentId
+      ? `https://resingstarschools.com/verify/student/${encodeURIComponent(studentId)}`
+      : "") ||
+    student?.idCardImageUrl ||
+    student?.idCardFrontUrl ||
+    student?.studentPhoto ||
+    "https://resingstarschools.com";
+
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
-    verifyUrl
+    qrTarget
   )}`;
 
   return (
     <div className="idc-card idc-back" id="idc-print-back">
-      <div className="idc-back-header">
-        <div className="idc-back-title">RISING STAR</div>
-        <div className="idc-back-subtitle">★ PRIMARY &amp; SECONDARY SCHOOL ★</div>
-      </div>
+      <BackWaveTop />
+      <BackWaveBottom />
 
-      <div className="idc-back-body">
-        <div className="idc-rights-badge">CARD HOLDER RIGHTS</div>
-
-        <ul className="idc-rights-list">
-          <li>
-            <span className="idc-rights-check">✔</span>
-            This card is the property of Rising Star Primary &amp; Secondary School.
-          </li>
-          <li>
-            <span className="idc-rights-check">✔</span>
-            This card must be carried by the student at all times within the school premises and during school activities.
-          </li>
-          <li>
-            <span className="idc-rights-check">✔</span>
-            This card is non-transferable and must be used only by the person to whom it is issued.
-          </li>
-          <li>
-            <span className="idc-rights-check">✔</span>
-            If this card is lost or found, please report to the school office immediately.
-          </li>
-          <li>
-            <span className="idc-rights-check">✔</span>
-            Misuse of this card may result in disciplinary action.
-          </li>
-        </ul>
-
-        <div className="idc-return-block">
-          <div className="idc-return-title">IN CASE OF FINDING THIS CARD, PLEASE RETURN TO:</div>
-          <div className="idc-return-row">
-            <span className="idc-return-icon">📍</span>
-            <span>{SCHOOL.address1}, {SCHOOL.address2}</span>
-          </div>
-          <div className="idc-return-row">
-            <span className="idc-return-icon">📞</span>
-            <span>{SCHOOL.phone}</span>
-          </div>
-          <div className="idc-return-row">
-            <span className="idc-return-icon">✉️</span>
-            <span>{SCHOOL.email}</span>
-          </div>
-          <div className="idc-return-row">
-            <span className="idc-return-icon">🌐</span>
-            <span>{SCHOOL.website}</span>
-          </div>
+      <div className="idc-back-content">
+        <div className="idc-back-intro">if you found  Please return to</div>
+        <div className="idc-back-school">RISING STAR SCHOOL</div>
+        <div className="idc-back-address">
+          {SCHOOL.officeLine1}
+          <br />
+          {SCHOOL.officeLine2}
         </div>
 
-        <div className="idc-back-footer">
-          <div className="idc-verify-label">SCAN TO VERIFY</div>
-          <div className="idc-qr">
-            <img src={qrSrc} alt="QR code" />
+        <div className="idc-back-contact-row">
+          <div className="idc-contact-icon">
+            <PhoneIcon />
           </div>
+          <div className="idc-back-contact-text">{SCHOOL.phone}</div>
         </div>
-      </div>
 
-      <div className="idc-back-wave">
-        <div className="idc-back-wave-triangle" />
-        <div className="idc-back-wave-star">★</div>
+        <div className="idc-back-contact-row">
+          <div className="idc-contact-icon">
+            <MailIcon />
+          </div>
+          <div className="idc-back-contact-text">{SCHOOL.email}</div>
+        </div>
+
+        <div className="idc-back-qr-wrap">
+          <img src={qrSrc} alt="QR code" />
+        </div>
       </div>
     </div>
   );
@@ -579,6 +536,7 @@ function CardBack({ student, studentId }) {
 export default function StudentIdCard({ student, studentId }) {
   const issuedSource = student?.idIssuedAt || student?.createdAt;
   const issued = formatDate(issuedSource);
+  const expired = addOneYear(issued);
 
   const handlePrint = () => {
     const printWindow = window.open("", "_blank", "width=900,height=650");
@@ -620,7 +578,7 @@ export default function StudentIdCard({ student, studentId }) {
       <CardStyles />
 
       <div className="idc-wrap">
-        <CardFront student={student} studentId={studentId} issued={issued} />
+        <CardFront student={student} studentId={studentId} issued={issued} expired={expired} />
         <CardBack student={student} studentId={studentId} />
       </div>
 
@@ -628,13 +586,13 @@ export default function StudentIdCard({ student, studentId }) {
         <button
           onClick={handlePrint}
           style={{
-            background: "#14532d",
+            background: "#00a651",
             color: "#fff",
             border: "none",
             padding: "10px 24px",
-            borderRadius: 8,
+            borderRadius: 6,
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 14,
             cursor: "pointer",
           }}
         >

@@ -1,37 +1,32 @@
 // src/admin/pages/AllIdCards.jsx
-// Admin page listing every issued ID card — students (from the
-// `studentIdCards` collection) and teachers (from `teacher_id`) — in one
+// Admin page listing every issued ID card — students and teachers — in one
 // searchable table. Search matches on ID number/username or full name.
 // Selecting a row opens that card (front + back) with Print (native
 // browser print dialog) and Download (PNG via html2canvas) controls.
 //
-// STRICT SOURCE-OF-TRUTH FILTER (added):
-//   - A studentIdCards/{id} card is only ever shown if its studentId
-//     still exists as a real document in the `students` collection.
-//     Cards for a studentId that has no matching students doc at all
-//     (not even a pendingDeletion one — fully absent from Firestore)
-//     are never read into the list.
-//   - Same for teacher_id/{id}: only shown if that id still exists as a
-//     real document in the `teachers` collection. A teacher_id record
-//     with no matching teachers doc is never shown.
-//   - This is on top of (not instead of) the existing pendingDeletion
-//     hide-immediately behavior below.
+// SOURCE OF TRUTH (fixed):
+//   - Students are now listed from the `students` collection (the real,
+//     authoritative student records) — NOT from `studentIdCards`. This
+//     guarantees every live student shows up here, even if they don't
+//     yet have a matching `studentIdCards` document.
+//   - If a matching `studentIdCards/{id}` document DOES exist for a
+//     student, its fields (e.g. idIssuedAt, custom photo, etc.) are
+//     merged on top of the `students` data so nothing is lost.
+//   - Same pattern for teachers: listed from `teachers`, merged with
+//     `teacher_id/{id}` if present.
+//
+// PENDING DELETION support:
+//   - Students/teachers marked pendingDeletion are hidden from this list
+//     immediately, even though their card doc (if any) is untouched
+//     until the backend approves the deletion.
 //
 // DELETE support:
 //   - Checkbox column per row + "select all" checkbox in header
 //   - "Delete Selected" bulk-delete button (shows count, asks confirmation)
 //   - Single "Delete" button inside the selected-card preview panel
-//   - Deletes go straight to Firestore: studentIdCards/{id} or teacher_id/{id}
-//
-// PENDING DELETION support:
-//   - Student ID cards belonging to a student currently marked
-//     pendingDeletion (in the `students` collection) are hidden from this
-//     list immediately, even though studentIdCards/{id} itself is not
-//     touched until the backend approves the deletion.
-//   - Same for teacher ID cards: a teacher marked pendingDeletion (in the
-//     `teachers` collection, keyed by the same doc id/username as
-//     `teacher_id`) is hidden from this list immediately too, even though
-//     teacher_id/{id} itself is untouched until the backend approves it.
+//   - Deletes remove the `studentIdCards`/`teacher_id` doc if one exists
+//     (the underlying student/teacher record itself is NOT deleted here —
+//     this page only manages ID card records).
 
 import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
@@ -43,18 +38,13 @@ import StudentIdCard from "../../student/StudentIdCard";
 import TeacherIdCard from "../../teacher/TeacherIdCard";
 import { Search, Printer, Download, IdCard, GraduationCap, Users, Trash2 } from "lucide-react";
 import html2canvas from "html2canvas";
+import { migrateStudentIdCards } from "../../utils/migrateStudentIdCards";
 
 function formatDate(d) {
   if (!d) return "—";
   const dateObj = d?.seconds ? new Date(d.seconds * 1000) : new Date(d);
   if (isNaN(dateObj.getTime())) return "—";
   return dateObj.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-// Waxay soo celisaa magaca collection-ka Firestore ee ka jira diyaarinta
-// (studentIdCards ama teacher_id) iyadoo ku salaysan nooca card-ka.
-function collectionNameFor(type) {
-  return type === "student" ? "studentIdCards" : "teacher_id";
 }
 
 const tableCardStyle = {
@@ -90,52 +80,64 @@ export default function AllIdCards() {
       const [studentCardSnap, teacherCardSnap, studentsSnap, teachersSnap] = await Promise.all([
         getDocs(collection(db, "studentIdCards")),
         getDocs(collection(db, "teacher_id")),
-        // Source of truth for which studentIds are real, live records —
-        // both for the pendingDeletion check AND the "must still exist
-        // at all" check below.
+        // Source of truth for students.
         getDocs(collection(db, "students")),
-        // Source of truth for which teacher_id doc ids are real, live
-        // teacher records — teacher_id doc id == teachers doc id (username).
+        // Source of truth for teachers.
         getDocs(collection(db, "teachers")),
       ]);
 
-      // Every studentId that currently has a real document in `students`,
-      // and separately, the subset of those marked pendingDeletion.
-      const liveStudentIds = new Set();
-      const pendingStudentIds = new Set();
-      studentsSnap.docs.forEach((d) => {
+      // Map studentId -> studentIdCards doc data (if one exists), so we
+      // can merge it onto the student's own record below.
+      const cardByStudentId = new Map();
+      studentCardSnap.docs.forEach((d) => {
         const data = d.data();
         if (data.studentId) {
-          liveStudentIds.add(data.studentId);
-          if (data.pendingDeletion) pendingStudentIds.add(data.studentId);
+          cardByStudentId.set(data.studentId, { cardDocId: d.id, ...data });
         }
       });
 
-      // Every teacher doc id currently live in `teachers`, and the
-      // subset marked pendingDeletion.
-      const liveTeacherIds = new Set(teachersSnap.docs.map((d) => d.id));
-      const pendingTeacherIds = new Set(
-        teachersSnap.docs.filter((d) => d.data().pendingDeletion).map((d) => d.id)
-      );
+      // Build the student list starting from `students` (every real,
+      // live student), merging in studentIdCards data when present.
+      const allStudents = studentsSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((s) => !s.pendingDeletion)
+        .map((s) => {
+          const card = s.studentId ? cardByStudentId.get(s.studentId) : null;
+          return {
+            type: "student",
+            // If a studentIdCards doc exists, its id is what deletion
+            // should target; otherwise fall back to the students doc id
+            // (nothing to delete from studentIdCards in that case).
+            id: card ? card.cardDocId : s.id,
+            hasCardDoc: !!card,
+            ...s,
+            ...(card ? { ...card, cardDocId: undefined } : {}),
+          };
+        });
 
-      setStudents(
-        studentCardSnap.docs
-          .map((d) => ({ id: d.id, type: "student", ...d.data() }))
-          // Kaliya card-yada studentId-gooda uu weli si dhab ah ugu jiro
-          // `students` collection-ka — haddii studentId-gu gebi ahaanba
-          // Firestore-ka lagama helin, card-kan marnaba lama soo aqrin.
-          .filter((s) => liveStudentIds.has(s.studentId))
-          .filter((s) => !pendingStudentIds.has(s.studentId))
-      );
-      setTeachers(
-        teacherCardSnap.docs
-          .map((d) => ({ id: d.id, type: "teacher", ...d.data() }))
-          // Kaliya card-yada macallinkooda uu weli si dhab ah ugu jiro
-          // `teachers` collection-ka — haddii doc id-gu gebi ahaanba
-          // Firestore-ka lagama helin, card-kan marnaba lama soo aqrin.
-          .filter((t) => liveTeacherIds.has(t.id))
-          .filter((t) => !pendingTeacherIds.has(t.id))
-      );
+      // Map teacher_id doc id -> its data (teacher_id doc id == teachers
+      // doc id / username).
+      const cardByTeacherId = new Map();
+      teacherCardSnap.docs.forEach((d) => {
+        cardByTeacherId.set(d.id, { cardDocId: d.id, ...d.data() });
+      });
+
+      const allTeachers = teachersSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((t) => !t.pendingDeletion)
+        .map((t) => {
+          const card = cardByTeacherId.get(t.id);
+          return {
+            type: "teacher",
+            id: t.id,
+            hasCardDoc: !!card,
+            ...t,
+            ...(card ? { ...card, cardDocId: undefined } : {}),
+          };
+        });
+
+      setStudents(allStudents);
+      setTeachers(allTeachers);
     } catch (err) {
       console.error("Failed to load ID cards:", err);
     } finally {
@@ -195,9 +197,16 @@ export default function AllIdCards() {
     });
   }
 
-  // Tirtir hal card oo la doortay (ka mid ah preview panel-ka)
+  // Tirtir hal card oo la doortay (ka mid ah preview panel-ka).
+  // Fadlan ogow: kani wuxuu tirtiraa kaliya studentIdCards/teacher_id
+  // doc-ga (haddii uu jiro) — ma tirtirayo record-ka asalka ah ee
+  // students/teachers collection-ka.
   async function handleDeleteSingle() {
     if (!selected) return;
+    if (!selected.data.hasCardDoc) {
+      window.alert("Ardaygan/macallinkan ID card gaar ah lama sameynin weli — ma jiro wax la tirtiro.");
+      return;
+    }
     const idLabel = selected.type === "student"
       ? (selected.data.studentId || selected.data.id)
       : (selected.data.teacherUsername || selected.data.id);
@@ -208,7 +217,8 @@ export default function AllIdCards() {
 
     try {
       setDeletingOne(true);
-      await deleteDoc(doc(db, collectionNameFor(selected.type), selected.data.id));
+      const collectionName = selected.type === "student" ? "studentIdCards" : "teacher_id";
+      await deleteDoc(doc(db, collectionName, selected.data.id));
 
       // Ka saar liiska local state-ka si UI-gu si degdeg ah u cusboonaysiiyo
       if (selected.type === "student") {
@@ -232,17 +242,21 @@ export default function AllIdCards() {
 
   // Tirtir dhammaan card-yada la doortay (checkboxes), ama haddii aan wax
   // la doorin, tirtir DHAMMAAN card-yada hadda la soo iftiimiyay (filtered).
+  // Kaliya kuwa leh card doc dhab ah (hasCardDoc) ayaa la tirtiri karaa.
   async function handleDeleteSelected() {
-    const targets = selectedIds.size > 0
+    const candidates = selectedIds.size > 0
       ? combined.filter((r) => selectedIds.has(rowKey(r)))
       : filtered; // fallback: haddii aan checkbox lagu doorin, isticmaal liiska muuqda
 
-    if (targets.length === 0) return;
+    const targets = candidates.filter((r) => r.hasCardDoc);
+
+    if (targets.length === 0) {
+      window.alert("Xulashadan wax card doc ah oo la tirtiro ma laha.");
+      return;
+    }
 
     const confirmed = window.confirm(
-      selectedIds.size > 0
-        ? `Ma hubtaa inaad tirtirto ${targets.length} ID card? Tallaabadan lama soo celin karo.`
-        : `Wax lama doorin. Ma rabtaa inaad tirtirto DHAMMAAN ${targets.length} card-ka hadda muuqda? Tallaabadan lama soo celin karo.`
+      `Ma hubtaa inaad tirtirto ${targets.length} ID card? Tallaabadan lama soo celin karo.`
     );
     if (!confirmed) return;
 
@@ -256,14 +270,21 @@ export default function AllIdCards() {
         const chunk = targets.slice(i, i + chunkSize);
         const batch = writeBatch(db);
         chunk.forEach((r) => {
-          batch.delete(doc(db, collectionNameFor(r.type), r.id));
+          const collectionName = r.type === "student" ? "studentIdCards" : "teacher_id";
+          batch.delete(doc(db, collectionName, r.id));
         });
         await batch.commit();
       }
 
       const deletedKeys = new Set(targets.map(rowKey));
-      setStudents((prev) => prev.filter((s) => !deletedKeys.has(rowKey(s))));
-      setTeachers((prev) => prev.filter((t) => !deletedKeys.has(rowKey(t))));
+      // Card doc-ga waa la tirtiray — student/teacher-ka qudhiisu wali
+      // wuu joogaa, ee kaliya `hasCardDoc` ayaa loo beddelayaa false.
+      setStudents((prev) =>
+        prev.map((s) => (deletedKeys.has(rowKey(s)) ? { ...s, hasCardDoc: false } : s))
+      );
+      setTeachers((prev) =>
+        prev.map((t) => (deletedKeys.has(rowKey(t)) ? { ...t, hasCardDoc: false } : t))
+      );
       setSelectedIds((prev) => {
         const next = new Set(prev);
         deletedKeys.forEach((k) => next.delete(k));
@@ -317,6 +338,10 @@ export default function AllIdCards() {
                 All ID Cards
               </h1>
             </div>
+
+            <button onClick={() => migrateStudentIdCards().then(console.log)}>
+              Run Migration
+            </button>
 
             {/* Bulk delete button — muuqda marka card la doorto ama liis jiro */}
             <button
@@ -530,7 +555,8 @@ export default function AllIdCards() {
                     </button>
                     <button
                       onClick={handleDeleteSingle}
-                      disabled={deletingOne}
+                      disabled={deletingOne || !selected.data.hasCardDoc}
+                      title={!selected.data.hasCardDoc ? "ID card gaar ah weli lama sameynin" : undefined}
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
@@ -542,8 +568,8 @@ export default function AllIdCards() {
                         color: "#fff",
                         fontWeight: 700,
                         fontSize: 12.5,
-                        cursor: deletingOne ? "not-allowed" : "pointer",
-                        opacity: deletingOne ? 0.6 : 1,
+                        cursor: deletingOne || !selected.data.hasCardDoc ? "not-allowed" : "pointer",
+                        opacity: deletingOne || !selected.data.hasCardDoc ? 0.6 : 1,
                       }}
                     >
                       <Trash2 size={14} /> {deletingOne ? "Deleting..." : "Delete"}

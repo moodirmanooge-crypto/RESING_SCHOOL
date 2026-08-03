@@ -1,47 +1,24 @@
 // src/admin/pages/ResultsByClass.jsx
-//
-// Waxa uu ka soo aqriyaa dhammaan "results" ee Firestore, u kala saaraa
-// className (hal warqad/jadwal per class), enrich-gareeya xogta ardayga
-// (studentPhoto + studentId) laga soo aqriyo "students" collection-ka,
-// isla markaana subject-yada si dynamic ah uga soo saaraa xogta results-ka
-// (ma aha kuwo hardcode ah). Waxaa laga heli karaa print (Ctrl+P) iyo
-// download PDF (per class), sida sawirka model-ka ah ee "Class G8".
-//
-// ADDED:
-//   1) "Submitted" column — taariikhda + waqtiga natiijadan (result
-//      document-ka) markii ugu horeysay loo geliyay Firestore. Waxaa laga
-//      soo aqriyaa field-ka ugu horeeya ee la helo: createdAt,
-//      submittedAt, examDate, dateSubmitted, timestamp, updatedAt —
-//      hal alla hal si dabacsan, ku xidhan sida backend-ku result-ka u
-//      qoray. Haddii aan mid ka mid ah jirin, waxa la muujiyaa "-".
-//   2) "Lock after print/download" — marka warqad (className) mar la
-//      daabaco ama la soo dejiyo (PDF), waxaa la sameeyaa calaamad
-//      localStorage ah (per className) oo sheegaysa in warqadan mar
-//      horeba loo daabacay. Marka dib loo eego bogga, buttons-ka
-//      Print/Download way is-hakiyaan ("Already Printed") si aan mar
-//      labaad loogu daabicin isla warqadda — ilaa Admin-ku uu si cad u
-//      furo ("Allow Reprint").
 
 import { useEffect, useRef, useState } from "react";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { Printer, Download, RefreshCcw, Lock, Unlock } from "lucide-react";
+import { Printer, Download, RefreshCcw } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import logo from "../../assets/logo.png";
 
 // ---- grade helper -----------------------------------------------------
 function gradeFor(percent) {
-  if (percent >= 90) return { label: "A+", bg: "#DCFCE7", color: "#16A34A" };
-  if (percent >= 80) return { label: "A", bg: "#DCFCE7", color: "#16A34A" };
-  if (percent >= 70) return { label: "B+", bg: "#FEF9C3", color: "#CA8A04" };
-  if (percent >= 60) return { label: "B", bg: "#FEF9C3", color: "#CA8A04" };
-  if (percent >= 50) return { label: "C", bg: "#FFE4CC", color: "#EA580C" };
-  return { label: "D", bg: "#FEE2E2", color: "#DC2626" };
+  if (percent >= 90) return { label: "A+", bg: "#f3f4f6", color: "#111827", border: "#111827" };
+  if (percent >= 80) return { label: "A", bg: "#f3f4f6", color: "#111827", border: "#111827" };
+  if (percent >= 70) return { label: "B+", bg: "#ffffff", color: "#374151", border: "#4b5563" };
+  if (percent >= 60) return { label: "B", bg: "#ffffff", color: "#374151", border: "#4b5563" };
+  if (percent >= 50) return { label: "C", bg: "#ffffff", color: "#4b5563", border: "#9ca3af" };
+  return { label: "D", bg: "#ffffff", color: "#000000", border: "#000000" };
 }
 
 // ---- taariikh/wakhti helpers -------------------------------------------
-// Firestore Timestamp -> Date, ama string/number -> Date, si dabacsan.
 function toDateSafe(value) {
   if (!value) return null;
   if (typeof value?.toDate === "function") return value.toDate(); // Firestore Timestamp
@@ -61,9 +38,6 @@ function formatDateTime(date) {
   });
 }
 
-// Ka soo dooro qiimaha taariikhda/wakhtiga ee ugu horeeya ee la helo oo
-// ka mid ah dhowr magac oo la isticmaali karo Firestore result document-ka
-// (ku xidhan sida loo qoray backend-ka natiijada).
 function extractSubmittedDate(r) {
   const candidates = [
     r.createdAt,
@@ -80,44 +54,21 @@ function extractSubmittedDate(r) {
   return null;
 }
 
-// localStorage key helper — "lock" waa gaar u className kasta.
-const printLockKey = (className) => `resultsPrinted:${className}`;
-
 export default function ResultsByClass() {
   const [loading, setLoading] = useState(true);
-  const [classGroups, setClassGroups] = useState([]); // [{className, subjects:[], rows:[], submittedAt}]
-  const printRefs = useRef({}); // className -> DOM node, used for per-class PDF export
-
-  // Tracks which classNames are currently "locked" (already printed/downloaded).
-  const [lockedClasses, setLockedClasses] = useState({}); // { [className]: true }
-
-  // Which classes are checked for bulk print/download ("Print Selected").
-  const [selectedClasses, setSelectedClasses] = useState({}); // { [className]: true }
-
-  // Tracks in-flight print/download so we can disable buttons until the
-  // system confirms the document actually went out (afterprint / save
-  // completed), instead of unlocking immediately on click.
-  const [pendingAction, setPendingAction] = useState({}); // { [className]: "print" | "pdf" | "bulk" }
-  const [bulkPending, setBulkPending] = useState(false);
+  const [classGroups, setClassGroups] = useState([]); 
+  const printRefs = useRef({}); 
+  const [pendingAction, setPendingAction] = useState({}); 
 
   useEffect(() => {
     fetchData();
   }, []);
 
-  useEffect(() => {
-    // Refresh lock state from localStorage whenever the list of classes changes
-    const next = {};
-    classGroups.forEach((g) => {
-      next[g.className] = window.localStorage.getItem(printLockKey(g.className)) === "true";
-    });
-    setLockedClasses(next);
-  }, [classGroups]);
-
   async function fetchData() {
     try {
       setLoading(true);
 
-      // 1) Dhammaan xogta ardayda — u baahan si aan u helno studentId/photo
+      // 1) Dhammaan xogta ardayda
       const studentsSnap = await getDocs(collection(db, "students"));
       const studentsById = {};
       studentsSnap.docs.forEach((d) => {
@@ -135,24 +86,22 @@ export default function ResultsByClass() {
       const resultsSnap = await getDocs(collection(db, "results"));
       const resultsList = resultsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // 3) U kala saar className, kadibna per-student per-subject
+      // 3) U kala saar className
       const byClass = {};
       resultsList.forEach((r) => {
         const cls = (r.className || "Unassigned").toString();
         if (!byClass[cls]) byClass[cls] = {};
 
-        // Ka soo dooro xogta ardayga collection-ka students, haddii la heli
-        // karo — sidaas ayaynu u helaynaa studentId sax ah iyo sawirka.
         const linkedStudent = studentsById[r.studentId] || null;
-
         const studentKey = r.studentId || r.studentName || r.id;
+
         if (!byClass[cls][studentKey]) {
           byClass[cls][studentKey] = {
             studentKey,
             studentId: linkedStudent?.studentId || r.studentId || "—",
             studentName: linkedStudent?.fullName || r.studentName || "Unknown",
             studentPhoto: linkedStudent?.studentPhoto || "",
-            subjects: {}, // subjectName -> { marks, maxMarks, submittedAt }
+            subjects: {},
             totalMarks: 0,
             totalMax: 0,
           };
@@ -163,15 +112,10 @@ export default function ResultsByClass() {
         const maxMarks = Number(r.maxMarks) || 0;
         const submittedAt = extractSubmittedDate(r);
 
-        // Haddii subject-kan mar hore loo diiwaan geliyay ardaygan (isticmaal
-        // xogta ugu dambeysa, si aan loo labanlaabin haddii dib loo geliyay).
         byClass[cls][studentKey].subjects[subjectName] = { marks, maxMarks, submittedAt };
       });
 
-      // 4) Isku dar kolonada subject-ka + xisaabi Total/Average per student
-      //    + xisaabi taariikhda ugu horeysay (earliest submittedAt) ee
-      //    dhammaan natiijooyinka fasalkan, si loo muujiyo hal taariikh oo
-      //    guud oo sax ah warqadda kore.
+      // 4) Isku dar xogta fasalada
       const classGroupsArr = Object.entries(byClass).map(([className, studentsMap]) => {
         const subjectSet = new Set();
         Object.values(studentsMap).forEach((s) => {
@@ -212,7 +156,6 @@ export default function ResultsByClass() {
           };
         });
 
-        // Kala sooc studentId ascending (sida sawirka STD001, STD002...)
         rows.sort((a, b) =>
           (a.studentId || "").toString().localeCompare((b.studentId || "").toString(), undefined, {
             numeric: true,
@@ -234,38 +177,7 @@ export default function ResultsByClass() {
     }
   }
 
-  function isLocked(className) {
-    return !!lockedClasses[className];
-  }
-
-  function toggleClassSelected(className) {
-    setSelectedClasses((prev) => ({ ...prev, [className]: !prev[className] }));
-  }
-
-  const anySelected = Object.values(selectedClasses).some(Boolean);
-
-  function lockClass(className) {
-    window.localStorage.setItem(printLockKey(className), "true");
-    setLockedClasses((prev) => ({ ...prev, [className]: true }));
-  }
-
-  // Admin-ku wuu furi karaa dib-u-daabicidda haddii loo baahdo (gaar ahaan
-  // haddii natiijo la saxay oo mar kale loo baahan yahay in la daabaco).
-  function unlockClass(className) {
-    const confirmed = window.confirm(
-      `Ma hubtaa inaad furto warqadda Class ${className} si dib loogu daabaco/soo dejiyo? Tan waxay tusaysaa in warqaddan mar hore la daabacay.`
-    );
-    if (!confirmed) return;
-    window.localStorage.removeItem(printLockKey(className));
-    setLockedClasses((prev) => ({ ...prev, [className]: false }));
-  }
-
-  // Waxa la isticmaalaa habka print-ka si loo hubiyo in warqadu dhab ahaan
-  // "u baxday" (afterprint event-ka browser-ku wuxuu shido marka user-ku
-  // riixo Print ama Cancel dialog-ka gudaha) kahor inta aan la "lock"
-  // gareynin class-ka. Sidaas awgeed, haddii user-ku riixo Cancel print
-  // dialog-ka, warqadda wali lama xirin — waxaad mar kale isku dayi
-  // kartaa.
+  // B&W Ready HTML Builder
   function buildPrintHtml(classNamesList) {
     const sections = classNamesList
       .map((className) => {
@@ -274,6 +186,7 @@ export default function ResultsByClass() {
       })
       .filter(Boolean)
       .join("");
+
     return `
       <html>
         <head>
@@ -282,18 +195,58 @@ export default function ResultsByClass() {
             * {
               -webkit-print-color-adjust: exact !important;
               print-color-adjust: exact !important;
-              color-adjust: exact !important;
+              box-sizing: border-box;
             }
-            body { font-family: Arial, sans-serif; padding: 24px; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #d1d5db; padding: 6px 8px; font-size: 12px; text-align: center; }
-            th { background: #1e3a8a; color: #fff; }
+            body { 
+              font-family: Arial, sans-serif; 
+              padding: 10px;
+              color: #000;
+              background: #fff;
+            }
+            table { 
+              width: 100%; 
+              border-collapse: collapse; 
+              margin-top: 10px;
+            }
+            th, td { 
+              border: 1px solid #000 !important; 
+              padding: 6px 6px; 
+              font-size: 11px; 
+              text-align: center; 
+              color: #000 !important;
+            }
+            th { 
+              background-color: #000 !important; 
+              color: #fff !important; 
+              font-weight: bold;
+            }
             td.name-cell { text-align: left; }
-            img.avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+            img.avatar { 
+              width: 24px; 
+              height: 24px; 
+              border-radius: 50%; 
+              object-fit: cover;
+              filter: grayscale(100%);
+            }
+            .grade-badge {
+              border: 1px solid #000 !important;
+              background: transparent !important;
+              color: #000 !important;
+              font-weight: bold;
+              padding: 2px 6px;
+              border-radius: 4px;
+            }
             .class-page { page-break-after: always; }
             .class-page:last-child { page-break-after: auto; }
+            
             @media print {
-              @page { size: landscape; margin: 12mm; }
+              @page { 
+                size: landscape; 
+                margin: 10mm; 
+              }
+              body { 
+                filter: grayscale(100%); /* Force High Contrast B&W */
+              }
             }
           </style>
         </head>
@@ -305,25 +258,22 @@ export default function ResultsByClass() {
   function openAndPrint(classNamesList, onDone) {
     const printWindow = window.open("", "_blank", "width=1200,height=800");
     if (!printWindow) {
-      window.alert("Browser-ku wuu xannibay print window-ka (popup blocker). Fadlan u oggolow popups-ka boggan.");
-      onDone(false);
+      window.alert("Browser-ku wuu xannibay print window-ka (popup blocker). Fadlan u oggolow popups-ka.");
+      if (onDone) onDone(false);
       return;
     }
     printWindow.document.write(buildPrintHtml(classNamesList));
     printWindow.document.close();
 
-    // afterprint fires whether the user clicked "Print" or "Cancel" in the
-    // system dialog — either way the dialog is resolved, so this is the
-    // right moment to unlock the buttons / apply the lock.
     let settled = false;
     const finish = () => {
       if (settled) return;
       settled = true;
-      onDone(true);
+      if (onDone) onDone(true);
       printWindow.close();
     };
+
     printWindow.addEventListener("afterprint", finish);
-    // Fallback in case afterprint doesn't fire in some browsers.
     printWindow.addEventListener("beforeunload", finish);
 
     printWindow.focus();
@@ -333,59 +283,28 @@ export default function ResultsByClass() {
   }
 
   function handlePrintClass(className) {
-    if (isLocked(className) || pendingAction[className]) return;
+    if (pendingAction[className]) return;
     const node = printRefs.current[className];
     if (!node) return;
 
     setPendingAction((prev) => ({ ...prev, [className]: "print" }));
-    openAndPrint([className], (success) => {
+    openAndPrint([className], () => {
       setPendingAction((prev) => {
         const next = { ...prev };
         delete next[className];
         return next;
       });
-      if (success) lockClass(className);
-    });
-  }
-
-  function handlePrintSelected() {
-    const classNamesList = classGroups
-      .map((g) => g.className)
-      .filter((cn) => selectedClasses[cn] && !isLocked(cn));
-    if (classNamesList.length === 0) {
-      window.alert("Fadlan dooro ugu yaraan hal class oo aan mar hore la daabicin.");
-      return;
-    }
-    setBulkPending(true);
-    openAndPrint(classNamesList, (success) => {
-      setBulkPending(false);
-      if (success) classNamesList.forEach(lockClass);
-    });
-  }
-
-  function handlePrintAllClasses() {
-    const classNamesList = classGroups.map((g) => g.className).filter((cn) => !isLocked(cn));
-    if (classNamesList.length === 0) {
-      window.alert("Dhammaan classes-ka mar hore ayaa la daabacay.");
-      return;
-    }
-    setBulkPending(true);
-    openAndPrint(classNamesList, (success) => {
-      setBulkPending(false);
-      if (success) classNamesList.forEach(lockClass);
     });
   }
 
   async function handleDownloadPdf(className) {
-    if (isLocked(className) || pendingAction[className]) return;
+    if (pendingAction[className]) return;
     const node = printRefs.current[className];
     if (!node) return;
 
     setPendingAction((prev) => ({ ...prev, [className]: "pdf" }));
 
     try {
-      // Lazy-load html2canvas + jsPDF only when needed, isticmaal CDN ESM
-      // build si aan u fududeeyo (uma baahna bundler config gaar ah).
       const [{ default: html2canvas }, jsPDFModule] = await Promise.all([
         import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
         import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
@@ -400,24 +319,23 @@ export default function ResultsByClass() {
         unit: "pt",
         format: "a4",
       });
+      
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const imgRatio = canvas.height / canvas.width;
       let renderWidth = pageWidth - 40;
       let renderHeight = renderWidth * imgRatio;
+
       if (renderHeight > pageHeight - 40) {
         renderHeight = pageHeight - 40;
         renderWidth = renderHeight / imgRatio;
       }
+
       pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
       pdf.save(`Class-${className}-Results.pdf`);
-
-      // Ka dib markii save() la yeero waxaa la hubaa in PDF-ku si guul
-      // leh u dhashay — kaliya markaas ayaan lock gareynaynaa.
-      lockClass(className);
     } catch (err) {
       console.error("Khalad ayaa dhacay markii PDF-ka la sameynayay:", err);
-      window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay. Fadlan isku day mar kale.");
+      window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay.");
     } finally {
       setPendingAction((prev) => {
         const next = { ...prev };
@@ -447,7 +365,7 @@ export default function ResultsByClass() {
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifySpaceBetween: "space-between",
               alignItems: "center",
               marginBottom: 20,
               flexWrap: "wrap",
@@ -497,7 +415,6 @@ export default function ResultsByClass() {
 
           {!loading &&
             classGroups.map((group) => {
-              const locked = isLocked(group.className);
               return (
                 <div
                   key={group.className}
@@ -510,7 +427,7 @@ export default function ResultsByClass() {
                     overflow: "hidden",
                   }}
                 >
-                  {/* Toolbar (not part of the printed/exported area) */}
+                  {/* Action Toolbar */}
                   <div
                     style={{
                       display: "flex",
@@ -528,30 +445,13 @@ export default function ResultsByClass() {
                         Class {group.className} · {group.rows.length} student
                         {group.rows.length !== 1 ? "s" : ""}
                       </span>
-                      {locked && (
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 5,
-                            fontSize: 11.5,
-                            fontWeight: 700,
-                            padding: "3px 10px",
-                            borderRadius: 20,
-                            background: "#FEE2E2",
-                            color: "#DC2626",
-                          }}
-                        >
-                          <Lock size={11} />
-                          Already Printed
-                        </span>
-                      )}
                     </div>
+                    
+                    {/* Always Enabled Print & Download Buttons */}
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                       <button
                         onClick={() => handlePrintClass(group.className)}
-                        disabled={locked}
-                        title={locked ? "Warqaddan mar hore ayaa la daabacay" : "Print"}
+                        title="Print this class results"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -559,11 +459,11 @@ export default function ResultsByClass() {
                           padding: "8px 14px",
                           borderRadius: 10,
                           border: "1px solid rgba(22,163,74,0.3)",
-                          background: locked ? "#F3F4F6" : "#fff",
-                          color: locked ? "#9CA3AF" : "#16a34a",
+                          background: "#fff",
+                          color: "#16a34a",
                           fontWeight: 700,
                           fontSize: 12.5,
-                          cursor: locked ? "not-allowed" : "pointer",
+                          cursor: "pointer",
                         }}
                       >
                         <Printer size={14} />
@@ -571,8 +471,7 @@ export default function ResultsByClass() {
                       </button>
                       <button
                         onClick={() => handleDownloadPdf(group.className)}
-                        disabled={locked}
-                        title={locked ? "Warqaddan mar hore ayaa la soo dejiyay" : "Download PDF"}
+                        title="Download PDF"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -580,47 +479,24 @@ export default function ResultsByClass() {
                           padding: "8px 14px",
                           borderRadius: 10,
                           border: "none",
-                          background: locked ? "#D1D5DB" : "#16a34a",
+                          background: "#16a34a",
                           color: "#fff",
                           fontWeight: 700,
                           fontSize: 12.5,
-                          cursor: locked ? "not-allowed" : "pointer",
+                          cursor: "pointer",
                         }}
                       >
                         <Download size={14} />
                         Download PDF
                       </button>
-                      {locked && (
-                        <button
-                          onClick={() => unlockClass(group.className)}
-                          title="Admin only: allow reprinting this class"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 6,
-                            padding: "8px 14px",
-                            borderRadius: 10,
-                            border: "1px solid rgba(107,114,128,0.3)",
-                            background: "#fff",
-                            color: "#6B7280",
-                            fontWeight: 700,
-                            fontSize: 12.5,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <Unlock size={14} />
-                          Allow Reprint
-                        </button>
-                      )}
                     </div>
                   </div>
 
-                  {/* Printable / exportable area */}
+                  {/* Printable Area */}
                   <div
                     ref={(el) => (printRefs.current[group.className] = el)}
                     style={{ padding: 24, overflowX: "auto" }}
                   >
-                    {/* Header */}
                     <div
                       style={{
                         display: "flex",
@@ -718,9 +594,11 @@ export default function ResultsByClass() {
                               <td style={{ ...tdStyle, fontWeight: 700 }}>{row.average}%</td>
                               <td style={tdStyle}>
                                 <span
+                                  className="grade-badge"
                                   style={{
                                     background: g.bg,
                                     color: g.color,
+                                    border: `1px solid ${g.border}`,
                                     padding: "3px 10px",
                                     borderRadius: 20,
                                     fontWeight: 700,

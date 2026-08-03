@@ -3,10 +3,13 @@
 //
 // Flow:
 // 1. Admin picks a Class 8 student.
-// 2. Admin fills in Mother's Name, Academic Year, Grade Obtained (studentPhoto
-//    and fullName are pulled automatically from the student's own record —
-//    nothing typed twice).
-// 3. "Generate Certificate" renders the official certificate design (matching
+// 2. We auto-pull the student's Final Exam results from `results`
+//    (one document per subject, matched by studentId + examType === "Final"),
+//    take the 6 highest-scoring subjects, and compute the average.
+// 3. Admin fills in Mother's Name, Academic Year, Date of Birth, Place of
+//    Birth, Roll Number, and Date of Issue by hand — studentPhoto and
+//    fullName are pulled automatically from the student's own record.
+// 4. "Generate Certificate" renders the official certificate design (matching
 //    the printed reference) into a hidden card, snapshots it with html2canvas,
 //    and saves a Firestore doc in `certificates` so it can be re-opened,
 //    edited, or re-downloaded later — and so the public verification page
@@ -61,6 +64,39 @@ function genCertificateId() {
   // e.g. RS-CERT-8F3K9Q2A
   const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
   return `RS-CERT-${rand}`;
+}
+
+// Pulls every `results` document for this student's Final Exam (one doc per
+// subject), sorts by marks (highest first), and returns the top 6 along with
+// the average across those 6 subjects — this is what feeds the certificate's
+// subjects table and "Celceliska Natiijada Imtixaanka / Result Average" line.
+async function loadTopSubjectsForStudent(studentId) {
+  const snap = await getDocs(
+    query(
+      collection(db, "results"),
+      where("studentId", "==", studentId),
+      where("examType", "==", "Final")
+    )
+  );
+  const all = snap.docs.map((d) => d.data());
+  const bySubjectPct = all
+    .map((r) => ({
+      subject: r.subject || "",
+      marks: Number(r.marks) || 0,
+      maxMarks: Number(r.maxMarks) || 100,
+      pct: (Number(r.marks) || 0) / (Number(r.maxMarks) || 100),
+    }))
+    .sort((a, b) => b.pct - a.pct);
+
+  const top6 = bySubjectPct.slice(0, 6);
+  const average =
+    top6.length > 0
+      ? Math.round(
+          (top6.reduce((sum, s) => sum + s.pct, 0) / top6.length) * 100
+        )
+      : null;
+
+  return { topSubjects: top6.map(({ subject, marks, maxMarks }) => ({ subject, marks, maxMarks })), average };
 }
 
 async function downloadCertificateImage(fullName) {
@@ -126,11 +162,20 @@ export default function Certificates() {
     motherName: "",
     academicYear: "",
     gradeObtained: "",
+    // Hand-typed by the deputy/teacher when generating the certificate —
+    // not pulled from any student record.
+    dateOfBirth: "",
+    placeOfBirth: "",
+    rollNumber: "",
+    issueDate: "",
   });
   const [previewCert, setPreviewCert] = useState(null); // the cert currently rendered in the hidden card
   const [search, setSearch] = useState("");
   // Maps studentId -> { marks, maxMarks, grade, passed } from the Final Exam.
   const [finalResults, setFinalResults] = useState({});
+  // Maps studentId -> { topSubjects, average } once loaded on selection.
+  const [subjectsData, setSubjectsData] = useState({});
+  const [loadingSubjects, setLoadingSubjects] = useState(false);
   // Lets the admin upload/override the photo used on the certificate,
   // e.g. when the student's own record has no photo on file.
   const [uploadedPhoto, setUploadedPhoto] = useState(""); // data URL for instant preview
@@ -156,7 +201,10 @@ export default function Certificates() {
       setCertificates(certsList);
 
       // Pull each Class 8 student's Final Exam result (examType === "Final")
-      // so we know who actually qualifies for a leaving certificate.
+      // so we know who actually qualifies for a leaving certificate. This is
+      // the pass/fail check only — the full per-subject breakdown used on
+      // the certificate itself is loaded separately, on selection, by
+      // loadTopSubjectsForStudent().
       const resultsMap = {};
       await Promise.all(
         studentsList.map(async (s) => {
@@ -169,21 +217,23 @@ export default function Certificates() {
               )
             );
             if (resSnap.empty) return;
-            // If more than one Final result exists for some reason, use the
-            // most recently updated one.
+            // Overall pass/fail is based on the average across all recorded
+            // Final subjects for the student (matches the certificate's own
+            // "aggregate" rule), not a single subject.
             const docsData = resSnap.docs.map((d) => d.data());
-            docsData.sort((a, b) => {
-              const aTime = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt || 0);
-              const bTime = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(b.updatedAt || 0);
-              return bTime - aTime;
-            });
-            const r = docsData[0];
-            const grade = computeGrade(r.marks, r.maxMarks);
+            const avgPct =
+              docsData.reduce(
+                (sum, r) => sum + (Number(r.marks) || 0) / (Number(r.maxMarks) || 100),
+                0
+              ) / docsData.length;
+            const marksSum = docsData.reduce((sum, r) => sum + (Number(r.marks) || 0), 0);
+            const maxSum = docsData.reduce((sum, r) => sum + (Number(r.maxMarks) || 100), 0);
+            const grade = computeGrade(marksSum, maxSum);
             resultsMap[s.id] = {
-              marks: r.marks,
-              maxMarks: r.maxMarks,
+              marks: marksSum,
+              maxMarks: maxSum,
               grade,
-              passed: grade !== "E",
+              passed: avgPct * 100 >= 35,
             };
           } catch (e) {
             console.error("Error loading final result for student", s.id, e);
@@ -212,7 +262,7 @@ export default function Certificates() {
     (c) => c.studentId === selectedStudentId
   );
 
-  function pickStudent(id) {
+  async function pickStudent(id) {
     const result = finalResults[id];
     if (!result) {
       alert("Ardaygan wali ma helin natiijada Final Exam. Shahaado lama siin karo.");
@@ -220,7 +270,9 @@ export default function Certificates() {
     }
     if (!result.passed) {
       alert(
-        `Ardaygan wuu ku dhacay Final Exam-ka (${result.marks}/${result.maxMarks} - Grade ${result.grade}). Shahaado lama siin karo.`
+        `Ardaygan wuu ku dhacay Final Exam-ka (celceliska ${Math.round(
+          (result.marks / (result.maxMarks || 1)) * 100
+        )}%). Shahaado lama siin karo.`
       );
       return;
     }
@@ -236,11 +288,44 @@ export default function Certificates() {
         motherName: existing.motherName || "",
         academicYear: existing.academicYear || "",
         gradeObtained: existing.gradeObtained || result.grade,
+        dateOfBirth: existing.dateOfBirth || "",
+        placeOfBirth: existing.placeOfBirth || "",
+        rollNumber: existing.rollNumber || "",
+        issueDate: existing.issueDate || "",
       });
       setPreviewCert(existing);
+      // Reuse the already-saved subjects/average instead of re-fetching.
+      if (existing.topSubjects) {
+        setSubjectsData((prev) => ({
+          ...prev,
+          [id]: { topSubjects: existing.topSubjects, average: existing.averageResult },
+        }));
+      }
     } else {
-      setForm({ motherName: "", academicYear: "", gradeObtained: result.grade });
+      setForm({
+        motherName: "",
+        academicYear: "",
+        gradeObtained: result.grade,
+        dateOfBirth: "",
+        placeOfBirth: "",
+        rollNumber: "",
+        issueDate: "",
+      });
       setPreviewCert(null);
+    }
+
+    // Fetch the top-6 subjects + average for this student if we don't
+    // already have them cached.
+    if (!subjectsData[id]) {
+      setLoadingSubjects(true);
+      try {
+        const data = await loadTopSubjectsForStudent(id);
+        setSubjectsData((prev) => ({ ...prev, [id]: data }));
+      } catch (e) {
+        console.error("Error loading subjects for student", id, e);
+      } finally {
+        setLoadingSubjects(false);
+      }
     }
   }
 
@@ -292,6 +377,8 @@ export default function Certificates() {
         }
       }
 
+      const subjectInfo = subjectsData[selectedStudent.id] || { topSubjects: [], average: null };
+
       const certData = {
         certificateId: certId,
         studentId: selectedStudent.id,
@@ -300,12 +387,22 @@ export default function Certificates() {
         studentPhoto: photoUrl,
         motherName: form.motherName,
         academicYear: form.academicYear,
+        // Hand-typed by the deputy/teacher generating the certificate.
+        dateOfBirth: form.dateOfBirth,
+        placeOfBirth: form.placeOfBirth,
+        rollNumber: form.rollNumber,
+        issueDate: form.issueDate,
         // Grade always comes from the actual Final Exam result, computed
         // with the official Banadir grading scale - never typed by hand -
         // so it can't drift from what the student actually scored.
         gradeObtained: result.grade,
         finalExamMarks: result.marks,
         finalExamMaxMarks: result.maxMarks,
+        // The 6 highest-scoring subjects and their average, auto-pulled from
+        // the `results` collection at selection time — displayed on the
+        // certificate's subjects table and "Result Average" line.
+        topSubjects: subjectInfo.topSubjects,
+        averageResult: subjectInfo.average,
         schoolName: "Rising Star Primary & Secondary School",
         createdAt: existingCertForStudent?.createdAt || serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -469,11 +566,43 @@ export default function Certificates() {
                         style={inputStyle}
                       />
                     </Field>
+                    <Field label="Date of Birth">
+                      <input
+                        value={form.dateOfBirth}
+                        onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
+                        placeholder="e.g. 12/05/2011"
+                        style={inputStyle}
+                      />
+                    </Field>
+                    <Field label="Place of Birth">
+                      <input
+                        value={form.placeOfBirth}
+                        onChange={(e) => setForm({ ...form, placeOfBirth: e.target.value })}
+                        placeholder="e.g. Mogadishu"
+                        style={inputStyle}
+                      />
+                    </Field>
+                    <Field label="Roll Number">
+                      <input
+                        value={form.rollNumber}
+                        onChange={(e) => setForm({ ...form, rollNumber: e.target.value })}
+                        placeholder="e.g. 0245"
+                        style={inputStyle}
+                      />
+                    </Field>
                     <Field label="Academic Year">
                       <input
                         value={form.academicYear}
                         onChange={(e) => setForm({ ...form, academicYear: e.target.value })}
                         placeholder="e.g. 2025/2026"
+                        style={inputStyle}
+                      />
+                    </Field>
+                    <Field label="Date of Issue">
+                      <input
+                        value={form.issueDate}
+                        onChange={(e) => setForm({ ...form, issueDate: e.target.value })}
+                        placeholder="e.g. 15/07/2026"
                         style={inputStyle}
                       />
                     </Field>
@@ -532,12 +661,61 @@ export default function Certificates() {
                       <input
                         value={
                           finalResults[selectedStudent.id]
-                            ? `${finalResults[selectedStudent.id].grade}  (${finalResults[selectedStudent.id].marks}/${finalResults[selectedStudent.id].maxMarks})`
+                            ? `${finalResults[selectedStudent.id].grade}`
                             : ""
                         }
                         disabled
                         style={inputStyleDisabled}
                       />
+                    </Field>
+                    <Field label="Top 6 Subjects &amp; Average (auto, from Final Exam results)">
+                      {loadingSubjects && !subjectsData[selectedStudent.id] ? (
+                        <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0 }}>Loading results…</p>
+                      ) : subjectsData[selectedStudent.id]?.topSubjects?.length ? (
+                        <div
+                          style={{
+                            border: "1px solid rgba(17,24,39,0.1)",
+                            borderRadius: 10,
+                            padding: "8px 10px",
+                            fontSize: 12.5,
+                          }}
+                        >
+                          {subjectsData[selectedStudent.id].topSubjects.map((s, i) => (
+                            <div
+                              key={i}
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                padding: "3px 0",
+                                color: "#374151",
+                              }}
+                            >
+                              <span>{s.subject}</span>
+                              <span style={{ fontWeight: 600 }}>
+                                {s.marks}/{s.maxMarks}
+                              </span>
+                            </div>
+                          ))}
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              marginTop: 6,
+                              paddingTop: 6,
+                              borderTop: "1px solid rgba(17,24,39,0.08)",
+                              fontWeight: 700,
+                              color: GREEN,
+                            }}
+                          >
+                            <span>Average</span>
+                            <span>{subjectsData[selectedStudent.id].average}%</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <p style={{ fontSize: 12, color: "#9CA3AF", margin: 0 }}>
+                          No subject results found for this student's Final Exam.
+                        </p>
+                      )}
                     </Field>
                   </div>
 
@@ -612,6 +790,27 @@ export default function Certificates() {
                     verifyUrl={`${verifyBaseUrl}/${previewCert.certificateId}`}
                   />
                 </div>
+              ) : selectedStudent ? (
+                <div style={{ width: "100%", overflowX: "auto" }}>
+                  <CertificateCard
+                    certificate={{
+                      fullName: selectedStudent.fullName,
+                      studentPhoto: uploadedPhoto || selectedStudent.studentPhoto,
+                      className: selectedStudent.className || "8",
+                      motherName: form.motherName,
+                      dateOfBirth: form.dateOfBirth,
+                      placeOfBirth: form.placeOfBirth,
+                      rollNumber: form.rollNumber,
+                      academicYear: form.academicYear,
+                      issueDate: form.issueDate,
+                      gradeObtained: finalResults[selectedStudent.id]?.grade,
+                      topSubjects: subjectsData[selectedStudent.id]?.topSubjects || [],
+                      averageResult: subjectsData[selectedStudent.id]?.average,
+                      certificateId: "PREVIEW",
+                    }}
+                    verifyUrl={`${verifyBaseUrl}/PREVIEW`}
+                  />
+                </div>
               ) : (
                 <p style={{ fontSize: 13, color: "#9CA3AF" }}>
                   Select a student and fill in the details to preview their certificate.
@@ -645,6 +844,7 @@ export default function Certificates() {
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Student</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Academic Year</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Grade</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 8 }}>Average</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}>Certificate ID</th>
                     <th style={{ fontWeight: 600, paddingBottom: 8 }}></th>
                   </tr>
@@ -658,6 +858,7 @@ export default function Certificates() {
                       <td style={{ padding: "10px 0", color: "#111827", fontWeight: 600 }}>{c.fullName}</td>
                       <td style={{ color: "#6B7280" }}>{c.academicYear}</td>
                       <td style={{ color: "#6B7280" }}>{c.gradeObtained}</td>
+                      <td style={{ color: "#6B7280" }}>{c.averageResult != null ? `${c.averageResult}%` : "—"}</td>
                       <td style={{ color: "#6B7280", fontFamily: "monospace" }}>{c.certificateId}</td>
                       <td>
                         <div style={{ display: "flex", gap: 8 }}>
