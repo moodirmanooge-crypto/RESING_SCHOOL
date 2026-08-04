@@ -44,7 +44,7 @@ const galladApp = initializeApp(galladConfig, "gallad");
 export const db = getFirestore(risingApp);       // Firestore - one-click-onilne
 export const auth = getAuth(risingApp);          // Auth - login/password - one-click-onilne
 export const storage = getStorage(galladApp);    // Storage - Gallad Tech
-export const functions = getFunctions(risingApp); // Backend Functions
+export const functions = getFunctions(risingApp, "us-central1"); // Backend Functions
 
 // Halkan waxaa ku jira labadii magac si uusan `SendSmsModal.jsx` u caban
 export { risingApp, galladApp };

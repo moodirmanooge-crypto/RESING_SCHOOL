@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { X, Send, Users, GraduationCap, User, CheckCircle2, XCircle } from "lucide-react";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions";
-import app from "../../firebase/firebase"
+import app from "../../firebase/firebase";
 
 
 /**
@@ -51,7 +50,6 @@ export default function SendSmsModal({ onClose }) {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null); // { successCount, failCount, results }
   const [errorMsg, setErrorMsg] = useState("");
-  const functions = getFunctions(app);
 
   const currentAudience = AUDIENCES.find((a) => a.id === audience);
 
@@ -117,16 +115,28 @@ export default function SendSmsModal({ onClose }) {
 
     try {
       setSending(true);
-      const sendBulkSms = httpsCallable(functions, "sendBulkSms");
-      const res = await sendBulkSms({
-        audience,
-        targetId: currentAudience.needsPicker ? targetId : undefined,
-        message: message.trim(),
-      });
-      setResult(res.data);
+      const response = await fetch(
+        "https://us-central1-one-click-onilne.cloudfunctions.net/sendBulkSms",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            audience,
+            targetId: currentAudience.needsPicker ? targetId : null,
+            message: message.trim(),
+          }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "SMS send failed");
+      }
+      setResult(data);
     } catch (err) {
-      console.error("SMS send error:", err);
-      setErrorMsg(err.message || "Wax baa qaldamay markii SMS-ka la dirayay.");
+      console.error(err);
+      setErrorMsg(err.message || "SMS send failed.");
     } finally {
       setSending(false);
     }

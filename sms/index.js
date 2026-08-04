@@ -19,7 +19,7 @@ setGlobalOptions({ maxInstances: 10 });
 // ============================================================
 // SEND SMS — Hormuud SMS API (sendBulkSms)
 // ============================================================
-const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
@@ -169,51 +169,108 @@ async function resolveRecipients(audience, targetId) {
   return Array.from(uniqueMap.values());
 }
 
-exports.sendBulkSms = onCall(
+exports.sendBulkSms = onRequest(
   {
-    secrets: [HORMUUD_USERNAME, HORMUUD_PASSWORD, HORMUUD_SENDERID],
     region: "us-central1",
+    secrets: [HORMUUD_USERNAME, HORMUUD_PASSWORD, HORMUUD_SENDERID],
+    cors: true,
   },
-  async (request) => {
-    const { audience, targetId, message } = request.data || {};
-
-    if (!audience) {
-      throw new HttpsError("invalid-argument", "Fadlan dooro audience-ka (parents/teachers/students).");
+  async (req, res) => {
+    res.set("Access-Control-Allow-Origin", "https://resingstarschools.com");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
     }
-    if (!message || !message.trim()) {
-      throw new HttpsError("invalid-argument", "Fariinta (message) waa faaruq.");
-    }
 
-    const recipients = await resolveRecipients(audience, targetId);
+    logger.info("sendBulkSms started", {
+      audience: req.body?.audience,
+      targetId: req.body?.targetId,
+    });
 
-    if (recipients.length === 0) {
-      throw new HttpsError(
-        "not-found",
-        "Lambar telefoon lama helin dadka la doortay (hubi in Firestore uu leeyahay taleefanno sax ah)."
+    try {
+      const { audience, targetId, message } = req.body || {};
+
+      logger.info("Incoming request", {
+        audience,
+        targetId,
+      });
+
+      if (!audience) {
+        res.status(400).json({
+          error: "Audience is required.",
+        });
+        return;
+      }
+
+      if (!message || !message.trim()) {
+        res.status(400).json({
+          error: "Message is required.",
+        });
+        return;
+      }
+
+      const recipients = await resolveRecipients(audience, targetId);
+
+      logger.info("Recipients found", {
+        count: recipients.length,
+      });
+
+      if (recipients.length === 0) {
+        res.status(404).json({
+          error: "No recipients found.",
+        });
+        return;
+      }
+
+      const token = await getHormuudToken(
+        HORMUUD_USERNAME.value(),
+        HORMUUD_PASSWORD.value()
       );
+
+      logger.info("Hormuud token received");
+
+      const senderid = HORMUUD_SENDERID.value();
+
+      const results = [];
+
+      for (const r of recipients) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await sendOneSms(
+          token,
+          r.phone,
+          message.trim(),
+          senderid
+        );
+
+        results.push({
+          ...result,
+          label: r.label,
+        });
+      }
+
+      res.json({
+        total: results.length,
+        successCount: results.filter(r => r.success).length,
+        failCount: results.filter(r => !r.success).length,
+        results,
+      });
+
+    } catch (err) {
+
+      logger.error("sendBulkSms FAILED", err);
+
+      if (err instanceof HttpsError) {
+        res.status(500).json({
+          error: err.message || "Unknown error",
+        });
+        return;
+      }
+
+      res.status(500).json({
+        error: err.message || "Unknown error",
+      });
     }
-
-    const token = await getHormuudToken(
-      HORMUUD_USERNAME.value(),
-      HORMUUD_PASSWORD.value()
-    );
-    const senderid = HORMUUD_SENDERID.value();
-
-    const results = [];
-    for (const r of recipients) {
-      // eslint-disable-next-line no-await-in-loop
-      const result = await sendOneSms(token, r.phone, message.trim(), senderid);
-      results.push({ ...result, label: r.label });
-    }
-
-    const successCount = results.filter((r) => r.success).length;
-    const failCount = results.length - successCount;
-
-    return {
-      total: results.length,
-      successCount,
-      failCount,
-      results,
-    };
   }
 );

@@ -1,56 +1,60 @@
-//readme_sms_setup.md
 # Send SMS Feature — Setup Guide (Hormuud SMS API)
 
 Waxaan kuu sameeyay 3 file:
 
-1. **`Dashboard.jsx`** — Dashboard-kaaga oo lagu daray badhan "Send SMS" (welcome banner-ka dushiisa).
-2. **`SendSmsModal.jsx`** — Modal-ka UI-ga (dooro Waalidiin/Macalimiin/Arday, qor fariinta, dir).
-3. **`functions_sendSms.js`** — Cloud Function-ka backend-ka ah ee si ammaan ah u dirayo SMS-ga.
+1. `src/admin/pages/Dashboard.jsx`
+2. `src/admin/components/SendSmsModal.jsx`
+3. `sms/index.js`
 
-**Muhiim:** Username/password-ka Hormuud lama gelin karo React frontend-ka si toos ah — qof kasta oo dev tools furta ayaa ka soo qaadan kara oo lacagtaada ku dhammayn kara SMS been ah. Sidaas darteed waxaan u baahanahay **Cloud Function** oo kaydiya secrets-ka server-ka.
+Username-ka, Password-ka iyo Sender ID-ga Hormuud waxaa lagu kaydiyaa Firebase Secret Manager, mana lagu qoro frontend-ka.
 
 ---
 
-## Tallaabo 1 — Files-ka meesha la geliyo
+## Tallaabo 1 — Files-ka
 
 ```
-src/admin/pages/Dashboard.jsx        ← beddel kan hore (waa file-ka aan kuu beddelay)
-src/admin/components/SendSmsModal.jsx ← file cusub
-functions/sendSms.js                  ← file cusub (Cloud Function)
+src/admin/pages/Dashboard.jsx
+src/admin/components/SendSmsModal.jsx
+sms/index.js
 ```
 
-## Tallaabo 2 — Haddii aadan haysan Cloud Functions weli
+---
 
-Terminal-ka geli project-kaaga folder-ka (RESING_SCHOOL), ka dibna:
+## Tallaabo 2 — Firebase Functions
+
+Haddii aadan hore u samayn:
 
 ```bash
-npm install -g firebase-tools     # haddii aan horey loo rakibin
+npm install -g firebase-tools
 firebase login
 firebase init functions
 ```
 
-Marka la weydiiyo:
-- Dooro **JavaScript**
-- Dooro project-kaaga Firebase ee jira ("resing-school-erp" — sida sawirka Firestore ee aad soo dirtay)
-- "ESLint?" → No (si loo fududeeyo)
-- "Install dependencies now?" → Yes
+Dooro:
 
-Tani waxay abuureysaa folder `functions/` oo leh `index.js`.
+- JavaScript
+- Project: `one-click-onilne`
+- ESLint: No
+- Install dependencies: Yes
 
-## Tallaabo 3 — Ku dar package-yada loo baahan yahay
+---
+
+## Tallaabo 3 — Packages
 
 ```bash
-cd functions
+cd sms
 npm install firebase-admin firebase-functions axios
 ```
 
-## Tallaabo 4 — Geli koodka Cloud Function-ka
+---
 
-Copy garee content-ka `functions_sendSms.js` (file-ka aan kuu sameeyay) → geli `functions/index.js` (ama abuur `functions/sendSms.js` oo `index.js` ka soo `require` garee, sida qoraalka file-ka ku qoran yahay dhamaadkiisa).
+## Tallaabo 4 — Cloud Function
 
-## Tallaabo 5 — Geli xogta sirta ah ee Hormuud (secrets)
+Geli code-ka `sms/index.js`.
 
-**Ha ku qorin koodka gudihiisa!** Waxaad ku qorataa terminal-ka:
+---
+
+## Tallaabo 5 — Secret Manager
 
 ```bash
 firebase functions:secrets:set HORMUUD_USERNAME
@@ -58,64 +62,219 @@ firebase functions:secrets:set HORMUUD_PASSWORD
 firebase functions:secrets:set HORMUUD_SENDERID
 ```
 
-Mid kasta wuxuu ku weydiin doonaa inaad qorto qiimaha — halkaas ku qor:
-- **HORMUUD_USERNAME** → username-kaaga Hormuud (ka https://business.hormuud.com/)
-- **HORMUUD_PASSWORD** → API Password-kaaga (profile-kaaga account-ka ku qoran, sida documentation-ka lagu sheegay)
-- **HORMUUD_SENDERID** → magaca ay ardayda/waalidiintu ku arki doonaan (tusaale: "RESING")
+Qiimaha geli:
 
-## Tallaabo 6 — Deploy garee Function-ka
+- `HORMUUD_USERNAME`
+- `HORMUUD_PASSWORD`
+- `HORMUUD_SENDERID`
+
+---
+
+## Tallaabo 6 — Deploy
 
 ```bash
-firebase deploy --only functions
+firebase deploy --only functions:sms:sendBulkSms
 ```
 
-Marka ay guuleysato, waxaad ka arki doontaa Firebase Console function magaceedu yahay `sendBulkSms`.
+Marka uu guuleysto waxaad arki doontaa:
 
-## Tallaabo 7 — Frontend-ka: rakib firebase/functions
+```
+functions[sms:sendBulkSms(us-central1)] Successful update operation.
+Deploy complete!
+```
 
-Haddii aanad horey u haysan `firebase/functions` oo la import garayo:
+---
+
+## Tallaabo 7 — Firebase Frontend
 
 ```bash
 npm install firebase
 ```
 
-(waa isla package-ka `firebase` ee horay loo isticmaalayay `firebase/firestore` — kuma baahnid wax cusub oo kale in aad rakibto).
+`src/firebase/firebase.js`
 
-## Tallaabo 8 — Ku dar `SendSmsModal.jsx` folder-ka components
+```javascript
+import { getFunctions } from "firebase/functions";
 
-Copy garee `SendSmsModal.jsx` → `src/admin/components/SendSmsModal.jsx`
-
-## Tallaabo 9 — Dashboard.jsx — beddel
-
-File-ka `Dashboard.jsx` aan kuu diyaariyay wuu ku jiraa:
-- Import `SendSmsModal`
-- State `smsModalOpen`
-- Badhan "Send SMS" oo ku yaal welcome banner-ka (agagaarka "Explore Dashboard")
-- Modal-ka oo furma marka la taabto badhanka
-
-Kaliya copy garee file-kan oo beddel `src/admin/pages/Dashboard.jsx`.
+export const functions = getFunctions(risingApp, "us-central1");
+```
 
 ---
 
-## Sida ay u shaqeyso (functionality-ga)
+## Tallaabo 8 — SendSmsModal
 
-Marka admin-ku taabto **Send SMS**:
-1. Modal ayaa furma, wuxuuna dooran karaa:
-   - **Dhamaan Waalidiinta** → wuxuu ka akhriyaa `students` collection-ka dhammaan `parentPhone` (mid kasta oo kaliya hal mar, si aan loo dirin waalid isku mid ah laba jeer haddii uu leeyahay carruur badan).
-   - **Dhamaan Macalimiinta** → dhammaan `teachers` collection-ka.
-   - **Macalin Gaar ah** → dropdown ayaa ka soo muuqda, dooro hal macalin.
-   - **Dhamaan Ardayda** → dhammaan `studentPhone` fields-ka `students` collection-ka.
-   - **Arday Gaar ah** → dropdown, dooro hal arday.
-2. Qor fariinta, taabo **Dir SMS**.
-3. Frontend-ku wuxuu u diraa audience-ka + fariinta → Cloud Function-ka `sendBulkSms`.
-4. Cloud Function-ku:
-   - Firestore ka soo akhriya lambarada saxda ah.
-   - Hormuud ka soo helaa token (bearer token) isagoo isticmaalaya secrets-ka.
-   - Mid kasta oo lambarada ah SMS u diraa.
-   - Dib ugu soo celiyaa Dashboard-ka tirada guusha/fashilka.
+Hubi in uu isticmaalo:
 
-## Fadhi la socod ah (Important notes)
+```javascript
+import { httpsCallable } from "firebase/functions";
 
-- **Phone number format:** Documentation-ka Hormuud tusaalihiisu wuxuu isticmaalaa `"61xxxxxxx"` (lambarka la'aan +252 ama 0 hore). Haddii aad aragto in SMS-yadu ay ku fashilmayaan response code `207` (Wrong mobile number), waxaad u baahan tahay inaad `cleanPhone()` function-ka ku beddesho functions/sendSms.js si loogu daro ama looga saaro prefix-ka 252/0, sida Hormuud kuu sheego.
-- **Kharashka (balance):** Hubi in account-kaaga Hormuud uu haysto lacag ku filan si SMS-yada loo diro — response code `204`/`205` waxay macnahoodu yahay balance-ku waa 0 ama aad u yar yahay.
-- **Xogta u baahan Firestore:** Waxaan u malaynayaa in `teachers` collection-ku uu leeyahay field magaceedu yahay `phone`, `teacherPhone`, ama `mobile` — hubi field-kaaga saxda ah, haddii uu ku kaladuwan yahay beddel `functions/sendSms.js` gudihiisa `resolveRecipients()`.
+const sendBulkSms = httpsCallable(functions, "sendBulkSms");
+
+await sendBulkSms({
+  audience,
+  targetId,
+  message,
+});
+```
+
+---
+
+## Tallaabo 9 — Dashboard
+
+Ku dar:
+
+```text
+SendSmsModal
+```
+
+iyo badhanka:
+
+```text
+Send SMS
+```
+
+---
+
+# Sida uu u shaqeeyo
+
+Admin-ku wuxuu dooran karaa:
+
+- Dhamaan Waalidiinta
+- Waalid Gaar ah
+- Dhamaan Macalimiinta
+- Macalin Gaar ah
+- Dhamaan Ardayda
+- Arday Gaar ah
+
+Kadib:
+
+1. Qor fariinta.
+2. Guji **Dir SMS**.
+3. Frontend-ku wuxuu wacayaa `sendBulkSms`.
+4. Cloud Function-ku wuxuu:
+   - Firestore ka soo qaadaa lambarada.
+   - Hormuud ka qaataa Access Token.
+   - SMS ayuu diraa.
+   - Wuxuu soo celiyaa natiijada.
+
+---
+
+# Firestore Fields
+
+Students:
+
+```
+fullName
+studentPhone
+parentPhone
+studentId
+className
+```
+
+Teachers:
+
+```
+fullName
+phone
+teacherPhone
+mobile
+username
+subject
+```
+
+---
+
+# Phone Number Format
+
+Hormuud API wuxuu isticmaalaa:
+
+```
+61XXXXXXX
+```
+
+Haddii aad isticmaalayso:
+
+```
+25261XXXXXXX
+```
+
+ama
+
+```
+061XXXXXXX
+```
+
+waxaad ku saxdaa `cleanPhone()` gudaha `sms/index.js`.
+
+---
+
+# Hormuud API
+
+Secret Manager:
+
+```
+HORMUUD_USERNAME
+HORMUUD_PASSWORD
+HORMUUD_SENDERID
+```
+
+API:
+
+```
+https://smsapi.hormuud.com/token
+```
+
+```
+https://smsapi.hormuud.com/api/SendSMS
+```
+
+---
+
+# Haddii SMS-ku shaqayn waayo
+
+Logs:
+
+```bash
+firebase functions:log --only sendBulkSms
+```
+
+Deploy:
+
+```bash
+firebase deploy --only functions:sms:sendBulkSms
+```
+
+Secrets:
+
+```bash
+firebase functions:secrets:get HORMUUD_USERNAME
+firebase functions:secrets:get HORMUUD_PASSWORD
+firebase functions:secrets:get HORMUUD_SENDERID
+```
+
+---
+
+# Response Codes
+
+| Code | Macnaha |
+|------|---------|
+| 200 | SMS waa la diray |
+| 201 | Authentication Failed |
+| 203 | Invalid Sender ID |
+| 204 | Balance kuma filna |
+| 205 | Balance aad ayuu u hooseeyaa |
+| 207 | Wrong Mobile Number |
+
+---
+
+# Hubinta ugu dambeysa
+
+Hubi in:
+
+- Firebase Functions Deploy Success yahay.
+- Secret Manager uu leeyahay Version 1 (Enabled).
+- `sendBulkSms` uu ku yaal `us-central1`.
+- `getFunctions(risingApp, "us-central1")` la isticmaalayo.
+- Frontend-ku isticmaalo `httpsCallable()`.
+- Username, Password iyo Sender ID ay sax yihiin.
+- Hormuud SMS account-ku leeyahay adeeg firfircoon iyo balance haddii adeeggaagu u baahan yahay.
