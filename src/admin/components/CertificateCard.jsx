@@ -1,48 +1,45 @@
 // src/admin/components/CertificateCard.jsx
 // Renders the official "Class 8 Leaving Certificate" design (matching the
-// printed reference — Somali on the left, English on the right, subjects
-// table, results table) from a certificate data object. Shared by:
+// printed PDF reference — Somali on the left, English on the right, subjects
+// tables split into two halves, borders, guilloche security background).
+// Shared by:
 //   - admin/pages/Certificates.jsx (preview + snapshot for download)
 //   - student/Dashboard.jsx (Certificate tab)
 //   - pages/VerifyCertificate.jsx (public verification page)
-//
-// NOTE: `qrcode` npm package is used to render the QR code as an actual
-// scannable image (not a placeholder), pointing at the public verify URL.
-import { useEffect, useRef } from "react";
 import certificateLogo from "../assets/certificate-logo.png";
 
 const GREEN = "#2f9e44";
-const DARK_GREEN = "#166534";
+const DARK_GREEN = "#0f6b3f";
 const BORDER_GREEN = "#3aa856";
-const BLUE = "#1f7fb8";
+const BLUE = "#1f9ed6";
 const GUILLOCHE = "#8fc7e0";
 
+// UI-only helper: the English (right-hand) table shows the same subjects, but
+// with their names rendered in English. Backend data (topSubjects) is not
+// changed — this only affects how the label is displayed on the English side.
+function toEnglishSubject(name) {
+  if (!name) return "";
+  const map = {
+    xisaab: "Math",
+    somali: "Somali",
+    "af somali": "Somali",
+    saynis: "Science",
+    "cilmi bulsho": "Social",
+    cilmibulsho: "Social",
+    arabic: "Arabic",
+    "af carabi": "Arabic",
+    carabi: "Arabic",
+    islamic: "Islamic",
+    diinta: "Islamic",
+    english: "English",
+    "af ingiriisi": "English",
+    ingiriisi: "English",
+  };
+  const key = String(name).trim().toLowerCase();
+  return map[key] || name;
+}
+
 export default function CertificateCard({ certificate, verifyUrl, elementId = "certificate-render-card" }) {
-  const qrRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function renderQr() {
-      if (!qrRef.current || !verifyUrl) return;
-      try {
-        const QRCode = await loadQr();
-        if (cancelled) return;
-        qrRef.current.innerHTML = "";
-        await QRCode.toCanvas(qrRef.current, verifyUrl, {
-          width: 80,
-          margin: 0,
-          color: { dark: "#0f3d2e", light: "#ffffff" },
-        });
-      } catch (e) {
-        console.log("QR render failed:", e);
-      }
-    }
-    renderQr();
-    return () => {
-      cancelled = true;
-    };
-  }, [verifyUrl]);
-
   if (!certificate) return null;
 
   const {
@@ -58,17 +55,17 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
     className,
     certificateId,
     issueDate,
-    topSubjects, // array of up to 6: [{ subject, marks, maxMarks }]
+    topSubjects, // array of up to 12: [{ subject, marks, maxMarks }]
     averageResult, // computed average across topSubjects, as a percentage
   } = certificate;
 
-  const subjects = Array.isArray(topSubjects) ? topSubjects.slice(0, 6) : [];
-  // Always render 6 rows so the table layout matches the printed reference,
-  // even if fewer than 6 subjects were recorded for this student.
-  const subjectRows = Array.from({ length: 6 }, (_, i) => subjects[i] || null);
-  // The reference splits the 6 rows into two side-by-side halves (1-3 | 4-6).
-  const leftHalf = subjectRows.slice(0, 3);
-  const rightHalf = subjectRows.slice(3, 6);
+  const subjects = Array.isArray(topSubjects) ? topSubjects.slice(0, 12) : [];
+  // Always render 12 rows so the table layout matches the printed reference,
+  // even if fewer than 12 subjects were recorded for this student. The 12 rows
+  // are shown as two side-by-side halves (1-6 | 7-12) within each language.
+  const subjectRows = Array.from({ length: 12 }, (_, i) => subjects[i] || null);
+  const leftHalf = subjectRows.slice(0, 6);
+  const rightHalf = subjectRows.slice(6, 12);
 
   return (
     <div
@@ -78,7 +75,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         maxWidth: "100%",
         aspectRatio: "1.414 / 1", // A4 landscape
         background: "#fdfdfb",
-        padding: 14,
+        padding: 12,
         position: "relative",
         fontFamily: "'Inter','Segoe UI',sans-serif",
         color: "#111827",
@@ -93,10 +90,10 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           position: "absolute",
-          top: 30,
-          left: 30,
-          right: 30,
-          bottom: 30,
+          top: 26,
+          left: 26,
+          right: 26,
+          bottom: 26,
           border: `2.5px solid ${GREEN}`,
           borderRadius: 4,
           pointerEvents: "none",
@@ -106,10 +103,10 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           position: "absolute",
-          top: 35,
-          left: 35,
-          right: 35,
-          bottom: 35,
+          top: 31,
+          left: 31,
+          right: 31,
+          bottom: 31,
           border: `1px solid ${GREEN}`,
           borderRadius: 3,
           pointerEvents: "none",
@@ -121,10 +118,10 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
       <div
         style={{
           position: "absolute",
-          top: 44,
-          left: 46,
-          right: 46,
-          bottom: 44,
+          top: 40,
+          left: 44,
+          right: 44,
+          bottom: 40,
           zIndex: 3,
           display: "flex",
           flexDirection: "column",
@@ -140,12 +137,12 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           }}
         >
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 26, fontWeight: 800, color: DARK_GREEN, lineHeight: 1.1, letterSpacing: 0.3 }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: DARK_GREEN, lineHeight: 1.08, letterSpacing: 0.3 }}>
               RISING STAR PRIMARY
               <br />
               &amp; SECONDARY SCHOOL
             </div>
-            <div style={{ fontSize: 16, color: BLUE, fontWeight: 700, marginTop: 4, fontStyle: "italic" }}>
+            <div style={{ fontSize: 15, color: BLUE, fontWeight: 700, marginTop: 3, fontStyle: "italic" }}>
               Mogadishu-Somalia
             </div>
           </div>
@@ -153,16 +150,16 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           <img
             src={certificateLogo}
             alt=""
-            style={{ width: 82, height: 82, objectFit: "contain", flexShrink: 0 }}
+            style={{ width: 78, height: 78, objectFit: "contain", flexShrink: 0 }}
           />
 
           <div style={{ flex: 1, textAlign: "right", fontFamily: "'Traditional Arabic','Amiri',serif" }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: DARK_GREEN, lineHeight: 1.35, direction: "rtl" }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: DARK_GREEN, lineHeight: 1.3, direction: "rtl" }}>
               مـدرســة ريـسـن اسـتـار
               <br />
               الأسـاسـيـة والـثـانـويـة
             </div>
-            <div style={{ fontSize: 13, color: BLUE, fontWeight: 700, marginTop: 2, direction: "rtl" }}>
+            <div style={{ fontSize: 12, color: BLUE, fontWeight: 700, marginTop: 2, direction: "rtl" }}>
               مـقـديـشـو - الـصـومـال
             </div>
           </div>
@@ -172,15 +169,15 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 108px 1fr",
+            gridTemplateColumns: "1fr 100px 1fr",
             gap: 14,
-            marginTop: 16,
+            marginTop: 14,
             alignItems: "start",
           }}
         >
           {/* Somali column */}
-          <div style={{ fontSize: 13.5, lineHeight: 1 }}>
-            <p style={{ margin: "0 0 10px" }}>Xafiiska imtixaadaadka wuxuu halkaan ku cadeynayaa in</p>
+          <div style={{ fontSize: 12.5 }}>
+            <p style={{ margin: "0 0 8px" }}>Xafiiska imtixaadaadka wuxuu halkaan ku cadeynayaa in</p>
             <CertLine label="Magaca Hooyada" value={motherName} />
             <CertLine
               label="Goobta &amp; Taariikhda Dhalashada"
@@ -190,7 +187,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
               label="Dhameystay/Dhameysatay Dugsiga Dhexe"
               value={schoolName || "Rising Star Primary & Secondary School"}
             />
-            <div style={{ display: "flex", gap: 14 }}>
+            <div style={{ display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <CertLine label="Sanadka" value={academicYear} />
               </div>
@@ -207,13 +204,13 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           {/* Center photo placeholder (dashed box) */}
           <div
             style={{
-              width: 100,
-              height: 120,
+              width: 94,
+              height: 112,
               border: `2px dashed ${GREEN}`,
               borderRadius: 3,
               background: "#fff",
               overflow: "hidden",
-              marginTop: 4,
+              marginTop: 2,
             }}
           >
             {studentPhoto ? (
@@ -226,8 +223,8 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           </div>
 
           {/* English column */}
-          <div style={{ fontSize: 13.5, lineHeight: 1 }}>
-            <p style={{ margin: "0 0 10px" }}>Examination Office certifies that</p>
+          <div style={{ fontSize: 12.5 }}>
+            <p style={{ margin: "0 0 8px" }}>Examination Office certifies that</p>
             <CertLine label="Mother`s name" value={motherName} />
             <CertLine
               label="Place &amp; Date of birth"
@@ -237,7 +234,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
               label="Completed primary school"
               value={schoolName || "Rising Star Primary & Secondary School"}
             />
-            <div style={{ display: "flex", gap: 14 }}>
+            <div style={{ display: "flex", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <CertLine label="Year" value={academicYear} />
               </div>
@@ -249,38 +246,36 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           </div>
         </div>
 
-        {/* Subjects tables: Somali headers left, English headers right — split
-            into two side-by-side halves (rows 1-3 | 4-6), matching the reference. */}
+        {/* Subjects tables: Somali left, English right — each split into two
+            side-by-side halves (rows 1-6 | 7-12), matching the PDF reference.
+            The English table renders subject names in English via `english`. */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
-            gap: 30,
-            marginTop: 14,
+            gap: 26,
+            marginTop: 10,
           }}
         >
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: DARK_GREEN }}>
+            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 3, color: DARK_GREEN }}>
               Hoos waxaa ku qoran natiijada Imtixaanka maado waliba
             </div>
             <SplitSubjectsTable
               left={leftHalf}
               right={rightHalf}
-              startRight={4}
               headers={["No", "Maado", "Dhibco", "No", "Maado", "Dhibco"]}
-              subjectCols={[1, 4]}
             />
           </div>
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4, color: DARK_GREEN }}>
+            <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 3, color: DARK_GREEN }}>
               Below is the performance of each subject
             </div>
             <SplitSubjectsTable
               left={leftHalf}
               right={rightHalf}
-              startRight={4}
               headers={["No", "Subject", "Marks", "No", "Subject", "Marks"]}
-              subjectCols={[1, 4]}
+              english
             />
           </div>
         </div>
@@ -290,78 +285,61 @@ export default function CertificateCard({ certificate, verifyUrl, elementId = "c
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
-            gap: 30,
+            gap: 26,
             marginTop: "auto",
-            paddingTop: 10,
-            fontSize: 11.5,
+            paddingTop: 8,
+            fontSize: 10.5,
             color: "#374151",
           }}
         >
           <div>
-            <p style={{ margin: "0 0 2px", lineHeight: 1.35 }}>
+            <p style={{ margin: "0 0 2px", lineHeight: 1.3 }}>
               Shahaadada Dugsiga Dhexe waxaa la siin karaa ardeyga ugu yaraan 7
               <br />
               Maado ka keena mid kasta 50% maadooyinkaas marki la isku
               <br />
               geeyana celceliskoodu aannu ka yaraan 60%
             </p>
-            <p style={{ margin: "4px 0 0" }}>
+            <p style={{ margin: "3px 0 0" }}>
               Taariikhda la bixiyay Shahaadada:{" "}
-              <span style={{ borderBottom: "1px solid #374151", padding: "0 24px" }}>
+              <span style={{ borderBottom: "1px solid #374151", padding: "0 22px" }}>
                 {issueDate || ""}
               </span>
             </p>
-            <p style={{ margin: "4px 0 0" }}>
+            <p style={{ margin: "3px 0 0" }}>
               <span style={{ color: "#DC2626", fontWeight: 700 }}>FG.</span>
               <span style={{ color: "#DC2626", fontWeight: 700 }}>
-                Tir-tirku waa ay burburinaysaa shahaadada.
+                Tir-tiriddu waa ay burburineysaa shahaadada.
               </span>
             </p>
-            <p style={{ margin: "6px 0 0", fontStyle: "italic", fontWeight: 700 }}>
+            <p style={{ margin: "4px 0 0", fontStyle: "italic", fontWeight: 700, textAlign: "center" }}>
               Agaasunaga Xafiiska Imtixaanaadka
             </p>
           </div>
           <div>
-            <p style={{ margin: "0 0 2px", lineHeight: 1.35 }}>
+            <p style={{ margin: "0 0 2px", lineHeight: 1.3 }}>
               This primary certificate is issued to a student who passed at
               <br />
-              Least 7 subjects and has attained a minimum of 50% in each ,
+              Least 7 subjects and has attained a minimum of 50% in each .
               <br />
               and also attained an aggregate of 60% of the total marks.
             </p>
-            <p style={{ margin: "4px 0 0" }}>
+            <p style={{ margin: "3px 0 0" }}>
               Date of issue:{" "}
-              <span style={{ borderBottom: "1px solid #374151", padding: "0 24px" }}>
+              <span style={{ borderBottom: "1px solid #374151", padding: "0 22px" }}>
                 {issueDate || ""}
               </span>
             </p>
-            <p style={{ margin: "4px 0 0" }}>
+            <p style={{ margin: "3px 0 0" }}>
               <span style={{ color: "#DC2626", fontWeight: 700 }}>Note:</span>{" "}
               <span style={{ color: "#DC2626", fontWeight: 700 }}>
                 Alternation renders this certificate invalid.
               </span>
             </p>
-            <p style={{ margin: "6px 0 0", fontStyle: "italic", fontWeight: 700 }}>
+            <p style={{ margin: "4px 0 0", fontStyle: "italic", fontWeight: 700, textAlign: "center" }}>
               Director of Examination Office
             </p>
           </div>
-        </div>
-
-        {/* Certificate ID + QR code, bottom-right, for the public /verify page */}
-        <div
-          style={{
-            position: "absolute",
-            right: 0,
-            bottom: -30,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <div style={{ fontSize: 9, color: "#9CA3AF", fontFamily: "monospace", textAlign: "right" }}>
-            {certificateId}
-          </div>
-          <div ref={qrRef} style={{ width: 56, height: 56, flexShrink: 0 }} />
         </div>
       </div>
     </div>
@@ -390,52 +368,42 @@ function SecurityBackground() {
         style={{ position: "absolute", inset: 0 }}
       >
         <defs>
-          {/* Fine diagonal guilloche hatch fill for the outer margin */}
           <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" y2="8" stroke="#d9d9d9" strokeWidth="0.6" />
-          </pattern>
-          {/* A single scallop arc, tiled along the border */}
-          <pattern id="scallopTop" width="46" height="46" patternUnits="userSpaceOnUse">
-            <path d="M0,40 A23,23 0 0 1 46,40" fill="none" stroke={BORDER_GREEN} strokeWidth="1.3" />
-            <path d="M0,32 A23,23 0 0 1 46,32" fill="none" stroke={BORDER_GREEN} strokeWidth="0.8" />
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#dcdcdc" strokeWidth="0.6" />
           </pattern>
           <radialGradient id="fade" cx="50%" cy="50%" r="60%">
-            <stop offset="0%" stopColor={GUILLOCHE} stopOpacity="0.55" />
-            <stop offset="70%" stopColor={GUILLOCHE} stopOpacity="0.12" />
+            <stop offset="0%" stopColor={GUILLOCHE} stopOpacity="0.5" />
+            <stop offset="70%" stopColor={GUILLOCHE} stopOpacity="0.1" />
             <stop offset="100%" stopColor={GUILLOCHE} stopOpacity="0" />
           </radialGradient>
         </defs>
 
         {/* Outer hatched margin */}
         <rect x="0" y="0" width="1040" height="735" fill="url(#hatch)" />
-        <rect x="26" y="26" width="988" height="683" fill="#fdfdfb" />
+        <rect x="22" y="22" width="996" height="691" fill="#fdfdfb" />
 
         {/* Scalloped security border ring (green wave frame) */}
         <ScallopFrame />
 
         {/* Central guilloche rosette pattern */}
         <g opacity="0.9">
-          <ellipse cx="520" cy="360" rx="360" ry="230" fill="url(#fade)" />
-          <GuillocheRosette cx={520} cy={360} />
+          <ellipse cx="520" cy="360" rx="380" ry="250" fill="url(#fade)" />
+          <GuillocheRosette />
         </g>
       </svg>
     </div>
   );
 }
 
-// Green scalloped wave frame around the whole certificate.
+// Green scalloped wave frame around the whole certificate (two nested rings).
 function ScallopFrame() {
-  const R = 15;
-  const step = 30;
-  const paths = [];
-  const build = (x1, y1, x2, y2, up) => {
+  const build = (x1, y1, x2, y2, R, step, up) => {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.hypot(dx, dy);
     const n = Math.round(len / step);
     const ux = dx / len;
     const uy = dy / len;
-    // perpendicular (points inward)
     const px = up ? uy : -uy;
     const py = up ? -ux : ux;
     let d = `M ${x1} ${y1}`;
@@ -450,33 +418,36 @@ function ScallopFrame() {
     }
     return d;
   };
-  const inset = 30;
-  const x0 = inset, y0 = inset, x1 = 1040 - inset, y1 = 735 - inset;
+  const ring = (inset, R, step, opacity) => {
+    const x0 = inset, y0 = inset, x1 = 1040 - inset, y1 = 735 - inset;
+    return (
+      <g fill="none" stroke={BORDER_GREEN} strokeWidth="1.3" opacity={opacity}>
+        <path d={build(x0, y0, x1, y0, R, step, true)} />
+        <path d={build(x1, y0, x1, y1, R, step, true)} />
+        <path d={build(x1, y1, x0, y1, R, step, true)} />
+        <path d={build(x0, y1, x0, y0, R, step, true)} />
+      </g>
+    );
+  };
   return (
-    <g fill="none" stroke={BORDER_GREEN} strokeWidth="1.4">
-      <path d={build(x0, y0, x1, y0, true)} />
-      <path d={build(x1, y0, x1, y1, true)} />
-      <path d={build(x1, y1, x0, y1, true)} />
-      <path d={build(x0, y1, x0, y0, true)} />
-      <path d={build(x0, y0, x1, y0, false)} opacity="0.5" />
-      <path d={build(x1, y0, x1, y1, false)} opacity="0.5" />
-      <path d={build(x1, y1, x0, y1, false)} opacity="0.5" />
-      <path d={build(x0, y1, x0, y0, false)} opacity="0.5" />
-    </g>
+    <>
+      {ring(24, 16, 32, 1)}
+      {ring(14, 20, 40, 0.55)}
+    </>
   );
 }
 
 // Concentric spirograph-style rosette for the center guilloche.
-function GuillocheRosette({ cx, cy }) {
+function GuillocheRosette() {
   const cxN = 520;
   const cyN = 360;
   const rings = [];
-  for (let r = 20; r <= 220; r += 12) {
+  for (let r = 20; r <= 240; r += 11) {
     const pts = [];
-    const petals = 12;
+    const petals = 14;
     for (let a = 0; a <= 360; a += 3) {
       const rad = (a * Math.PI) / 180;
-      const rr = r + Math.sin(rad * petals) * (r * 0.09);
+      const rr = r + Math.sin(rad * petals) * (r * 0.08);
       pts.push(`${(cxN + rr * Math.cos(rad)).toFixed(1)},${(cyN + rr * Math.sin(rad)).toFixed(1)}`);
     }
     rings.push(
@@ -485,8 +456,8 @@ function GuillocheRosette({ cx, cy }) {
         points={pts.join(" ")}
         fill="none"
         stroke={GUILLOCHE}
-        strokeWidth="0.4"
-        opacity="0.5"
+        strokeWidth="0.35"
+        opacity="0.45"
       />
     );
   }
@@ -497,15 +468,16 @@ function GuillocheRosette({ cx, cy }) {
 // "Label:______________" layout.
 function CertLine({ label, value }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 5, marginBottom: 11 }}>
-      <span style={{ fontWeight: 400, whiteSpace: "nowrap", fontSize: 13.5 }}
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 5, marginBottom: 9 }}>
+      <span
+        style={{ fontWeight: 400, whiteSpace: "nowrap", fontSize: 12.5 }}
         dangerouslySetInnerHTML={{ __html: `${label}:` }}
       />
       <span
         style={{
           flex: 1,
           borderBottom: "1px solid #4b5563",
-          minHeight: 15,
+          minHeight: 14,
           paddingLeft: 4,
           fontWeight: 600,
           lineHeight: 1.1,
@@ -517,21 +489,23 @@ function CertLine({ label, value }) {
   );
 }
 
-// The 6-row subjects table, rendered as two side-by-side halves (1-3 | 4-6)
-// to match the printed reference. `left`/`right` are arrays of up to 3 rows,
-// each either null or `{ subject, marks, maxMarks }`.
-function SplitSubjectsTable({ left, right, startRight, headers, subjectCols }) {
+// The 12-row subjects table, rendered as two side-by-side halves (1-6 | 7-12)
+// to match the printed reference. `left`/`right` are arrays of up to 6 rows,
+// each either null or `{ subject, marks, maxMarks }`. When `english` is true,
+// subject names are shown in English (display-only, backend data unchanged).
+function SplitSubjectsTable({ left, right, headers, english }) {
   const cell = {
     border: `1px solid ${GREEN}`,
-    padding: "2px 5px",
-    fontSize: 11.5,
-    lineHeight: 1.35,
-    height: 19,
+    padding: "1px 5px",
+    fontSize: 11,
+    lineHeight: 1.3,
+    height: 17,
   };
   const th = { ...cell, fontWeight: 700, background: "rgba(47,158,68,0.10)", textAlign: "center" };
-  const numCol = { ...cell, textAlign: "center", width: 22, fontWeight: 700 };
+  const numCol = { ...cell, textAlign: "center", width: 20, fontWeight: 700 };
   const subCol = { ...cell, textAlign: "left" };
-  const markCol = { ...cell, textAlign: "center", width: 40 };
+  const markCol = { ...cell, textAlign: "center", width: 38 };
+  const nameOf = (row) => (row ? (english ? toEnglishSubject(row.subject) : row.subject) : "");
 
   return (
     <table style={{ width: "100%", borderCollapse: "collapse", border: `1px solid ${GREEN}` }}>
@@ -545,16 +519,16 @@ function SplitSubjectsTable({ left, right, startRight, headers, subjectCols }) {
         </tr>
       </thead>
       <tbody>
-        {[0, 1, 2].map((i) => {
+        {[0, 1, 2, 3, 4, 5].map((i) => {
           const l = left[i];
           const r = right[i];
           return (
             <tr key={i}>
               <td style={numCol}>{i + 1}</td>
-              <td style={subCol}>{l ? l.subject : ""}</td>
+              <td style={subCol}>{nameOf(l)}</td>
               <td style={markCol}>{l ? l.marks : ""}</td>
-              <td style={numCol}>{startRight + i}</td>
-              <td style={subCol}>{r ? r.subject : ""}</td>
+              <td style={numCol}>{i + 7}</td>
+              <td style={subCol}>{nameOf(r)}</td>
               <td style={markCol}>{r ? r.marks : ""}</td>
             </tr>
           );
@@ -562,37 +536,4 @@ function SplitSubjectsTable({ left, right, startRight, headers, subjectCols }) {
       </tbody>
     </table>
   );
-}
-
-// Loads a QR-rendering library from a CDN on demand and normalizes it to a
-// simple async `toCanvas(container, text)` function, so the caller doesn't
-// need to know which underlying library ended up being used.
-let qrPromise = null;
-function loadQr() {
-  if (qrPromise) return qrPromise;
-  qrPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
-    script.onload = () => {
-      if (!window.QRCode) {
-        reject(new Error("QR library failed to attach to window"));
-        return;
-      }
-      resolve({
-        toCanvas: async (container, text, opts = {}) => {
-          container.innerHTML = "";
-          new window.QRCode(container, {
-            text,
-            width: opts.width || 96,
-            height: opts.height || 96,
-            colorDark: (opts.color && opts.color.dark) || "#000000",
-            colorLight: (opts.color && opts.color.light) || "#ffffff",
-          });
-        },
-      });
-    };
-    script.onerror = reject;
-    document.body.appendChild(script);
-  });
-  return qrPromise;
 }

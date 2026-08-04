@@ -99,8 +99,8 @@ async function loadTopSubjectsForStudent(studentId) {
   return { topSubjects: top6.map(({ subject, marks, maxMarks }) => ({ subject, marks, maxMarks })), average };
 }
 
-async function downloadCertificateImage(fullName) {
-  const node = document.getElementById("certificate-render-card");
+async function downloadCertificateImage(fullName, elementId = "certificate-render-card") {
+  const node = document.getElementById(elementId);
   if (!node) return;
   try {
     if (!window.html2canvas) {
@@ -113,11 +113,18 @@ async function downloadCertificateImage(fullName) {
         document.body.appendChild(script);
       });
     }
+    // Snapshot at the card's real rendered size so the A4-landscape
+    // proportions are preserved in the downloaded image (aspectRatio can
+    // otherwise collapse under html2canvas).
+    const rect = node.getBoundingClientRect();
     const canvas = await window.html2canvas(node, {
       backgroundColor: "#ffffff",
       scale: 2,
       useCORS: true,
       allowTaint: false,
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height),
+      windowWidth: document.documentElement.scrollWidth,
     });
     const link = document.createElement("a");
     link.download = `Certificate-${(fullName || "student").replace(/\s+/g, "-")}.png`;
@@ -130,11 +137,15 @@ async function downloadCertificateImage(fullName) {
     // a certificate image instead of a silent failure / print fallback.
     console.log("Snapshot with photo failed, retrying without photo:", err);
     try {
+      const rect = node.getBoundingClientRect();
       const canvas = await window.html2canvas(node, {
         backgroundColor: "#ffffff",
         scale: 2,
         useCORS: true,
         allowTaint: false,
+        width: Math.ceil(rect.width),
+        height: Math.ceil(rect.height),
+        windowWidth: document.documentElement.scrollWidth,
         ignoreElements: (el) => el.tagName === "IMG",
       });
       const link = document.createElement("a");
@@ -146,9 +157,71 @@ async function downloadCertificateImage(fullName) {
       );
     } catch (err2) {
       console.log("Falling back to print view:", err2);
-      window.print();
+      printCertificate(false, elementId);
     }
   }
+}
+
+// Opens a clean print window containing ONLY the certificate (no sidebar,
+// no form) sized to A4 landscape, and triggers the browser print dialog.
+// `grayscale` prints the certificate in black & white; otherwise full color.
+function printCertificate(grayscale, elementId = "certificate-render-card") {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  const html = node.outerHTML;
+  const win = window.open("", "_blank", "width=1200,height=850");
+  if (!win) {
+    // Popup blocked — fall back to printing the current window.
+    window.print();
+    return;
+  }
+  win.document.open();
+  win.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Certificate</title>
+        <meta charset="utf-8" />
+        <style>
+          @page { size: A4 landscape; margin: 0; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .print-wrap {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            ${grayscale ? "filter: grayscale(100%);" : ""}
+          }
+          .print-wrap > * {
+            width: 100% !important;
+            max-width: 100% !important;
+          }
+          @media print {
+            .print-wrap { page-break-inside: avoid; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="print-wrap">${html}</div>
+        <script>
+          window.onload = function () {
+            setTimeout(function () {
+              window.focus();
+              window.print();
+            }, 400);
+          };
+          window.onafterprint = function () { window.close(); };
+        <\/script>
+      </body>
+    </html>
+  `);
+  win.document.close();
 }
 
 export default function Certificates() {
@@ -181,6 +254,9 @@ export default function Certificates() {
   const [uploadedPhoto, setUploadedPhoto] = useState(""); // data URL for instant preview
   const [uploadedPhotoFile, setUploadedPhotoFile] = useState(null); // actual File to upload on generate
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  // The certificate currently opened in the full-screen "View" modal (from the
+  // Issued Certificates list), or null when the modal is closed.
+  const [viewCert, setViewCert] = useState(null);
 
   useEffect(() => {
     load();
@@ -745,23 +821,60 @@ export default function Certificates() {
                   </button>
 
                   {previewCert && (
-                    <button
-                      onClick={() => downloadCertificateImage(previewCert.fullName)}
-                      style={{
-                        marginTop: 10,
-                        width: "100%",
-                        padding: "11px 0",
-                        borderRadius: 12,
-                        border: `1.5px solid ${GREEN}`,
-                        background: "#fff",
-                        color: GREEN,
-                        fontWeight: 700,
-                        fontSize: 13.5,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ⬇️ Download Certificate Image
-                    </button>
+                    <>
+                      <button
+                        onClick={() => downloadCertificateImage(previewCert.fullName)}
+                        style={{
+                          marginTop: 10,
+                          width: "100%",
+                          padding: "11px 0",
+                          borderRadius: 12,
+                          border: `1.5px solid ${GREEN}`,
+                          background: "#fff",
+                          color: GREEN,
+                          fontWeight: 700,
+                          fontSize: 13.5,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ⬇️ Download Certificate Image
+                      </button>
+
+                      <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                        <button
+                          onClick={() => printCertificate(false)}
+                          style={{
+                            flex: 1,
+                            padding: "11px 0",
+                            borderRadius: 12,
+                            border: `1.5px solid ${GREEN}`,
+                            background: "#fff",
+                            color: GREEN,
+                            fontWeight: 700,
+                            fontSize: 13.5,
+                            cursor: "pointer",
+                          }}
+                        >
+                          🖨️ Print (Color)
+                        </button>
+                        <button
+                          onClick={() => printCertificate(true)}
+                          style={{
+                            flex: 1,
+                            padding: "11px 0",
+                            borderRadius: 12,
+                            border: "1.5px solid #374151",
+                            background: "#fff",
+                            color: "#374151",
+                            fontWeight: 700,
+                            fontSize: 13.5,
+                            cursor: "pointer",
+                          }}
+                        >
+                          🖨️ Print (B&amp;W)
+                        </button>
+                      </div>
+                    </>
                   )}
                 </>
               )}
@@ -863,7 +976,7 @@ export default function Certificates() {
                       <td>
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
-                            onClick={() => pickStudent(c.studentId)}
+                            onClick={() => setViewCert(c)}
                             style={smallBtnStyle}
                           >
                             View
@@ -884,6 +997,120 @@ export default function Certificates() {
           </div>
         </div>
       </div>
+
+      {/* Full-screen "View" modal: opened from the Issued Certificates list,
+          shows the whole certificate with its own Download / Print actions. */}
+      {viewCert && (
+        <div
+          onClick={() => setViewCert(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(17,24,39,0.6)",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "28px 16px",
+            overflowY: "auto",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: 20,
+              width: "min(1120px, 100%)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 14,
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
+                {viewCert.fullName} — Certificate
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => downloadCertificateImage(viewCert.fullName, "certificate-view-modal-card")}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: `1.5px solid ${GREEN}`,
+                    background: "#fff",
+                    color: GREEN,
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: "pointer",
+                  }}
+                >
+                  ⬇️ Download
+                </button>
+                <button
+                  onClick={() => printCertificate(false, "certificate-view-modal-card")}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: `1.5px solid ${GREEN}`,
+                    background: "#fff",
+                    color: GREEN,
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: "pointer",
+                  }}
+                >
+                  🖨️ Print (Color)
+                </button>
+                <button
+                  onClick={() => printCertificate(true, "certificate-view-modal-card")}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: "1.5px solid #374151",
+                    background: "#fff",
+                    color: "#374151",
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: "pointer",
+                  }}
+                >
+                  🖨️ Print (B&W)
+                </button>
+                <button
+                  onClick={() => setViewCert(null)}
+                  style={{
+                    padding: "8px 14px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(17,24,39,0.15)",
+                    background: "#fff",
+                    color: "#6B7280",
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: "pointer",
+                  }}
+                >
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+            <div style={{ width: "100%", overflowX: "auto" }}>
+              <CertificateCard
+                certificate={viewCert}
+                verifyUrl={`${verifyBaseUrl}/${viewCert.certificateId}`}
+                elementId="certificate-view-modal-card"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @media (max-width: 980px) {
