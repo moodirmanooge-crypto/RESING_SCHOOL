@@ -9,6 +9,7 @@ import Academics from "./pages/Academics";
 import Gallery from "./pages/Gallery";
 import News from "./pages/News";
 import Contact from "./pages/Contact";
+import Library from "./pages/Library";
 import Login from "./pages/Login";
 
 // ADMIN
@@ -39,6 +40,7 @@ import NewsManager from "./admin/pages/NewsManager";
 import AddSubAdmin from "./admin/pages/AddSubAdmin";
 import ManageAdmins from "./admin/pages/ManageAdmins";
 import AdmissionsList from "./admin/pages/AdmissionsList";
+import LibraryManager from "./admin/pages/LibraryManager";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -85,6 +87,7 @@ function App() {
         <Route path="/gallery" element={<Gallery />} />
         <Route path="/news" element={<News />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/library" element={<Library />} />
         <Route path="/admin/receipts" element={<Receipts />} />
         <Route path="/admin-login" element={<Login role="Admin" />} />
         <Route path="/teacher-login" element={<Login role="Teacher" />} />
@@ -100,6 +103,7 @@ function App() {
         <Route path="/admin/news" element={<NewsManager />} />
         <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
         <Route path="/admin/manage-admins" element={<ManageAdmins />} />
+        <Route path="/admin/library" element={<LibraryManager />} />
 
         {/* Admin view of all admission applications submitted from the
             public /admissions page — lists every applicant, shows a

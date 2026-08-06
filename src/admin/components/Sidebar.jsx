@@ -29,6 +29,7 @@ import {
   ShieldPlus,
   ShieldCheck,
   ClipboardCheck,
+  BookOpen,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -52,6 +53,7 @@ const menus = [
   { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
   { name: "Gallery", icon: ImageIcon, path: "/admin/gallery" },
   { name: "News", icon: Newspaper, path: "/admin/news" },
+  { name: "Library", icon: BookOpen, path: "/admin/library" },
   { name: "Add Cashier", icon: Wallet, path: "/admin/add-cashier" },
   { name: "Receipts", icon: Receipt, path: "/admin/receipts" },
   { name: "Messages", icon: MessageCircle, path: "/admin/messages" },

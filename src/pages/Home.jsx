@@ -29,6 +29,7 @@ const NAV_LINKS = [
   { label: "About Us", to: "/about" },
   { label: "Admissions", to: "/admissions" },
   { label: "Academics", to: "/academics" },
+  { label: "Library", to: "/library" },
   { label: "Gallery", to: "/gallery" },
   { label: "News & Events", to: "/news" },
   { label: "Contact", to: "/contact" },
