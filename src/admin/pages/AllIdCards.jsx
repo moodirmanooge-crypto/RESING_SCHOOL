@@ -23,6 +23,27 @@
 //     is involved) and listed alongside the others. Manual cards render
 //     with the printed template design via <ManualStudentIdCard/>.
 //
+// MANUAL TEACHER CARDS (added):
+//   - Clicking "Create ID Card" now first asks Teacher or Student.
+//   - Teacher → a second modal collects Full Name, Title, Teacher ID,
+//     Issue Date, Expire Date (all typed in manually — no auto-calculated
+//     expiry) and a photo. Stored in `manualTeacherIdCards` (photo inline
+//     as a resized base64 data URL, same approach as manual student cards)
+//     and listed alongside everything else. Renders with the live
+//     TeacherIdCard template via <ManualTeacherIdCard/>.
+//   - Student → unchanged, opens the existing manual student modal.
+//
+// QR CODE / VERIFY LINK (fixed):
+//   - Both TeacherIdCard and StudentIdCard build their QR from the ID
+//     number entered here (teacherId / studentId), pointing to
+//     /verify/teacher/{id} or /verify/student/{id}. For that link to
+//     resolve, VerifyIdCard.jsx must find a Firestore doc with THAT SAME
+//     id in manualTeacherIdCards / manualStudentIdCards. Previously this
+//     file saved manual cards under a random genManualCardId() instead —
+//     so the QR pointed at an id that didn't match any doc, and scanning
+//     it landed on "ID Card Not Found". Manual cards are now saved with
+//     the doc ID equal to the entered teacherId/studentId itself.
+//
 // PENDING DELETION support:
 //   - Students/teachers marked pendingDeletion are hidden from this list
 //     immediately, even though their card doc (if any) is untouched
@@ -32,19 +53,21 @@
 //   - Checkbox column per row + "select all" checkbox in header
 //   - "Delete Selected" bulk-delete button (shows count, asks confirmation)
 //   - Single "Delete" button inside the selected-card preview panel
-//   - Deletes remove the `studentIdCards`/`teacher_id`/`manualStudentIdCards`
-//     doc if one exists (the underlying student/teacher record itself is
-//     NOT deleted here — this page only manages ID card records).
+//   - Deletes remove the `studentIdCards`/`teacher_id`/`manualStudentIdCards`/
+//     `manualTeacherIdCards` doc if one exists (the underlying student/teacher
+//     record itself is NOT deleted here — this page only manages ID card
+//     records).
 
 import { useEffect, useMemo, useState } from "react";
 import { useRef } from "react";
-import { collection, getDocs, doc, deleteDoc, setDoc, writeBatch, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, getDoc, doc, deleteDoc, setDoc, writeBatch, serverTimestamp } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import StudentIdCard from "../../student/StudentIdCard";
 import TeacherIdCard from "../../teacher/TeacherIdCard";
 import ManualStudentIdCard from "../../student/ManualStudentIdCard";
+import ManualTeacherIdCard from "../../teacher/ManualTeacherIdCard";
 import { Search, Printer, Download, IdCard, GraduationCap, Users, Trash2, Plus } from "lucide-react";
 import html2canvas from "html2canvas";
 import { migrateStudentIdCards } from "../../utils/migrateStudentIdCards";
@@ -89,9 +112,13 @@ function fileToResizedDataUrl(file, maxEdge = 500, quality = 0.85) {
   });
 }
 
-function genManualCardId() {
-  const rand = Math.random().toString(36).slice(2, 10).toUpperCase();
-  return `MANUAL-${rand}`;
+// Turns a user-entered ID (e.g. "RS-0015", "SS001") into a value that's safe
+// to use as a Firestore document ID: trimmed, slashes stripped (Firestore
+// treats "/" as a path separator), collapsed whitespace. This is what makes
+// the QR code's /verify/{type}/{id} link resolve — the doc is saved under
+// exactly this id, and VerifyIdCard.jsx looks up that same id.
+function toSafeDocId(rawId) {
+  return rawId.trim().replace(/[\/\s]+/g, "-");
 }
 
 const tableCardStyle = {
@@ -106,6 +133,7 @@ export default function AllIdCards() {
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [manualCards, setManualCards] = useState([]);
+  const [manualTeacherCards, setManualTeacherCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all"); // all | student | teacher
@@ -116,9 +144,12 @@ export default function AllIdCards() {
   const [deleting, setDeleting] = useState(false); // bulk-delete in progress
   const [deletingOne, setDeletingOne] = useState(false); // single-delete in progress
 
-  // Manual "Create ID Card" modal state
-  const [showCreate, setShowCreate] = useState(false);
+  // "Create ID Card" flow: first choose Teacher or Student, then show that
+  // type's modal. `createChoice` is null (closed), "choose" (picker shown),
+  // "student", or "teacher".
+  const [createChoice, setCreateChoice] = useState(null);
   const [creating, setCreating] = useState(false);
+
   const [createForm, setCreateForm] = useState({
     fullName: "",
     studentId: "",
@@ -127,6 +158,15 @@ export default function AllIdCards() {
     expireDate: "",
   });
   const [createPhoto, setCreatePhoto] = useState(""); // base64 data URL
+
+  const [teacherCreateForm, setTeacherCreateForm] = useState({
+    fullName: "",
+    title: "",
+    teacherId: "",
+    issueDate: "",
+    expireDate: "",
+  });
+  const [teacherCreatePhoto, setTeacherCreatePhoto] = useState(""); // base64 data URL
 
   const printRef = useRef(null);
 
@@ -139,7 +179,10 @@ export default function AllIdCards() {
       setLoading(true);
       // Only manually-created ID cards are listed here — we no longer read the
       // students / teachers / studentIdCards / teacher_id collections at all.
-      const manualSnap = await getDocs(collection(db, "manualStudentIdCards"));
+      const [manualSnap, manualTeacherSnap] = await Promise.all([
+        getDocs(collection(db, "manualStudentIdCards")),
+        getDocs(collection(db, "manualTeacherIdCards")),
+      ]);
 
       const allManual = manualSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -150,7 +193,17 @@ export default function AllIdCards() {
           ...m,
         }));
 
+      const allManualTeachers = manualTeacherSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .map((m) => ({
+          type: "teacher",
+          manual: true,
+          hasCardDoc: true,
+          ...m,
+        }));
+
       setManualCards(allManual);
+      setManualTeacherCards(allManualTeachers);
     } catch (err) {
       console.error("Failed to load ID cards:", err);
     } finally {
@@ -160,8 +213,8 @@ export default function AllIdCards() {
 
   const combined = useMemo(() => {
     // Only manually-created ID cards are shown.
-    return [...manualCards];
-  }, [manualCards]);
+    return [...manualCards, ...manualTeacherCards];
+  }, [manualCards, manualTeacherCards]);
 
   const filtered = useMemo(() => {
     let list = combined;
@@ -171,7 +224,7 @@ export default function AllIdCards() {
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((r) => {
-        const idValue = (r.type === "student" ? r.studentId : r.teacherUsername || r.id || "").toString().toLowerCase();
+        const idValue = (r.type === "student" ? r.studentId : r.teacherId || r.teacherUsername || r.id || "").toString().toLowerCase();
         const nameValue = (r.fullName || r.name || "").toString().toLowerCase();
         return idValue.includes(q) || nameValue.includes(q);
       });
@@ -210,6 +263,11 @@ export default function AllIdCards() {
     });
   }
 
+  function closeCreateFlow() {
+    if (creating) return;
+    setCreateChoice(null);
+  }
+
   // ── Create a manual student ID card ────────────────────────────────────
   function handleCreatePhotoChange(e) {
     const file = e.target.files?.[0];
@@ -230,7 +288,25 @@ export default function AllIdCards() {
     }
     try {
       setCreating(true);
-      const id = genManualCardId();
+      // FIX: the doc ID must equal the entered Student ID (not a random
+      // genManualCardId()) so the card's own QR code — which encodes
+      // /verify/student/{studentId} — actually finds this doc.
+      const id = toSafeDocId(createForm.studentId);
+      const cardRef = doc(db, "manualStudentIdCards", id);
+
+      // Guard against silently overwriting a different existing card that
+      // happens to share this Student ID.
+      const existing = await getDoc(cardRef);
+      if (existing.exists()) {
+        const overwrite = window.confirm(
+          `Student ID "${createForm.studentId}" horeyba ID card ayaa loo sameeyay. Ma rabtaa inaad ku beddesho (overwrite) card-kii hore?`
+        );
+        if (!overwrite) {
+          setCreating(false);
+          return;
+        }
+      }
+
       const data = {
         manual: true,
         fullName: createForm.fullName.trim(),
@@ -242,11 +318,11 @@ export default function AllIdCards() {
         issuedAt: serverTimestamp(),
         createdAt: serverTimestamp(),
       };
-      await setDoc(doc(db, "manualStudentIdCards", id), data);
+      await setDoc(cardRef, data);
       // Reset the form and refresh the list.
       setCreateForm({ fullName: "", studentId: "", grade: "", issueDate: "", expireDate: "" });
       setCreatePhoto("");
-      setShowCreate(false);
+      setCreateChoice(null);
       await fetchAllCards();
     } catch (err) {
       console.error("Failed to create manual ID card:", err);
@@ -256,10 +332,71 @@ export default function AllIdCards() {
     }
   }
 
+  // ── Create a manual teacher ID card ────────────────────────────────────
+  function handleTeacherCreatePhotoChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      window.alert("Fadlan dooro sawir (image file) sax ah.");
+      return;
+    }
+    fileToResizedDataUrl(file)
+      .then(setTeacherCreatePhoto)
+      .catch(() => window.alert("Sawirka lama akhriyi karin. Isku day mid kale."));
+  }
+
+  async function handleCreateTeacherCard() {
+    if (!teacherCreateForm.fullName.trim() || !teacherCreateForm.teacherId.trim()) {
+      window.alert("Fadlan buuxi ugu yaraan Magaca iyo Teacher ID.");
+      return;
+    }
+    try {
+      setCreating(true);
+      // FIX: same as the student flow above — the doc ID must equal the
+      // entered Teacher ID so /verify/teacher/{teacherId} resolves.
+      const id = toSafeDocId(teacherCreateForm.teacherId);
+      const cardRef = doc(db, "manualTeacherIdCards", id);
+
+      const existing = await getDoc(cardRef);
+      if (existing.exists()) {
+        const overwrite = window.confirm(
+          `Teacher ID "${teacherCreateForm.teacherId}" horeyba ID card ayaa loo sameeyay. Ma rabtaa inaad ku beddesho (overwrite) card-kii hore?`
+        );
+        if (!overwrite) {
+          setCreating(false);
+          return;
+        }
+      }
+
+      const data = {
+        manual: true,
+        fullName: teacherCreateForm.fullName.trim(),
+        title: teacherCreateForm.title.trim(),
+        teacherId: teacherCreateForm.teacherId.trim(),
+        issueDate: teacherCreateForm.issueDate.trim(),
+        expireDate: teacherCreateForm.expireDate.trim(),
+        teacherPhoto: teacherCreatePhoto || "",
+        issuedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+      };
+      await setDoc(cardRef, data);
+      // Reset the form and refresh the list.
+      setTeacherCreateForm({ fullName: "", title: "", teacherId: "", issueDate: "", expireDate: "" });
+      setTeacherCreatePhoto("");
+      setCreateChoice(null);
+      await fetchAllCards();
+    } catch (err) {
+      console.error("Failed to create manual teacher ID card:", err);
+      window.alert("Khalad ayaa dhacay markii card-ka la abuurayay. Fadlan isku day mar kale.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   // Tirtir hal card oo la doortay (ka mid ah preview panel-ka).
   // Fadlan ogow: kani wuxuu tirtiraa kaliya studentIdCards/teacher_id/
-  // manualStudentIdCards doc-ga (haddii uu jiro) — ma tirtirayo record-ka
-  // asalka ah ee students/teachers collection-ka.
+  // manualStudentIdCards/manualTeacherIdCards doc-ga (haddii uu jiro) — ma
+  // tirtirayo record-ka asalka ah ee students/teachers collection-ka.
   async function handleDeleteSingle() {
     if (!selected) return;
     if (!selected.data.hasCardDoc) {
@@ -268,7 +405,7 @@ export default function AllIdCards() {
     }
     const idLabel = selected.type === "student"
       ? (selected.data.studentId || selected.data.id)
-      : (selected.data.teacherUsername || selected.data.id);
+      : (selected.data.teacherId || selected.data.teacherUsername || selected.data.id);
     const confirmed = window.confirm(
       `Ma hubtaa inaad tirtirto ID card-kan (${idLabel})? Tallaabadan lama soo celin karo.`
     );
@@ -277,14 +414,16 @@ export default function AllIdCards() {
     try {
       setDeletingOne(true);
       const collectionName = selected.data.manual
-        ? "manualStudentIdCards"
+        ? (selected.type === "teacher" ? "manualTeacherIdCards" : "manualStudentIdCards")
         : selected.type === "student"
         ? "studentIdCards"
         : "teacher_id";
       await deleteDoc(doc(db, collectionName, selected.data.id));
 
       // Ka saar liiska local state-ka si UI-gu si degdeg ah u cusboonaysiiyo
-      if (selected.data.manual) {
+      if (selected.data.manual && selected.type === "teacher") {
+        setManualTeacherCards((prev) => prev.filter((m) => m.id !== selected.data.id));
+      } else if (selected.data.manual) {
         setManualCards((prev) => prev.filter((m) => m.id !== selected.data.id));
       } else if (selected.type === "student") {
         setStudents((prev) => prev.filter((s) => s.id !== selected.data.id));
@@ -336,7 +475,7 @@ export default function AllIdCards() {
         const batch = writeBatch(db);
         chunk.forEach((r) => {
           const collectionName = r.manual
-            ? "manualStudentIdCards"
+            ? (r.type === "teacher" ? "manualTeacherIdCards" : "manualStudentIdCards")
             : r.type === "student"
             ? "studentIdCards"
             : "teacher_id";
@@ -349,6 +488,7 @@ export default function AllIdCards() {
       // Manual cards are removed outright; for real students/teachers the
       // card doc is removed but the underlying record stays (hasCardDoc→false).
       setManualCards((prev) => prev.filter((m) => !deletedKeys.has(rowKey(m))));
+      setManualTeacherCards((prev) => prev.filter((m) => !deletedKeys.has(rowKey(m))));
       setStudents((prev) =>
         prev.map((s) => (deletedKeys.has(rowKey(s)) ? { ...s, hasCardDoc: false } : s))
       );
@@ -384,7 +524,7 @@ export default function AllIdCards() {
     });
     const link = document.createElement("a");
     const label = selected?.type === "teacher"
-      ? (selected.data.teacherUsername || selected.data.id)
+      ? (selected.data.teacherId || selected.data.teacherUsername || selected.data.id)
       : (selected?.data.studentId || selected?.data.id);
     link.download = `id-card-${label || "card"}.png`;
     link.href = canvas.toDataURL("image/png");
@@ -410,9 +550,9 @@ export default function AllIdCards() {
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {/* Create a manual student ID card */}
+              {/* Create a manual ID card — asks Teacher or Student first */}
               <button
-                onClick={() => setShowCreate(true)}
+                onClick={() => setCreateChoice("choose")}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -551,7 +691,7 @@ export default function AllIdCards() {
                   </thead>
                   <tbody>
                     {filtered.map((r) => {
-                      const idValue = r.type === "student" ? r.studentId : (r.teacherUsername || r.id);
+                      const idValue = r.type === "student" ? r.studentId : (r.teacherId || r.teacherUsername || r.id);
                       const nameValue = r.fullName || r.name || "—";
                       const isSelected = selected?.data.id === r.id && selected?.type === r.type;
                       const isChecked = selectedIds.has(rowKey(r));
@@ -672,7 +812,9 @@ export default function AllIdCards() {
                 </div>
 
                 <div ref={printRef} id="idcards-printable">
-                  {selected.data.manual ? (
+                  {selected.data.manual && selected.type === "teacher" ? (
+                    <ManualTeacherIdCard card={selected.data} />
+                  ) : selected.data.manual ? (
                     <ManualStudentIdCard card={selected.data} />
                   ) : selected.type === "student" ? (
                     <StudentIdCard student={selected.data} studentId={selected.data.studentId} />
@@ -689,10 +831,90 @@ export default function AllIdCards() {
         </div>
       </div>
 
-      {/* ── Create ID Card modal ─────────────────────────────────────────── */}
-      {showCreate && (
+      {/* ── Create ID Card flow: Teacher/Student picker + the two modals ──── */}
+      {createChoice === "choose" && (
         <div
-          onClick={() => !creating && setShowCreate(false)}
+          onClick={closeCreateFlow}
+          className="idcards-print-hide"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(17,24,39,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "32px 16px",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: 28,
+              width: "min(420px, 100%)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+              textAlign: "center",
+            }}
+          >
+            <h3 style={{ margin: "0 0 6px", fontSize: 17, fontWeight: 800, color: "#111827" }}>
+              Create ID Card
+            </h3>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280" }}>
+              Ma waxaad abuurayaa ID card Teacher ama Student?
+            </p>
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={() => setCreateChoice("student")}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "18px 10px",
+                  borderRadius: 12,
+                  border: "1.5px solid rgba(22,163,74,0.3)",
+                  background: "#F0FDF4",
+                  color: "#16a34a",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                <GraduationCap size={22} />
+                Student
+              </button>
+              <button
+                onClick={() => setCreateChoice("teacher")}
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "18px 10px",
+                  borderRadius: 12,
+                  border: "1.5px solid rgba(124,58,237,0.3)",
+                  background: "#F5F3FF",
+                  color: "#7c3aed",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                <Users size={22} />
+                Teacher
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createChoice === "student" && (
+        <div
+          onClick={closeCreateFlow}
           className="idcards-print-hide"
           style={{
             position: "fixed",
@@ -721,7 +943,7 @@ export default function AllIdCards() {
                 Create Student ID Card
               </h3>
               <button
-                onClick={() => !creating && setShowCreate(false)}
+                onClick={closeCreateFlow}
                 style={{
                   border: "none",
                   background: "transparent",
@@ -849,6 +1071,173 @@ export default function AllIdCards() {
                     issueDate: createForm.issueDate,
                     expireDate: createForm.expireDate,
                     studentPhoto: createPhoto,
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createChoice === "teacher" && (
+        <div
+          onClick={closeCreateFlow}
+          className="idcards-print-hide"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(17,24,39,0.6)",
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            padding: "32px 16px",
+            overflowY: "auto",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#fff",
+              borderRadius: 16,
+              padding: 24,
+              width: "min(820px, 100%)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#111827" }}>
+                Create Teacher ID Card
+              </h3>
+              <button
+                onClick={closeCreateFlow}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  fontSize: 20,
+                  color: "#6B7280",
+                  cursor: "pointer",
+                  lineHeight: 1,
+                }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 22 }} className="create-card-row">
+              {/* Left: form fields */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <ModalField label="Full Name">
+                  <input
+                    value={teacherCreateForm.fullName}
+                    onChange={(e) => setTeacherCreateForm({ ...teacherCreateForm, fullName: e.target.value })}
+                    placeholder="e.g. Mukhtar Mohamed Salad"
+                    style={modalInput}
+                  />
+                </ModalField>
+                <ModalField label="Title">
+                  <input
+                    value={teacherCreateForm.title}
+                    onChange={(e) => setTeacherCreateForm({ ...teacherCreateForm, title: e.target.value })}
+                    placeholder="e.g. School Principal"
+                    style={modalInput}
+                  />
+                </ModalField>
+                <ModalField label="Teacher ID">
+                  <input
+                    value={teacherCreateForm.teacherId}
+                    onChange={(e) => setTeacherCreateForm({ ...teacherCreateForm, teacherId: e.target.value })}
+                    placeholder="e.g. SS001"
+                    style={modalInput}
+                  />
+                </ModalField>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <ModalField label="Issue Date" style={{ flex: 1 }}>
+                    <input
+                      value={teacherCreateForm.issueDate}
+                      onChange={(e) => setTeacherCreateForm({ ...teacherCreateForm, issueDate: e.target.value })}
+                      placeholder="e.g. 01-06-2026"
+                      style={modalInput}
+                    />
+                  </ModalField>
+                  <ModalField label="Expire Date" style={{ flex: 1 }}>
+                    <input
+                      value={teacherCreateForm.expireDate}
+                      onChange={(e) => setTeacherCreateForm({ ...teacherCreateForm, expireDate: e.target.value })}
+                      placeholder="e.g. 31-12-2027"
+                      style={modalInput}
+                    />
+                  </ModalField>
+                </div>
+                <ModalField label="Teacher Photo">
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div
+                      style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 10,
+                        overflow: "hidden",
+                        background: "#E5E7EB",
+                        border: "1px solid rgba(17,24,39,0.1)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {teacherCreatePhoto ? (
+                        <img src={teacherCreatePhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      ) : (
+                        <span style={{ fontSize: 10, color: "#9CA3AF" }}>No photo</span>
+                      )}
+                    </div>
+                    <label
+                      style={{
+                        padding: "9px 14px",
+                        borderRadius: 10,
+                        border: "1.5px solid #7c3aed",
+                        color: "#7c3aed",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {teacherCreatePhoto ? "Change Photo" : "Upload Photo"}
+                      <input type="file" accept="image/*" onChange={handleTeacherCreatePhotoChange} style={{ display: "none" }} />
+                    </label>
+                  </div>
+                </ModalField>
+
+                <button
+                  onClick={handleCreateTeacherCard}
+                  disabled={creating}
+                  style={{
+                    marginTop: 6,
+                    padding: "12px 0",
+                    borderRadius: 12,
+                    border: "none",
+                    background: creating ? "#9CA3AF" : "linear-gradient(90deg,#7c3aed,#6d28d9)",
+                    color: "#fff",
+                    fontWeight: 700,
+                    fontSize: 14,
+                    cursor: creating ? "default" : "pointer",
+                  }}
+                >
+                  {creating ? "Creating…" : "Create ID Card"}
+                </button>
+              </div>
+
+              {/* Right: live preview of the card being created */}
+              <div>
+                <div style={{ fontSize: 12, color: "#6B7280", fontWeight: 600, marginBottom: 8 }}>Preview</div>
+                <ManualTeacherIdCard
+                  card={{
+                    fullName: teacherCreateForm.fullName,
+                    title: teacherCreateForm.title,
+                    teacherId: teacherCreateForm.teacherId,
+                    issueDate: teacherCreateForm.issueDate,
+                    expireDate: teacherCreateForm.expireDate,
+                    teacherPhoto: teacherCreatePhoto,
                   }}
                 />
               </div>

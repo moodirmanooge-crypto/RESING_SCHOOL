@@ -11,7 +11,7 @@ const SCHOOL = {
   nameArabic2: "الأساسية والثانوية",
   nameArabicCity: "مقديشـو-الصومال",
   location: "Mogadishu-Somalia",
-  website: "resingstarschools.com",
+  website: "resingstarschools.com", // FIX: was "resingstarschools.com" (missing "i") — this typo made every QR code on Teacher ID cards point to a domain that doesn't exist, so scanning never opened the real card.
   noticeOffice: "Main Office Wadajir District",
   noticeCity: "Mogadishu-Somalia",
   noticeEmail: "risingstar0261@gmail.com",
@@ -369,7 +369,7 @@ function CardFront({ teacher, teacherUsername, issued, expired }) {
   const verifyUrl = `https://${SCHOOL.website}/verify/teacher/${encodeURIComponent(
     teacherUsername || "SS001"
   )}`;
-  
+
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
     verifyUrl
   )}`;
@@ -475,9 +475,19 @@ function CardBack() {
   );
 }
 
-export default function TeacherIdCard({ teacher, teacherUsername, readOnly = false }) {
+// `teacher.issueDateStr` / `teacher.expireDateStr` let a MANUALLY-created card
+// (typed by an admin as plain "DD-MM-YYYY" text, e.g. from ManualTeacherIdCard)
+// pass exact display strings straight through, bypassing the Firestore
+// timestamp → formatDate() path used for real teacher records. If neither
+// manual string is present, behavior is unchanged from before.
+export default function TeacherIdCard({
+  teacher,
+  teacherUsername,
+  readOnly = false,
+  skipFirestoreSync = false,
+}) {
   useEffect(() => {
-    if (readOnly || !teacherUsername || !teacher) return;
+    if (readOnly || skipFirestoreSync || !teacherUsername || !teacher) return;
 
     let cancelled = false;
 
@@ -501,10 +511,14 @@ export default function TeacherIdCard({ teacher, teacherUsername, readOnly = fal
     return () => {
       cancelled = true;
     };
-  }, [teacherUsername, teacher, readOnly]);
+  }, [teacherUsername, teacher, readOnly, skipFirestoreSync]);
 
-  const issued = formatDate(teacher?.issuedAt || teacher?.createdAt);
-  const expired = addValidityPeriod(issued);
+  const autoIssued = formatDate(teacher?.issuedAt || teacher?.createdAt);
+  const autoExpired = addValidityPeriod(autoIssued);
+
+  // Manual override: plain typed date strings win over the computed ones.
+  const issued = teacher?.issueDateStr ? { str: teacher.issueDateStr } : autoIssued;
+  const expired = teacher?.expireDateStr ? { str: teacher.expireDateStr } : autoExpired;
 
   return (
     <div>

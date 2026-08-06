@@ -10,6 +10,7 @@ const SCHOOL = {
   officeLine2: "Mogadishu-Somalia",
   phone: "+252-617390261",
   email: "risingstar0261@gmail.com",
+  website: "resingstarschools.com",
 };
 
 // Card is valid for exactly one year from the issue date.
@@ -483,15 +484,16 @@ function CardFront({ student, studentId, issued, expired }) {
 }
 
 function CardBack({ student, studentId }) {
-  const qrTarget =
-    student?.idCardPageUrl ||
-    (studentId
-      ? `https://resingstarschools.com/verify/student/${encodeURIComponent(studentId)}`
-      : "") ||
-    student?.idCardImageUrl ||
-    student?.idCardFrontUrl ||
-    student?.studentPhoto ||
-    "https://resingstarschools.com";
+  // FIX: previously this fell back through student?.idCardPageUrl,
+  // student?.idCardImageUrl, student?.idCardFrontUrl, or even the raw
+  // photo URL before ever reaching the /verify/student/{id} link — so the
+  // QR often opened a photo or an unrelated URL instead of the card's
+  // own verification page. It must ALWAYS point at /verify/student/{id},
+  // matching the route VerifyIdCard.jsx listens on and the id under which
+  // the card doc is actually saved in Firestore.
+  const qrTarget = `https://${SCHOOL.website}/verify/student/${encodeURIComponent(
+    studentId || student?.id || ""
+  )}`;
 
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
     qrTarget

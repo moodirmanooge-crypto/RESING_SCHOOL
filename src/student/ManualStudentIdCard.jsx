@@ -13,6 +13,12 @@
 // The full name auto-shrinks to fit on its single line, so long names like
 // "GUULEED IBRAAHIM DAAHIR" are shown in full instead of being clipped.
 //
+// NOTE: this card's back is the static id-back.png template and has no QR
+// code overlay — unlike TeacherIdCard/StudentIdCard, there's nothing to fix
+// here for the "QR opens the original card" flow. If you want a scannable
+// QR on manual student cards too, it would need to be added as an overlay
+// here (same /verify/student/{studentId} link pattern used elsewhere).
+//
 // Used by admin/pages/AllIdCards.jsx for manually-created student cards.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import idFront from "./assets/id-front.png";
