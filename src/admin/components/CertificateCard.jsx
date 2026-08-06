@@ -1,74 +1,82 @@
 // src/admin/components/CertificateCard.jsx
 // Renders a Class Leaving Certificate using the EXACT printed template
-// artwork (certificate-template.png, exported from the school's real
-// Illustrator design) as the background, with the student's data
-// (mother's name, place & date of birth, year, roll number, result
-// average, and up to 12 subjects with marks) overlaid on top at the
-// correct positions — the same pattern ManualStudentIdCard.jsx uses for
-// ID cards: the template image IS the design, never redrawn in CSS: only
-// the blank lines/boxes on it get real text on top.
+// artwork (certificate-template.png) as the background, with the
+// student's data overlaid on top at the correct positions.
 //
-// All positions are percentages of the card, so it scales cleanly for
-// on-screen preview, download (html2canvas), and print without the
-// overlay drifting off the printed lines.
+// IMPORTANT LAYOUT NOTE (fixed in this version):
+// On the real template the LEFT half of the card is the Somali column
+// ("Magaca Hooyada", "Goobta & Taariikhda Dhalashada", ...) and the RIGHT
+// half is the English column ("Mother's name", "Place & Date of birth",
+// ...). Earlier versions of this file mistakenly mirrored the Somali
+// fields onto the English (right) side, which is why values landed on
+// top of the English labels. All `left`/`right` values below were
+// re-measured directly on the template image (pixel scan of the
+// underline rows) so each value now sits on its own column's own line.
 //
-// Props:
-//   certificate — { fullName, motherName, placeOfBirth, dateOfBirth,
-//                    completedSchool, year, rollNumber, resultAverage,
-//                    subjects: [{ name, marks }, ...] (up to 12),
-//                    studentPhoto, issueDate }
-//   verifyUrl   — full URL this certificate's QR should encode
-//                 (VerifyCertificate.jsx renders at /verify/:certificateId)
-//   elementId   — DOM id put on the outer wrapper, so callers (e.g.
-//                 html2canvas download, print) can target this exact node
+// Every `top` value = the y-position of the printed underline for that
+// row (same for both columns, since the two halves are mirrored
+// horizontally at identical heights). Values are anchored so the text
+// baseline sits just above that underline.
+
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import certificateTemplate from "./assets/certificate-template.png";
 
-// Keeps the template's real aspect ratio (3508 x 2481 px source, A4 landscape).
-const CARD_W = 900; // on-screen width; height derived from the ratio
+const CARD_W = 900;
 const RATIO = 2481 / 3508;
 
-// The photo box (dashed square) sits between the two language columns.
-// Measured directly from the template as % of the card.
-const PHOTO_BOX = { left: 43.6, top: 32.2, width: 12.9, height: 24.3 };
+// Meesha sawirka ardayga uu galayo (photo box) — dhexda labada dhinac
+const PHOTO_BOX = { left: 45.2, top: 33.4, width: 9.6, height: 15.4 };
 
-// English-column field line positions (right side of the card), each as
-// {top, left, right} in % of the card — the value sits ON the underline
-// that's already printed in the template, just above it.
+// Goobaha qoraalada Soomaaliga (Somali Fields) — DHINACA BIDIX (left half)
+const FIELD_SOMALI = {
+  fullName: { top: 37.9, left: 11.0, right: 56.0 },
+  motherName: { top: 41.0, left: 19.5, right: 56.0 },
+  placeDob: { top: 44.1, left: 27.5, right: 56.0 },
+  completedSchool: { top: 47.2, left: 34.0, right: 56.0 },
+  year: { top: 50.3, left: 13.0, right: 80.0 },
+  rollNumber: { top: 50.3, left: 37.5, right: 56.0 },
+  resultAverage: { top: 53.4, left: 29.0, right: 56.0 },
+};
+
+// Goobaha qoraalada Ingiriiska (English Fields) — DHINACA MIDIG (right half)
 const FIELD = {
-  motherName: { top: 39.9, left: 63.5, right: 3 },
-  placeDob: { top: 44.0, left: 63.9, right: 3 },
-  completedSchool: { top: 48.1, left: 66.3, right: 3 },
-  year: { top: 52.2, left: 58.7, right: 33 },
-  rollNumber: { top: 52.2, left: 84.2, right: 3 },
-  resultAverage: { top: 56.3, left: 65.0, right: 3 },
+  fullName: { top: 37.9, left: 64.5, right: 3.0 },
+  motherName: { top: 41.0, left: 64.5, right: 3.0 },
+  placeDob: { top: 44.1, left: 69.0, right: 3.0 },
+  completedSchool: { top: 47.2, left: 72.0, right: 3.0 },
+  year: { top: 50.3, left: 59.5, right: 29.0 },
+  rollNumber: { top: 50.3, left: 79.5, right: 3.0 },
+  resultAverage: { top: 53.4, left: 67.5, right: 3.0 },
 };
 
-// The two 6-row subject tables on the English (right) side.
-// Table A: rows 1-6, columns No | Subject | Marks
-// Table B: rows 7-12 (labelled 1-6 again on the template, so shown as a
-// second physical table), columns No | Subject (marks column not printed
-// on the template's second table — its "No/Subject" pair only, matching
-// the artwork exactly).
-// Row band top/bottom measured from the template; each row's vertical
-// center is interpolated across 6 equal rows within that band.
-const TABLE_A = {
-  subjectLeft: 68.9,
-  subjectRight: 79.6,
-  marksLeft: 79.9,
-  marksRight: 83.6,
-  rowTops: [61.0, 63.85, 66.7, 69.55, 72.4, 75.25], // % — row vertical centers
+// Miisaska Maadooyinka (Rows Y-axis)
+const ROW_TOPS = [60.5, 62.7, 64.9, 67.1, 69.3, 71.5];
+
+const TABLE_SOMALI_A = {
+  subjectLeft: 12.0, subjectRight: 23.5,
+  marksLeft: 23.8, marksRight: 28.5,
 };
-const TABLE_B = {
-  subjectLeft: 87.9,
-  subjectRight: 99.3,
-  rowTops: [61.0, 63.85, 66.7, 69.55, 72.4, 75.25],
+const TABLE_SOMALI_B = {
+  subjectLeft: 30.2, subjectRight: 41.5,
+  marksLeft: 41.8, marksRight: 46.5,
 };
 
-const ISSUE_DATE = { top: 79.9, left: 66.2, right: 3 };
+const TABLE_ENGLISH_A = {
+  subjectLeft: 59.5, subjectRight: 71.2,
+  marksLeft: 71.5, marksRight: 76.5,
+};
+const TABLE_ENGLISH_B = {
+  subjectLeft: 77.8, subjectRight: 89.5,
+  marksLeft: 89.8, marksRight: 94.8,
+};
+
+// Taariikhda la bixiyay (Date of Issue) — labada dhinac
+const ISSUE_DATE_SOMALI = { top: 83.3, left: 20.5, right: 56.0 };
+const ISSUE_DATE = { top: 83.3, left: 70.0, right: 3.0 };
 
 export default function CertificateCard({ certificate, verifyUrl, elementId }) {
   const {
+    fullName,
     motherName,
     placeOfBirth,
     dateOfBirth,
@@ -81,7 +89,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
     issueDate,
   } = certificate || {};
 
-  const placeDobText = [placeOfBirth, dateOfBirth].filter(Boolean).join(", ");
+  const placeDobText = [placeOfBirth, dateOfBirth].filter(Boolean).join(" - ");
   const firstSix = subjects.slice(0, 6);
   const lastSix = subjects.slice(6, 12);
 
@@ -108,7 +116,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
         flexShrink: 0,
       }}
     >
-      {/* Student photo — sits inside the dashed square box. */}
+      {/* Student photo — centered inside the dashed photo box */}
       <div
         style={{
           position: "absolute",
@@ -132,62 +140,74 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
         ) : null}
       </div>
 
-      {/* ── English column fields ── */}
-      <FitText text={motherName} {...FIELD.motherName} maxFontPx={CARD_W * 0.017} />
-      <FitText text={placeDobText} {...FIELD.placeDob} maxFontPx={CARD_W * 0.017} />
-      <FitText text={completedSchool} {...FIELD.completedSchool} maxFontPx={CARD_W * 0.017} />
-      <FitText text={year} {...FIELD.year} maxFontPx={CARD_W * 0.017} />
-      <FitText text={rollNumber} {...FIELD.rollNumber} maxFontPx={CARD_W * 0.017} />
+      {/* Somali column (left half) */}
+      <FitText text={fullName} {...FIELD_SOMALI.fullName} maxFontPx={CARD_W * 0.015} />
+      <FitText text={motherName} {...FIELD_SOMALI.motherName} maxFontPx={CARD_W * 0.015} />
+      <FitText text={placeDobText} {...FIELD_SOMALI.placeDob} maxFontPx={CARD_W * 0.015} />
+      <FitText text={completedSchool} {...FIELD_SOMALI.completedSchool} maxFontPx={CARD_W * 0.015} />
+      <FitText text={year} {...FIELD_SOMALI.year} maxFontPx={CARD_W * 0.015} />
+      <FitText text={rollNumber} {...FIELD_SOMALI.rollNumber} maxFontPx={CARD_W * 0.015} />
       <FitText
-        text={resultAverage ? `${resultAverage}%` : ""}
-        {...FIELD.resultAverage}
-        maxFontPx={CARD_W * 0.017}
+        text={resultAverage !== "" && resultAverage != null ? `${resultAverage}%` : ""}
+        {...FIELD_SOMALI.resultAverage}
+        maxFontPx={CARD_W * 0.015}
       />
-      <FitText text={issueDate} {...ISSUE_DATE} maxFontPx={CARD_W * 0.017} />
+      <FitText text={issueDate} {...ISSUE_DATE_SOMALI} maxFontPx={CARD_W * 0.015} />
 
-      {/* ── Subjects table A: rows 1-6, Subject + Marks ── */}
+      {/* English column (right half) */}
+      <FitText text={fullName} {...FIELD.fullName} maxFontPx={CARD_W * 0.015} />
+      <FitText text={motherName} {...FIELD.motherName} maxFontPx={CARD_W * 0.015} />
+      <FitText text={placeDobText} {...FIELD.placeDob} maxFontPx={CARD_W * 0.015} />
+      <FitText text={completedSchool} {...FIELD.completedSchool} maxFontPx={CARD_W * 0.015} />
+      <FitText text={year} {...FIELD.year} maxFontPx={CARD_W * 0.015} />
+      <FitText text={rollNumber} {...FIELD.rollNumber} maxFontPx={CARD_W * 0.015} />
+      <FitText
+        text={resultAverage !== "" && resultAverage != null ? `${resultAverage}%` : ""}
+        {...FIELD.resultAverage}
+        maxFontPx={CARD_W * 0.015}
+      />
+      <FitText text={issueDate} {...ISSUE_DATE} maxFontPx={CARD_W * 0.015} />
+
+      {/* Subjects - Somali A (left table, cols 1-6) */}
       {firstSix.map((s, i) => (
-        <div key={`a-${i}`}>
-          <FitText
-            text={s?.name}
-            top={TABLE_A.rowTops[i]}
-            left={TABLE_A.subjectLeft}
-            right={100 - TABLE_A.subjectRight}
-            maxFontPx={CARD_W * 0.015}
-            align="left"
-          />
-          <FitText
-            text={s?.marks}
-            top={TABLE_A.rowTops[i]}
-            left={TABLE_A.marksLeft}
-            right={100 - TABLE_A.marksRight}
-            maxFontPx={CARD_W * 0.015}
-            align="center"
-          />
+        <div key={`so-a-${i}`}>
+          <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_SOMALI_A.subjectLeft} right={100 - TABLE_SOMALI_A.subjectRight} maxFontPx={CARD_W * 0.012} align="left" />
+          <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_SOMALI_A.marksLeft} right={100 - TABLE_SOMALI_A.marksRight} maxFontPx={CARD_W * 0.012} align="center" />
         </div>
       ))}
 
-      {/* ── Subjects table B: rows 7-12, Subject only (matches template) ── */}
+      {/* Subjects - Somali B (left table, cols 7-12) */}
       {lastSix.map((s, i) => (
-        <FitText
-          key={`b-${i}`}
-          text={s?.name}
-          top={TABLE_B.rowTops[i]}
-          left={TABLE_B.subjectLeft}
-          right={100 - TABLE_B.subjectRight}
-          maxFontPx={CARD_W * 0.015}
-          align="left"
-        />
+        <div key={`so-b-${i}`}>
+          <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_SOMALI_B.subjectLeft} right={100 - TABLE_SOMALI_B.subjectRight} maxFontPx={CARD_W * 0.012} align="left" />
+          <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_SOMALI_B.marksLeft} right={100 - TABLE_SOMALI_B.marksRight} maxFontPx={CARD_W * 0.012} align="center" />
+        </div>
       ))}
 
-      {/* ── QR code — verification link, placed bottom-right corner ── */}
+      {/* Subjects - English A (right table, cols 1-6) */}
+      {firstSix.map((s, i) => (
+        <div key={`en-a-${i}`}>
+          <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_ENGLISH_A.subjectLeft} right={100 - TABLE_ENGLISH_A.subjectRight} maxFontPx={CARD_W * 0.012} align="left" />
+          <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_ENGLISH_A.marksLeft} right={100 - TABLE_ENGLISH_A.marksRight} maxFontPx={CARD_W * 0.012} align="center" />
+        </div>
+      ))}
+
+      {/* Subjects - English B (right table, cols 7-12) */}
+      {lastSix.map((s, i) => (
+        <div key={`en-b-${i}`}>
+          <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_ENGLISH_B.subjectLeft} right={100 - TABLE_ENGLISH_B.subjectRight} maxFontPx={CARD_W * 0.012} align="left" />
+          <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_ENGLISH_B.marksLeft} right={100 - TABLE_ENGLISH_B.marksRight} maxFontPx={CARD_W * 0.012} align="center" />
+        </div>
+      ))}
+
+      {/* QR code */}
       {qrSrc && (
         <div
           style={{
             position: "absolute",
-            right: "2.2%",
-            bottom: "3%",
-            width: "7%",
+            right: "2.5%",
+            bottom: "3.5%",
+            width: "6.5%",
             aspectRatio: "1 / 1",
             background: "#ffffff",
             border: "1px solid #000000",
@@ -202,13 +222,13 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
   );
 }
 
-// Single-line text overlay that shrinks its font size until the text fits
-// within its box, so long values are shown in full rather than clipped or
-// overflowing onto neighbouring printed lines.
+// FitText: dul dhigaya qoraalka xariiqda (underline) sawirka, isaga oo
+// automatic-ka u yareeya font-size-ka haddii qoraalku aad u dheer yahay
+// si aanu uga baxsan goobtiisa.
 function FitText({ text, top, left, right, maxFontPx, minFontPx, align = "left" }) {
   const boxRef = useRef(null);
   const spanRef = useRef(null);
-  const min = minFontPx || maxFontPx * 0.55;
+  const min = minFontPx || maxFontPx * 0.5;
   const [fontPx, setFontPx] = useState(maxFontPx);
 
   useLayoutEffect(() => {
@@ -237,14 +257,17 @@ function FitText({ text, top, left, right, maxFontPx, minFontPx, align = "left" 
       ref={boxRef}
       style={{
         position: "absolute",
-        top: `${top}%`,
+        // Box-ka waxaa lagu dhejiyaa si uu qoraalku ku dhammaado xariiqda
+        // (`top`) dushiisa — box-ku wuxuu bilaabmaa 2.2% ka sarreeya
+        // xariiqda, si qoraalka fontka ah uu si sax ah ugu dul dhigmo.
+        top: `${top - 2.2}%`,
+        height: "2.2%",
         left: `${left}%`,
         right: `${right}%`,
         display: "flex",
         justifyContent: align === "center" ? "center" : "flex-start",
-        alignItems: "center",
+        alignItems: "flex-end",
         overflow: "hidden",
-        transform: "translateY(-100%)",
       }}
     >
       <span
@@ -255,6 +278,7 @@ function FitText({ text, top, left, right, maxFontPx, minFontPx, align = "left" 
           fontWeight: 600,
           color: "#111111",
           lineHeight: 1,
+          transform: "translateY(-1px)",
         }}
       >
         {text}
