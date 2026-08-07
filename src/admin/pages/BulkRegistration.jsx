@@ -24,6 +24,7 @@ const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", 
 
 const emptyRow = () => ({
   fullName: "",
+  motherName: "", // ✅ Magaca Hooyada - field cusub
   className: "",
   shift: "",
   feeType: "Free",
@@ -133,6 +134,12 @@ export default function BulkRegistration() {
         return false;
       }
 
+      // ✅ Hubinta Magaca Hooyada - waajib
+      if (!s.motherName.trim()) {
+        alert(`${rowLabel}: Fadlan geli Magaca Hooyada`);
+        return false;
+      }
+
       if (!s.className) {
         alert(`${rowLabel}: Fadlan dooro Class`);
         return false;
@@ -199,6 +206,7 @@ export default function BulkRegistration() {
         await setDoc(doc(db, "students", studentId), {
           studentId,
           fullName: student.fullName,
+          motherName: student.motherName, // ✅ Magaca Hooyada oo lagu kaydiyo students
           className: student.className,
           shift: student.shift,
           feeType: student.feeType,
@@ -230,6 +238,7 @@ export default function BulkRegistration() {
         await setDoc(doc(db, "studentIdCards", studentId), {
           studentId,
           fullName: student.fullName,
+          motherName: student.motherName, // ✅ Magaca Hooyada oo lagu daro ID Card-ka
           className: student.className,
           shift: student.shift,
           studentPhoto: photoURL,
@@ -313,12 +322,13 @@ export default function BulkRegistration() {
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              minWidth: 1300,
+              minWidth: 1450,
             }}
           >
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(139,108,245,0.08)" }}>
                 <th style={th}>Full Name</th>
+                <th style={th}>Mother Name</th>
                 <th style={th}>Class Name</th>
                 <th style={th}>Shift</th>
                 <th style={th}>Fee Type</th>
@@ -346,6 +356,20 @@ export default function BulkRegistration() {
                       value={student.fullName}
                       onChange={(e) =>
                         handleChange(index, "fullName", e.target.value)
+                      }
+                    />
+                  </td>
+
+                  {/* ✅ Column cusub: Magaca Hooyada */}
+                  <td style={td}>
+                    <input
+                      style={input}
+                      data-row={index}
+                      data-field="motherName"
+                      placeholder="Magaca Hooyada"
+                      value={student.motherName}
+                      onChange={(e) =>
+                        handleChange(index, "motherName", e.target.value)
                       }
                     />
                   </td>

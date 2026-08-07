@@ -30,6 +30,7 @@ const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", 
 export default function AddStudent() {
   const [student, setStudent] = useState({
     fullName: "",
+    motherName: "", // ✅ Magaca Hooyada - field cusub
     className: "",
     shift: "",
     feeType: "Free",
@@ -109,6 +110,12 @@ export default function AddStudent() {
         return;
       }
 
+      // ✅ Hubinta Magaca Hooyada - waajib
+      if (!student.motherName.trim()) {
+        alert("Fadlan geli Magaca Hooyada");
+        return;
+      }
+
       if (!student.className) {
         alert("Fadlan dooro Class");
         return;
@@ -156,6 +163,7 @@ export default function AddStudent() {
       await setDoc(doc(db, "students", studentId), {
         studentId,
         fullName: student.fullName,
+        motherName: student.motherName, // ✅ Magaca Hooyada oo lagu kaydiyo students
         className: student.className,
         shift: student.shift,
         feeType: student.feeType,
@@ -189,6 +197,7 @@ export default function AddStudent() {
       await setDoc(doc(db, "studentIdCards", studentId), {
         studentId,
         fullName: student.fullName,
+        motherName: student.motherName, // ✅ Magaca Hooyada oo lagu daro ID Card-ka
         className: student.className,
         shift: student.shift,
         studentPhoto: photoURL,
@@ -210,6 +219,7 @@ export default function AddStudent() {
 
       setStudent({
         fullName: "",
+        motherName: "",
         className: "",
         shift: "",
         feeType: "Free",
@@ -292,6 +302,17 @@ export default function AddStudent() {
               name="fullName"
               placeholder="Tusaale: Ahmed Cali"
               value={student.fullName}
+              onChange={handleChange}
+            />
+          </Field>
+
+          {/* ✅ Field cusub: Magaca Hooyada */}
+          <Field icon={User} label="Mother Name">
+            <input
+              style={input}
+              name="motherName"
+              placeholder="Tusaale: Faadumo Xasan"
+              value={student.motherName}
               onChange={handleChange}
             />
           </Field>

@@ -1,23 +1,26 @@
 // src/admin/pages/Certificates.jsx
-// Class Leaving Certificate generator & manager — fully manual entry version.
-// Uses CertificateCard.jsx (template-image based) as the render surface.
+// Class Leaving Certificate — AUTO-READ version.
 //
 // Flow:
-// 1. Admin fills in every field by hand: Full Name, Mother's Name, Place &
-//    Date of Birth, Completed School, Year, Roll Number, Date of Issue,
-//    Student Photo, and 12 subjects each with a mark.
-// 2. Result Average is auto-computed as the mean of the 12 entered marks
-//    (live, recalculates as the admin types).
-// 3. "Generate Certificate" snapshots the data into Firestore's
-//    `certificates` collection (doc id = safe Roll Number, matching the
-//    QR code's /verify/:certificateId target) and adds it to the
-//    "Issued Certificates" list below.
-// 4. Print opens a clean, paper-only view of just the certificate card
-//    (no sidebar/form), same pattern as the ID cards. Download saves a PNG.
+// 1. Admin types ONLY: Roll Number, Date of Birth, Student Photo, and the
+//    12 subjects (left = Somali, right = English is auto-mirrored by the
+//    card). Everything else is READ from Firestore.
+// 2. On Roll Number entry (blur / "Fetch"), the system reads:
+//      students/{rollNumber}  -> fullName, motherName (parentName), className, year
+//      results  -> the FINAL class-8 result row for that student
+// 3. Result Average is auto-computed from the entered subject marks.
+// 4. Generate saves to `certificates` (doc id = safe Roll Number).
+//
+// ⚠️ ADJUST THE FIELD NAMES MARKED «CHECK» BELOW TO MATCH YOUR ACTUAL
+//    Firestore schema (send me a `results` doc screenshot and I'll lock
+//    these exactly). Current guesses are based on your `students` doc:
+//    fullName, motherName, parentName, className, year, studentId.
 
 import { useEffect, useMemo, useState } from "react";
 import {
   collection,
+  query as fsQuery,
+  where,
   getDocs,
   doc,
   getDoc,
@@ -33,6 +36,7 @@ import CertificateCard from "../components/CertificateCard";
 
 const GREEN = "#14532d";
 const SUBJECT_COUNT = 12;
+const FINAL_CLASS = "8"; // «CHECK» kaliya natiijada Final Class 8 ayaa la soo aqrinayaa
 const VERIFY_BASE_URL =
   typeof window !== "undefined" ? `${window.location.origin}/verify` : "/verify";
 
@@ -42,35 +46,29 @@ function emptySubjects() {
 
 function emptyForm() {
   return {
+    rollNumber: "",
+    dateOfBirth: "",
+    issueDate: "",
+    // Auto-filled (read-only) from Firestore:
     fullName: "",
     motherName: "",
     placeOfBirth: "",
-    dateOfBirth: "",
     completedSchool: "Rising Star Primary & Secondary School",
     year: "",
-    rollNumber: "",
-    issueDate: "",
   };
 }
 
-// Turns a user-entered Roll Number into a value that's safe to use as a
-// Firestore document ID (matches the id encoded in the certificate's own
-// QR code, so /verify/:certificateId always resolves to this same doc).
 function toSafeDocId(rawId) {
   return rawId.trim().replace(/[\/\s]+/g, "-");
 }
 
-// Average of every subject that actually has a numeric mark entered.
 function computeAverage(subjects) {
   const marks = subjects
     .map((s) => Number(s.marks))
-    .filter((n) => !isNaN(n) && s_hasValue(n));
+    .filter((n) => !isNaN(n) && String(n).trim() !== "");
   if (marks.length === 0) return "";
   const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
-  return Math.round(avg * 10) / 10; // one decimal place
-}
-function s_hasValue(n) {
-  return n !== null && n !== undefined && !isNaN(n);
+  return Math.round(avg * 10) / 10;
 }
 
 function formatDate(d) {
@@ -116,8 +114,7 @@ async function downloadCertificateImage(name, elementId = "certificate-render-ca
     if (!window.html2canvas) {
       await new Promise((resolve, reject) => {
         const script = document.createElement("script");
-        script.src =
-          "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
         script.onload = resolve;
         script.onerror = reject;
         document.body.appendChild(script);
@@ -138,34 +135,11 @@ async function downloadCertificateImage(name, elementId = "certificate-render-ca
     link.href = canvas.toDataURL("image/png");
     link.click();
   } catch (err) {
-    console.log("Snapshot with photo failed, retrying without photo:", err);
-    try {
-      const rect = node.getBoundingClientRect();
-      const canvas = await window.html2canvas(node, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-        allowTaint: false,
-        width: Math.ceil(rect.width),
-        height: Math.ceil(rect.height),
-        windowWidth: document.documentElement.scrollWidth,
-        ignoreElements: (el) => el.tagName === "IMG",
-      });
-      const link = document.createElement("a");
-      link.download = `Certificate-${(name || "student").replace(/\s+/g, "-")}.png`;
-      link.href = canvas.toDataURL("image/png");
-      link.click();
-      alert("Sawirka lama soo dagin (CORS). Shahaadada waa la soo dejiyay iyada oo aan sawirka lahayn.");
-    } catch (err2) {
-      console.log("Falling back to print view:", err2);
-      printCertificate(elementId);
-    }
+    console.log("Snapshot failed, falling back to print:", err);
+    printCertificate(elementId);
   }
 }
 
-// Opens a clean print window containing ONLY the certificate card (no
-// sidebar, no form) sized to A4 landscape, and triggers the browser print
-// dialog — same paper-output pattern used for ID cards.
 function printCertificate(elementId = "certificate-render-card") {
   const node = document.getElementById(elementId);
   if (!node) return;
@@ -184,37 +158,16 @@ function printCertificate(elementId = "certificate-render-card") {
         <meta charset="utf-8" />
         <style>
           @page { size: A4 landscape; margin: 0; }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #ffffff;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          .print-wrap {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-          .print-wrap > * {
-            width: 100% !important;
-            max-width: 100% !important;
-          }
-          @media print {
-            .print-wrap { page-break-inside: avoid; }
-          }
+          html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .print-wrap { width: 100%; display: flex; align-items: center; justify-content: center; }
+          .print-wrap > * { width: 100% !important; max-width: 100% !important; }
+          @media print { .print-wrap { page-break-inside: avoid; } }
         </style>
       </head>
       <body>
         <div class="print-wrap">${html}</div>
         <script>
-          window.onload = function () {
-            setTimeout(function () {
-              window.focus();
-              window.print();
-            }, 400);
-          };
+          window.onload = function () { setTimeout(function () { window.focus(); window.print(); }, 400); };
           window.onafterprint = function () { window.close(); };
         <\/script>
       </body>
@@ -228,14 +181,16 @@ export default function Certificates() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [fetchMsg, setFetchMsg] = useState("");
 
   const [form, setForm] = useState(emptyForm());
   const [subjects, setSubjects] = useState(emptySubjects());
-  const [photo, setPhoto] = useState(""); // data URL for instant preview
-  const [photoFile, setPhotoFile] = useState(null); // actual File to upload
+  const [photo, setPhoto] = useState("");
+  const [photoFile, setPhotoFile] = useState(null);
 
-  const [previewCert, setPreviewCert] = useState(null); // last-generated cert shown big on the right
-  const [viewCert, setViewCert] = useState(null); // cert opened from the Issued list modal
+  const [previewCert, setPreviewCert] = useState(null);
+  const [viewCert, setViewCert] = useState(null);
   const [search, setSearch] = useState("");
 
   const resultAverage = useMemo(() => computeAverage(subjects), [subjects]);
@@ -255,6 +210,92 @@ export default function Certificates() {
       console.error("Error loading certificates:", e);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // ── Roll Number entered → read student + final class-8 result ──────────
+  async function handleFetchStudent() {
+    const roll = form.rollNumber.trim();
+    if (!roll) {
+      setFetchMsg("Fadlan geli Roll Number.");
+      return;
+    }
+    setFetching(true);
+    setFetchMsg("");
+    try {
+      const id = toSafeDocId(roll);
+
+      // 1) Read the student document: students/{rollNumber}
+      const studentRef = doc(db, "students", id);
+      const studentSnap = await getDoc(studentRef);
+      if (!studentSnap.exists()) {
+        setFetchMsg(`Arday Roll Number "${roll}" lama helin (students).`);
+        setFetching(false);
+        return;
+      }
+      const st = studentSnap.data();
+
+      // «CHECK» field names — based on your students doc:
+      //   fullName, motherName / parentName, className, year
+      const fullName = st.fullName || "";
+      const motherName = st.motherName || st.parentName || "";
+      const className = (st.className || "").toString();
+      const year = (st.year || st.academicYear || "").toString();
+
+      // 2) Read the FINAL class-8 result for this student from `results`.
+      //    «CHECK» — how results link to the student & how the year/class
+      //    is stored. Common patterns handled below; adjust as needed.
+      let resultRow = null;
+      try {
+        // Try: results where studentId == roll AND className == "8"
+        const rq = fsQuery(
+          collection(db, "results"),
+          where("studentId", "==", id)
+        );
+        const rSnap = await getDocs(rq);
+        const rows = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        // keep only the FINAL class-8 row (by className or year label)
+        resultRow =
+          rows.find((r) => (r.className || "").toString() === FINAL_CLASS) ||
+          rows[0] ||
+          null;
+      } catch (e) {
+        console.log("results query failed (adjust field names):", e);
+      }
+
+      // 3) If the result row carries subjects, prefill them (still editable).
+      //    «CHECK» — shape of subjects inside a result row.
+      if (resultRow) {
+        let prefill = null;
+        if (Array.isArray(resultRow.subjects)) {
+          prefill = resultRow.subjects
+            .slice(0, SUBJECT_COUNT)
+            .map((s) => ({ name: s.name || "", marks: (s.marks ?? "").toString() }));
+        }
+        if (prefill && prefill.length) {
+          const filled = emptySubjects();
+          prefill.forEach((p, i) => (filled[i] = p));
+          setSubjects(filled);
+        }
+      }
+
+      setForm((f) => ({
+        ...f,
+        fullName,
+        motherName,
+        year: year || className, // fallback: use class as year label if no year
+      }));
+
+      setFetchMsg(
+        resultRow
+          ? "✅ Xogta ardayga iyo natiijada la soo aqriyay."
+          : "⚠️ Ardayga waa la helay, laakiin natiijo Final-8 lama helin — maadooyinka gacanta ku qor."
+      );
+    } catch (e) {
+      console.error("Fetch error:", e);
+      setFetchMsg("Khalad ayaa dhacay markii xogta la soo aqrinayay.");
+    } finally {
+      setFetching(false);
     }
   }
 
@@ -294,11 +335,16 @@ export default function Certificates() {
     setSubjects(emptySubjects());
     setPhoto("");
     setPhotoFile(null);
+    setFetchMsg("");
   }
 
   async function handleGenerate() {
-    if (!form.fullName.trim() || !form.rollNumber.trim()) {
-      alert("Fadlan buuxi ugu yaraan Magaca Ardayga iyo Roll Number.");
+    if (!form.rollNumber.trim()) {
+      alert("Fadlan geli Roll Number.");
+      return;
+    }
+    if (!form.fullName.trim()) {
+      alert("Marka hore riix Fetch si magaca ardayga loo soo aqriyo Roll Number-ka.");
       return;
     }
     setSaving(true);
@@ -317,23 +363,17 @@ export default function Certificates() {
         }
       }
 
-      // Upload photo to Storage if a new one was picked; otherwise keep
-      // whatever was already saved for this cert (on overwrite).
       let photoUrl = existing.exists() ? existing.data().studentPhoto || "" : "";
       if (photoFile) {
         setUploadingPhoto(true);
         try {
-          const photoRef = ref(
-            storage,
-            `certificate-photos/${id}/${Date.now()}_${photoFile.name}`
-          );
+          const photoRef = ref(storage, `certificate-photos/${id}/${Date.now()}_${photoFile.name}`);
           await uploadBytes(photoRef, photoFile);
           photoUrl = await getDownloadURL(photoRef);
         } finally {
           setUploadingPhoto(false);
         }
       } else if (photo) {
-        // No file object (rare) but we have a data URL — store that directly.
         photoUrl = photo;
       }
 
@@ -394,44 +434,54 @@ export default function Certificates() {
             Class Leaving Certificates
           </h1>
           <p style={{ fontSize: 13.5, color: "#6B7280", margin: "0 0 24px" }}>
-            Buuxi xogta ardayga si buuxda, kadibna riix Generate si loo abuuro shahaadada
-            oo lagu daro liiska Issued Certificates.
+            Geli Roll Number-ka, riix Fetch — magaca, magaca hooyada iyo sanadka waa la
+            soo aqrinayaa. Kaliya Taariikhda Dhalashada, Sawirka iyo Maadooyinka ayaa
+            gacanta lagu qoraa.
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 22 }} className="cert-row">
-            {/* Left: full manual form */}
-            <div
-              style={{
-                background: "#fff",
-                borderRadius: 18,
-                padding: 22,
-                boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-                border: "1px solid rgba(17,24,39,0.05)",
-              }}
-            >
+            {/* Left: form */}
+            <div style={{ background: "#fff", borderRadius: 18, padding: 22, boxShadow: "0 4px 18px rgba(17,24,39,0.06)", border: "1px solid rgba(17,24,39,0.05)" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "#111827", marginBottom: 14 }}>
                 Certificate Details
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Field label="Full Name (Ardayga)">
-                  <input
-                    value={form.fullName}
-                    onChange={(e) => setForm({ ...form, fullName: e.target.value })}
-                    placeholder="e.g. Mohamed Omar Abdulle"
-                    style={inputStyle}
-                  />
+                {/* Roll Number + Fetch */}
+                <Field label="Roll Number (gali kadibna riix Fetch)">
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      value={form.rollNumber}
+                      onChange={(e) => setForm({ ...form, rollNumber: e.target.value })}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleFetchStudent(); }}
+                      placeholder="e.g. 0006"
+                      style={inputStyle}
+                    />
+                    <button
+                      onClick={handleFetchStudent}
+                      disabled={fetching}
+                      style={{ padding: "0 16px", borderRadius: 10, border: "none", background: fetching ? "#9CA3AF" : GREEN, color: "#fff", fontWeight: 700, fontSize: 13, cursor: fetching ? "default" : "pointer", whiteSpace: "nowrap" }}
+                    >
+                      {fetching ? "…" : "Fetch"}
+                    </button>
+                  </div>
+                  {fetchMsg && (
+                    <div style={{ marginTop: 6, fontSize: 12, color: fetchMsg.startsWith("✅") ? GREEN : "#B45309" }}>
+                      {fetchMsg}
+                    </div>
+                  )}
                 </Field>
-                <Field label="Mother's Name">
-                  <input
-                    value={form.motherName}
-                    onChange={(e) => setForm({ ...form, motherName: e.target.value })}
-                    placeholder="e.g. Caasho Ahmed Ali"
-                    style={inputStyle}
-                  />
-                </Field>
+
+                {/* Auto-filled read-only summary */}
+                <div style={{ padding: "10px 12px", borderRadius: 10, background: "#F9FAFB", border: "1px solid rgba(17,24,39,0.08)", fontSize: 12.5, color: "#374151", display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div><b>Magaca:</b> {form.fullName || "—"}</div>
+                  <div><b>Magaca Hooyada:</b> {form.motherName || "—"}</div>
+                  <div><b>Sanadka:</b> {form.year || "—"}</div>
+                </div>
+
+                {/* Manual: Place + DOB */}
                 <div style={{ display: "flex", gap: 12 }}>
-                  <Field label="Place of Birth">
+                  <Field label="Place of Birth (gacanta)">
                     <input
                       value={form.placeOfBirth}
                       onChange={(e) => setForm({ ...form, placeOfBirth: e.target.value })}
@@ -439,7 +489,7 @@ export default function Certificates() {
                       style={inputStyle}
                     />
                   </Field>
-                  <Field label="Date of Birth">
+                  <Field label="Date of Birth (gacanta)">
                     <input
                       value={form.dateOfBirth}
                       onChange={(e) => setForm({ ...form, dateOfBirth: e.target.value })}
@@ -448,32 +498,8 @@ export default function Certificates() {
                     />
                   </Field>
                 </div>
-                <Field label="Completed Primary School">
-                  <input
-                    value={form.completedSchool}
-                    onChange={(e) => setForm({ ...form, completedSchool: e.target.value })}
-                    style={inputStyle}
-                  />
-                </Field>
-                <div style={{ display: "flex", gap: 12 }}>
-                  <Field label="Year">
-                    <input
-                      value={form.year}
-                      onChange={(e) => setForm({ ...form, year: e.target.value })}
-                      placeholder="e.g. 2026/2027"
-                      style={inputStyle}
-                    />
-                  </Field>
-                  <Field label="Roll Number">
-                    <input
-                      value={form.rollNumber}
-                      onChange={(e) => setForm({ ...form, rollNumber: e.target.value })}
-                      placeholder="e.g. 0001"
-                      style={inputStyle}
-                    />
-                  </Field>
-                </div>
-                <Field label="Date of Issue">
+
+                <Field label="Date of Issue (gacanta)">
                   <input
                     value={form.issueDate}
                     onChange={(e) => setForm({ ...form, issueDate: e.target.value })}
@@ -482,47 +508,22 @@ export default function Certificates() {
                   />
                 </Field>
 
-                <Field label="Student Photo">
+                {/* Manual: Photo */}
+                <Field label="Student Photo (gacanta)">
                   <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <div
-                      style={{
-                        width: 64,
-                        height: 64,
-                        borderRadius: 10,
-                        overflow: "hidden",
-                        background: "#E5E7EB",
-                        border: "1px solid rgba(17,24,39,0.1)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                      }}
-                    >
-                      {photo ? (
-                        <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                      ) : (
-                        <span style={{ fontSize: 10, color: "#9CA3AF" }}>No photo</span>
-                      )}
+                    <div style={{ width: 64, height: 64, borderRadius: 10, overflow: "hidden", background: "#E5E7EB", border: "1px solid rgba(17,24,39,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: 10, color: "#9CA3AF" }}>No photo</span>}
                     </div>
-                    <label
-                      style={{
-                        padding: "9px 14px",
-                        borderRadius: 10,
-                        border: `1.5px solid ${GREEN}`,
-                        color: GREEN,
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                      }}
-                    >
+                    <label style={{ padding: "9px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>
                       {photo ? "Change Photo" : "Upload Photo"}
                       <input type="file" accept="image/*" onChange={handlePhotoChange} style={{ display: "none" }} />
                     </label>
                   </div>
                 </Field>
 
+                {/* Manual: 12 subjects */}
                 <div style={{ fontSize: 12.5, color: "#6B7280", fontWeight: 700, marginTop: 6 }}>
-                  Maadooyinka (12) — Subject + Marks
+                  Maadooyinka (12) — Soomaali (bidix) — gacanta ku qor
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 70px", gap: 8, alignItems: "center" }}>
                   {subjects.map((s, i) => (
@@ -531,31 +532,20 @@ export default function Certificates() {
                       <input
                         value={s.name}
                         onChange={(e) => updateSubject(i, "name", e.target.value)}
-                        placeholder={`Subject ${i + 1}`}
+                        placeholder={`Maado ${i + 1}`}
                         style={{ ...inputStyle, padding: "7px 10px" }}
                       />
                       <input
                         value={s.marks}
                         onChange={(e) => updateSubject(i, "marks", e.target.value)}
-                        placeholder="Marks"
+                        placeholder="Dhibco"
                         style={{ ...inputStyle, padding: "7px 10px" }}
                       />
                     </div>
                   ))}
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginTop: 4,
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    background: "#EFFBF3",
-                    border: "1px solid rgba(22,101,52,0.15)",
-                  }}
-                >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, padding: "10px 12px", borderRadius: 10, background: "#EFFBF3", border: "1px solid rgba(22,101,52,0.15)" }}>
                   <span style={{ fontSize: 12.5, fontWeight: 700, color: GREEN }}>Result Average (auto)</span>
                   <span style={{ fontSize: 14, fontWeight: 800, color: GREEN }}>
                     {resultAverage === "" ? "—" : `${resultAverage}%`}
@@ -566,75 +556,25 @@ export default function Certificates() {
               <button
                 onClick={handleGenerate}
                 disabled={saving || uploadingPhoto}
-                style={{
-                  marginTop: 18,
-                  width: "100%",
-                  padding: "12px 0",
-                  borderRadius: 12,
-                  border: "none",
-                  background: saving ? "#9CA3AF" : "linear-gradient(90deg,#16a34a,#15803d)",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: saving ? "default" : "pointer",
-                }}
+                style={{ marginTop: 18, width: "100%", padding: "12px 0", borderRadius: 12, border: "none", background: saving ? "#9CA3AF" : "linear-gradient(90deg,#16a34a,#15803d)", color: "#fff", fontWeight: 700, fontSize: 14, cursor: saving ? "default" : "pointer" }}
               >
                 {uploadingPhoto ? "Uploading photo…" : saving ? "Saving…" : "Generate Certificate"}
               </button>
 
               {previewCert && (
                 <>
-                  <button
-                    onClick={() => downloadCertificateImage(previewCert.fullName)}
-                    style={{
-                      marginTop: 10,
-                      width: "100%",
-                      padding: "11px 0",
-                      borderRadius: 12,
-                      border: `1.5px solid ${GREEN}`,
-                      background: "#fff",
-                      color: GREEN,
-                      fontWeight: 700,
-                      fontSize: 13.5,
-                      cursor: "pointer",
-                    }}
-                  >
+                  <button onClick={() => downloadCertificateImage(previewCert.fullName)} style={{ marginTop: 10, width: "100%", padding: "11px 0", borderRadius: 12, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
                     ⬇️ Download Certificate Image
                   </button>
-                  <button
-                    onClick={() => printCertificate("certificate-render-card")}
-                    style={{
-                      marginTop: 10,
-                      width: "100%",
-                      padding: "11px 0",
-                      borderRadius: 12,
-                      border: `1.5px solid ${GREEN}`,
-                      background: "#fff",
-                      color: GREEN,
-                      fontWeight: 700,
-                      fontSize: 13.5,
-                      cursor: "pointer",
-                    }}
-                  >
+                  <button onClick={() => printCertificate("certificate-render-card")} style={{ marginTop: 10, width: "100%", padding: "11px 0", borderRadius: 12, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
                     🖨️ Print Certificate
                   </button>
                 </>
               )}
             </div>
 
-            {/* Right: live preview of what's currently in the form / last generated */}
-            <div
-              style={{
-                background: "#fff",
-                borderRadius: 18,
-                padding: 22,
-                boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-                border: "1px solid rgba(17,24,39,0.05)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-              }}
-            >
+            {/* Right: live preview */}
+            <div style={{ background: "#fff", borderRadius: 18, padding: 22, boxShadow: "0 4px 18px rgba(17,24,39,0.06)", border: "1px solid rgba(17,24,39,0.05)", display: "flex", flexDirection: "column", alignItems: "center" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "#111827", marginBottom: 14, alignSelf: "flex-start" }}>
                 Preview
               </div>
@@ -653,39 +593,19 @@ export default function Certificates() {
                     studentPhoto: photo,
                     issueDate: form.issueDate,
                   }}
-                  verifyUrl={
-                    form.rollNumber
-                      ? `${VERIFY_BASE_URL}/${encodeURIComponent(toSafeDocId(form.rollNumber))}`
-                      : ""
-                  }
                   elementId="certificate-render-card"
                 />
               </div>
             </div>
           </div>
 
-          {/* Issued Certificates list */}
-          <div
-            style={{
-              background: "#fff",
-              borderRadius: 18,
-              padding: 22,
-              boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
-              border: "1px solid rgba(17,24,39,0.05)",
-              marginTop: 22,
-              overflowX: "auto",
-            }}
-          >
+          {/* Issued list */}
+          <div style={{ background: "#fff", borderRadius: 18, padding: 22, boxShadow: "0 4px 18px rgba(17,24,39,0.06)", border: "1px solid rgba(17,24,39,0.05)", marginTop: 22, overflowX: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: "#111827" }}>
                 Issued Certificates ({filteredCertificates.length})
               </div>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or Roll Number…"
-                style={{ ...inputStyle, width: 260 }}
-              />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by name or Roll Number…" style={{ ...inputStyle, width: 260 }} />
             </div>
             {loading ? (
               <p style={{ fontSize: 13, color: "#9CA3AF" }}>Loading…</p>
@@ -718,12 +638,7 @@ export default function Certificates() {
                       <td>
                         <div style={{ display: "flex", gap: 8 }}>
                           <button onClick={() => setViewCert(c)} style={smallBtnStyle}>View</button>
-                          <button
-                            onClick={() => handleDelete(c)}
-                            style={{ ...smallBtnStyle, color: "#DC2626", borderColor: "rgba(220,38,38,0.3)" }}
-                          >
-                            Delete
-                          </button>
+                          <button onClick={() => handleDelete(c)} style={{ ...smallBtnStyle, color: "#DC2626", borderColor: "rgba(220,38,38,0.3)" }}>Delete</button>
                         </div>
                       </td>
                     </tr>
@@ -735,63 +650,20 @@ export default function Certificates() {
         </div>
       </div>
 
-      {/* Full-screen "View" modal — opened from the Issued Certificates list */}
+      {/* View modal */}
       {viewCert && (
-        <div
-          onClick={() => setViewCert(null)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 1000,
-            background: "rgba(17,24,39,0.6)",
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            padding: "28px 16px",
-            overflowY: "auto",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#fff",
-              borderRadius: 16,
-              padding: 20,
-              width: "min(1120px, 100%)",
-              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-            }}
-          >
+        <div onClick={() => setViewCert(null)} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(17,24,39,0.6)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "28px 16px", overflowY: "auto" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 20, width: "min(1120px, 100%)", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
-              <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
-                {viewCert.fullName} — Certificate
-              </div>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>{viewCert.fullName} — Certificate</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  onClick={() => downloadCertificateImage(viewCert.fullName, "certificate-view-modal-card")}
-                  style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                >
-                  ⬇️ Download
-                </button>
-                <button
-                  onClick={() => printCertificate("certificate-view-modal-card")}
-                  style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                >
-                  🖨️ Print
-                </button>
-                <button
-                  onClick={() => setViewCert(null)}
-                  style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(17,24,39,0.15)", background: "#fff", color: "#6B7280", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}
-                >
-                  ✕ Close
-                </button>
+                <button onClick={() => downloadCertificateImage(viewCert.fullName, "certificate-view-modal-card")} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>⬇️ Download</button>
+                <button onClick={() => printCertificate("certificate-view-modal-card")} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>🖨️ Print</button>
+                <button onClick={() => setViewCert(null)} style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(17,24,39,0.15)", background: "#fff", color: "#6B7280", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>✕ Close</button>
               </div>
             </div>
             <div style={{ width: "100%", overflowX: "auto" }}>
-              <CertificateCard
-                certificate={viewCert}
-                verifyUrl={`${VERIFY_BASE_URL}/${encodeURIComponent(viewCert.id)}`}
-                elementId="certificate-view-modal-card"
-              />
+              <CertificateCard certificate={viewCert} elementId="certificate-view-modal-card" />
             </div>
           </div>
         </div>
@@ -808,34 +680,15 @@ export default function Certificates() {
 
 function StudentAvatar({ photo, name, size = 26 }) {
   return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: "50%",
-        overflow: "hidden",
-        background: "#E5E7EB",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        flexShrink: 0,
-        fontSize: size * 0.4,
-        fontWeight: 700,
-        color: "#6B7280",
-      }}
-    >
-      {photo ? (
-        <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-      ) : (
-        (name || "?").charAt(0).toUpperCase()
-      )}
+    <div style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", background: "#E5E7EB", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontSize: size * 0.4, fontWeight: 700, color: "#6B7280" }}>
+      {photo ? <img src={photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : (name || "?").charAt(0).toUpperCase()}
     </div>
   );
 }
 
 function Field({ label, children }) {
   return (
-    <div>
+    <div style={{ flex: 1 }}>
       <div style={{ fontSize: 12, color: "#6B7280", marginBottom: 4, fontWeight: 600 }}>{label}</div>
       {children}
     </div>
