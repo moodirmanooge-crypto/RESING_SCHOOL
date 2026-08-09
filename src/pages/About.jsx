@@ -27,7 +27,6 @@ const CORE_VALUES = [
   { icon: "🌍", title: "Global Citizenship", desc: "Preparing students to lead and contribute both locally and on the world stage." },
 ];
 
-// Mission pillars — kuwan waxay ka soo baxayaan Mission Statement-ka
 const MISSION_PILLARS = [
   {
     icon: "🏅",
@@ -83,6 +82,47 @@ export default function About() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   return (
@@ -196,13 +236,6 @@ export default function About() {
       <section className="about-mission-grid">
         <div className="about-mission-photo-wrap">
           <img src={heroPhoto} alt="Rising Star School students" className="about-mission-photo" />
-          <div className="about-mission-badge">
-            <span className="about-mission-badge-icon">★</span>
-            <div>
-              <div className="about-mission-badge-title">Excellence in Education</div>
-              <div className="about-mission-badge-sub">Today's Students, Tomorrow's Leaders</div>
-            </div>
-          </div>
         </div>
 
         <div className="about-mission-cards">

@@ -20,7 +20,6 @@ setGlobalOptions({ maxInstances: 10 });
 // SEND SMS — Hormuud SMS API (sendBulkSms)
 // ============================================================
 const { onRequest, HttpsError } = require("firebase-functions/v2/https");
-const { defineSecret } = require("firebase-functions/params");
 const { initializeApp, getApps } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const axios = require("axios");
@@ -30,9 +29,9 @@ if (getApps().length === 0) {
 
 const db = getFirestore();
 
-const HORMUUD_USERNAME = defineSecret("HORMUUD_USERNAME");
-const HORMUUD_PASSWORD = defineSecret("HORMUUD_PASSWORD");
-const HORMUUD_SENDERID = defineSecret("HORMUUD_SENDERID");
+const HORMUUD_USERNAME = process.env.HORMUUD_USERNAME;
+const HORMUUD_PASSWORD = process.env.HORMUUD_PASSWORD;
+const HORMUUD_SENDERID = process.env.HORMUUD_SENDERID;
 
 const TOKEN_URL = "https://smsapi.hormuud.com/token";
 const SEND_URL = "https://smsapi.hormuud.com/api/SendSMS";
@@ -172,7 +171,6 @@ async function resolveRecipients(audience, targetId) {
 exports.sendBulkSms = onRequest(
   {
     region: "us-central1",
-    secrets: [HORMUUD_USERNAME, HORMUUD_PASSWORD, HORMUUD_SENDERID],
     cors: true,
   },
   async (req, res) => {
@@ -225,13 +223,13 @@ exports.sendBulkSms = onRequest(
       }
 
       const token = await getHormuudToken(
-        HORMUUD_USERNAME.value(),
-        HORMUUD_PASSWORD.value()
+        HORMUUD_USERNAME,
+        HORMUUD_PASSWORD
       );
 
       logger.info("Hormuud token received");
 
-      const senderid = HORMUUD_SENDERID.value();
+      const senderid = HORMUUD_SENDERID;
 
       const results = [];
 

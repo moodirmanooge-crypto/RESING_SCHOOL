@@ -7,6 +7,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+sms/.env
+sms/.env.*
+!sms/.env.example
+
 node_modules
 dist
 dist-ssr

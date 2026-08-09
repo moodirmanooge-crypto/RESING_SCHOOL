@@ -2,6 +2,7 @@
 import "../styles/contact.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 import { MessageCircle, Mail, Phone, MapPin, Clock } from "lucide-react";
 
 const SUPPORT_WHATSAPP = "252617390261";
@@ -20,6 +21,47 @@ const NAV_LINKS = [
 ];
 
 export default function Contact() {
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
+
   return (
     <div className="con-page">
       <header className="home-nav">
@@ -48,7 +90,7 @@ export default function Contact() {
         <div className="header-actions">
           <div className="menu-wrap">
             <Link to="/admin-login" className="login-portal-btn">
-              <span className="login-portal-icon">Login</span>
+              <span className="login-portal-icon">👤</span>
               Login / Portal
             </Link>
           </div>
@@ -74,6 +116,7 @@ export default function Contact() {
               Message us directly for quick answers about admissions, fees,
               or anything else — we usually reply within a few hours.
             </p>
+            
             <a
               href={`https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(
                 WHATSAPP_MESSAGE
@@ -99,6 +142,7 @@ export default function Contact() {
               Prefer email? Send us your questions and our admissions team
               will get back to you as soon as possible.
             </p>
+            
             <a
               href={`mailto:${SUPPORT_EMAIL}`}
               className="con-method-btn email"

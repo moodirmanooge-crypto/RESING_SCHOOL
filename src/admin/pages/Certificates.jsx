@@ -7,7 +7,9 @@
 //    card). Everything else is READ from Firestore.
 // 2. On Roll Number entry (blur / "Fetch"), the system reads:
 //      students/{rollNumber}  -> fullName, motherName (parentName), className, year
-//      results  -> the FINAL class-8 result row for that student
+//      results  -> the FINAL class-8 result row for that student (used only
+//                  to confirm the student has a final result; subject marks
+//                  are NOT auto-filled — they are always typed by hand).
 // 3. Result Average is auto-computed from the entered subject marks.
 // 4. Generate saves to `certificates` (doc id = safe Roll Number).
 //
@@ -245,6 +247,9 @@ export default function Certificates() {
       // 2) Read the FINAL class-8 result for this student from `results`.
       //    «CHECK» — how results link to the student & how the year/class
       //    is stored. Common patterns handled below; adjust as needed.
+      //    NOTE: this is only used to confirm a final result exists and to
+      //    show a status message — subject marks are NEVER auto-filled from
+      //    it. The 12 subjects are always typed by hand below.
       let resultRow = null;
       try {
         // Try: results where studentId == roll AND className == "8"
@@ -263,21 +268,9 @@ export default function Certificates() {
         console.log("results query failed (adjust field names):", e);
       }
 
-      // 3) If the result row carries subjects, prefill them (still editable).
-      //    «CHECK» — shape of subjects inside a result row.
-      if (resultRow) {
-        let prefill = null;
-        if (Array.isArray(resultRow.subjects)) {
-          prefill = resultRow.subjects
-            .slice(0, SUBJECT_COUNT)
-            .map((s) => ({ name: s.name || "", marks: (s.marks ?? "").toString() }));
-        }
-        if (prefill && prefill.length) {
-          const filled = emptySubjects();
-          prefill.forEach((p, i) => (filled[i] = p));
-          setSubjects(filled);
-        }
-      }
+      // Maadooyinka LAMA soo aqrinayo — mid kastaa gooni ayaa gacanta
+      // loogu qorayaa (12-ka maado). Kaliya magaca, hooyada iyo sanadka
+      // ayaa la soo aqrinayaa.
 
       setForm((f) => ({
         ...f,

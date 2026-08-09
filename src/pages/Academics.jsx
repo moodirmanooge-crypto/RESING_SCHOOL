@@ -15,7 +15,7 @@
 // before releasing results — if any amount is still owed (even $1),
 // results are withheld and a note tells the family exactly what's owed.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "../styles/academics.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
@@ -79,10 +79,55 @@ export default function Academics() {
   const [student, setStudent] = useState(null);
   const [results, setResults] = useState([]);
 
+  // Celebration banner — shows when a strong overall result (top-tier,
+  // average >= 65%) comes back. Sits inside the results card itself.
+  const [showCelebration, setShowCelebration] = useState(false);
+
   // Fee-lock state — when the current month's fee isn't fully paid, we
   // stop before showing any result and surface this instead.
   const [feeBlocked, setFeeBlocked] = useState(false);
   const [feeInfo, setFeeInfo] = useState(null); // { monthlyFee, paidAmount, remaining, monthLabel }
+
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   const resetLookup = () => {
     setStudent(null);
@@ -92,6 +137,7 @@ export default function Academics() {
     setError("");
     setFeeBlocked(false);
     setFeeInfo(null);
+    setShowCelebration(false);
   };
 
   const handleLookup = async (e) => {
@@ -99,6 +145,7 @@ export default function Academics() {
     setError("");
     setFeeBlocked(false);
     setFeeInfo(null);
+    setShowCelebration(false);
 
     const idInput = studentId.trim();
     if (!idInput) {
@@ -192,9 +239,15 @@ export default function Academics() {
         }
       });
 
-      const combined = Object.values(bySubject).sort((a, b) =>
-        String(a.subject).localeCompare(String(b.subject))
-      );
+      // Sort by score percentage, HIGHEST first — the strongest subject
+      // sits at the top, the weakest falls to the bottom.
+      const combined = Object.values(bySubject).sort((a, b) => {
+        const aMax = Number(a.maxMarks) || 100;
+        const bMax = Number(b.maxMarks) || 100;
+        const aPct = aMax > 0 ? (Number(a.marks) || 0) / aMax : 0;
+        const bPct = bMax > 0 ? (Number(b.marks) || 0) / bMax : 0;
+        return bPct - aPct;
+      });
 
       setStudent({ ...studentData, studentId: paddedId });
       setResults(combined);
@@ -203,6 +256,14 @@ export default function Academics() {
         setError(
           "Ardaygan weli natiijo lagama helin xilligan la doortay. Fadlan la xiriir maamulka."
         );
+      } else {
+        // Trigger the celebration only for a top-tier overall result.
+        const tMarks = combined.reduce((s, r) => s + (Number(r.marks) || 0), 0);
+        const tMax = combined.reduce((s, r) => s + (Number(r.maxMarks) || 0), 0);
+        const avg = tMax > 0 ? (tMarks / tMax) * 100 : 0;
+        if (avg >= 65) {
+          setShowCelebration(true);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -216,6 +277,10 @@ export default function Academics() {
   const totalMax = results.reduce((sum, r) => sum + (Number(r.maxMarks) || 0), 0);
   const averagePct = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
   const overall = overallGradeFor(averagePct);
+  const headerMax = results.reduce(
+    (max, r) => Math.max(max, Number(r.maxMarks) || 0),
+    0
+  ) || 100;
 
   return (
     <div className="aca-page">
@@ -247,7 +312,7 @@ export default function Academics() {
         <div className="header-actions">
           <div className="menu-wrap">
             <Link to="/admin-login" className="login-portal-btn">
-              <span className="login-portal-icon">Login</span>
+              <span className="login-portal-icon">👤</span>
               Login / Portal
             </Link>
           </div>
@@ -352,6 +417,45 @@ export default function Academics() {
 
         {student && results.length > 0 && (
           <div className="aca-results-card">
+            {showCelebration && (
+              <div className="aca-celebrate-banner">
+                <div className="aca-confetti" aria-hidden="true">
+                  {Array.from({ length: 30 }).map((_, i) => (
+                    <span
+                      key={i}
+                      className="aca-confetti-piece"
+                      style={{
+                        left: `${Math.random() * 100}%`,
+                        background: [
+                          "#f97316",
+                          "#22a05f",
+                          "#2563eb",
+                          "#eab308",
+                          "#7c3aed",
+                          "#ec4899",
+                        ][i % 6],
+                        animationDelay: `${Math.random() * 2}s`,
+                        animationDuration: `${2.5 + Math.random() * 2}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="aca-celebrate-banner-inner">
+                  <div className="aca-celebrate-trophy">🏆</div>
+                  <div className="aca-celebrate-banner-text">
+                    <h3 className="aca-celebrate-title">Hambalyo!</h3>
+                    <p className="aca-celebrate-sub">Horumar Wacan!</p>
+                    <p className="aca-celebrate-text">
+                      {student?.fullName || "Ardaygan"}, waxaad gaadhay
+                      celceliska <strong>{averagePct.toFixed(1)}%</strong> —
+                      waxaad ka mid tahay ardayda ugu fiican! Sii wad shaqadan
+                      wanaagsan.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="aca-student-banner">
               <div className="aca-student-info">
                 <span className="aca-student-name">
@@ -372,7 +476,7 @@ export default function Academics() {
                 <thead>
                   <tr>
                     <th>Subject</th>
-                    <th>Marks (out of {results[0]?.maxMarks || 100})</th>
+                    <th>Marks (out of {headerMax})</th>
                     <th>Grade</th>
                     <th>Remark</th>
                   </tr>
@@ -424,39 +528,29 @@ export default function Academics() {
               </table>
             </div>
 
-            <div className="aca-summary-grid">
-              <div className="aca-summary-box blue">
-                <div className="aca-summary-label">WADARTA</div>
-                <div className="aca-summary-value">{totalMarks.toFixed(1)}</div>
+            <div className="aca-summary-box">
+              <div className="aca-summary-item">
+                <span className="aca-summary-label">Total Marks</span>
+                <span className="aca-summary-value">
+                  {totalMarks.toFixed(0)} / {totalMax.toFixed(0)}
+                </span>
               </div>
-              <div className="aca-summary-box green">
-                <div className="aca-summary-label">CELCELISKA</div>
-                <div className="aca-summary-value">{averagePct.toFixed(1)}</div>
+              <div className="aca-summary-item">
+                <span className="aca-summary-label">Average Percentage</span>
+                <span className="aca-summary-value">
+                  {averagePct.toFixed(1)}%
+                </span>
               </div>
-              <div className="aca-summary-box gold">
-                <div className="aca-summary-label">GO'AANKA</div>
-                <div className="aca-summary-value grade-good">
+              <div className="aca-summary-item">
+                <span className="aca-summary-label">Overall Grade</span>
+                <span
+                  className="aca-summary-value"
+                  style={{ color: overall.letter === "F" ? "#dc2626" : "#16a34a" }}
+                >
                   {overall.label}
-                </div>
+                </span>
               </div>
             </div>
-
-            <div className="aca-remark-box">
-              {student.fullName || "Ardaygan"}, waxaad muujisay natiijo{" "}
-              {averagePct >= 65
-                ? "aad u wanaagsan. Waxaad ku guulaysatay inaad noqoto ardayda ugu fiican fasalka! Horumar wanaagsan!"
-                : averagePct >= 50
-                ? "wanaagsan. Sii wad dadaalka si aad u horumariso natiijadaada."
-                : "u baahan dadaal dheeraad ah. Fadlan la xiriir macalinka fasalka si taageero loo helo."}
-            </div>
-          </div>
-        )}
-
-        {student && results.length === 0 && !error && !feeBlocked && (
-          <div className="aca-results-card">
-            <p className="aca-empty">
-              Natiijo lama helin ardaygan xilligan la doortay.
-            </p>
           </div>
         )}
       </div>
@@ -472,8 +566,8 @@ export default function Academics() {
           </div>
         </div>
 
-        <div className="home-footer-contact">
-          <a href="tel:+252611234567">+252 61 7390261</a>
+       <div className="home-footer-contact">
+          <a href="tel:+252617390261">+252 61 7390261</a>
           <a href="mailto:risingstar0261@gmail.com">risingstar0261@gmail.com</a>
           <span>Mogadishu, Somalia</span>
         </div>

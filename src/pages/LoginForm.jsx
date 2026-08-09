@@ -1,5 +1,5 @@
 //src/pages/LoginForm.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase/firebase";
@@ -10,6 +10,47 @@ export default function LoginForm({ role }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   const login = async () => {
     if (!username.trim() || !password.trim()) {

@@ -1,5 +1,5 @@
 // src/pages/Admissions.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "../styles/admissions.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
@@ -83,6 +83,47 @@ export default function Admissions() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -219,7 +260,7 @@ export default function Admissions() {
 
           <div className="menu-wrap">
             <Link to="/admin-login" className="login-portal-btn">
-              <span className="login-portal-icon">Login</span>
+              <span className="login-portal-icon">👤</span>
               Login / Portal
             </Link>
           </div>
@@ -259,7 +300,7 @@ export default function Admissions() {
 
             {submitted ? (
               <div className="adm-success">
-                <div className="adm-success-icon">Done</div>
+                <div className="adm-success-icon">✓</div>
                 <h3>Application Received!</h3>
                 <p>
                   Thank you, {form.studentName || "future student"}! Our
@@ -420,7 +461,7 @@ export default function Admissions() {
               <ul className="adm-doc-list">
                 {REQUIRED_DOCS.map((d) => (
                   <li key={d}>
-                    <span className="adm-doc-check">Yes</span>
+                    <span className="adm-doc-check">✓</span>
                     {d}
                   </li>
                 ))}
@@ -432,6 +473,7 @@ export default function Admissions() {
               <p className="adm-side-text">
                 Our admissions team is happy to answer any questions.
               </p>
+              
               <a
                 href={`https://wa.me/${SUPPORT_WHATSAPP}`}
                 target="_blank"
@@ -460,7 +502,7 @@ export default function Admissions() {
         </div>
 
         <div className="home-footer-contact">
-          <a href="tel:+252611234567">+252 61 7390261</a>
+          <a href="tel:+252617390261">+252 61 7390261</a>
           <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
           <span>Mogadishu, Somalia</span>
         </div>

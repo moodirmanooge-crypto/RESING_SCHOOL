@@ -1,7 +1,7 @@
 // src/pages/Home.jsx
 import "../styles/home.css";
 import logo from "../assets/logo.png";
-import heroPhoto from "../admin/assets/hero-students.jpg";
+import heroPhoto from "../admin/assets/student.png";
 import { Link } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
 import { collection, getCountFromServer } from "firebase/firestore";
@@ -140,6 +140,47 @@ export default function Home() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
+  useEffect(() => {
+    function handleContextMenu(e) {
+      e.preventDefault();
+    }
+
+    function handleKeyDown(e) {
+      const key = (e.key || "").toLowerCase();
+
+      // F12
+      if (key === "f12") {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.shiftKey &&
+        (key === "i" || key === "j" || key === "c")
+      ) {
+        e.preventDefault();
+        return;
+      }
+
+      // Ctrl+U (View source) iyo Ctrl+S (Save page)
+      if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    document.addEventListener("contextmenu", handleContextMenu);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("contextmenu", handleContextMenu);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, []);
 
   return (
@@ -299,7 +340,6 @@ export default function Home() {
                   <Link to={p.to} className="portal-btn">
                     {p.key === "admission" ? "Apply Now" : "Login"}
                   </Link>
-
                 </div>
               ))}
             </div>

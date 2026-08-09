@@ -6,9 +6,7 @@
 // COORDINATES BELOW WERE RE-MEASURED DIRECTLY ON THE TEMPLATE IMAGE
 // (3508 x 2481 px) using a percentage grid overlay, reading the exact
 // pixel row of every printed underline and the exact pixel column
-// where each blank begins/ends. This replaces the earlier estimated
-// values, which were causing text to sit on top of labels or drift
-// onto the wrong line.
+// where each blank begins/ends.
 //
 // Layout: LEFT half = Somali column, RIGHT half = English column.
 // Both halves are mirrored horizontally at IDENTICAL row heights, so
@@ -43,27 +41,29 @@ const FONT_FAMILY = "Arial, Helvetica, sans-serif";
 const PHOTO_BOX = { left: 45.0, top: 33.5, width: 10.3, height: 16.5 };
 
 // Goobaha qoraalada Soomaaliga (Somali Fields) — DHINACA BIDIX (left half)
+// Qoraalku wuxuu ku dul dhacaa xariiqda (underline), ee kuma dul dhaco
+// label-ka. `left` waa halka blank-ku ka bilaabmayo (label-ka ka dib).
 const FIELD_SOMALI = {
-  fullName: { top: 38.6, left: 18.0, right: 44.0 }, // right = 100-56
-  motherName: { top: 41.7, left: 20.5, right: 44.0 },
-  placeDob: { top: 44.7, left: 32.0, right: 44.0 },
-  year: { top: 50.6, left: 20.0, right: 67.0 },
+  fullName: { top: 38.6, left: 18.0, right: 44.0 },
+  motherName: { top: 41.7, left: 25.5, right: 44.0 },
+  placeDob: { top: 44.7, left: 34.5, right: 44.0 },
+  year: { top: 50.6, left: 21.5, right: 67.0 },
   rollNumber: { top: 50.6, left: 41.0, right: 44.0 },
-  resultAverage: { top: 53.6, left: 33.5, right: 44.5 },
+  resultAverage: { top: 53.6, left: 34.5, right: 44.5 },
 };
 
 // Goobaha qoraalada Ingiriiska (English Fields) — DHINACA MIDIG (right half)
 const FIELD = {
-  fullName: { top: 38.6, left: 65.5, right: 7.5 }, // right = 100-92.5
-  motherName: { top: 41.7, left: 70.5, right: 7.5 },
-  placeDob: { top: 44.7, left: 74.0, right: 7.5 },
+  fullName: { top: 38.6, left: 65.5, right: 7.5 },
+  motherName: { top: 41.7, left: 72.5, right: 7.5 },
+  placeDob: { top: 44.7, left: 75.5, right: 7.5 },
   year: { top: 50.6, left: 65.5, right: 24.5 },
   rollNumber: { top: 50.6, left: 84.0, right: 7.5 },
-  resultAverage: { top: 53.6, left: 72.5, right: 11.0 },
+  resultAverage: { top: 53.6, left: 73.5, right: 11.0 },
 };
 
 // Miisaska Maadooyinka (Rows Y-axis) — top edge of each row's text line
-const ROW_TOPS = [60.3, 62.7, 65.1, 67.5, 69.9, 72.3];
+const ROW_TOPS = [60.8, 63.2, 65.6, 68.0, 70.4, 72.8];
 
 const TABLE_SOMALI_A = {
   subjectLeft: 17.8, subjectRight: 32.5,
@@ -268,9 +268,6 @@ function FitText({ text, top, left, right, maxFontPx, minFontPx, align = "left" 
       ref={boxRef}
       style={{
         position: "absolute",
-        // Box-ka waxaa lagu dhejiyaa si uu qoraalku ku dhammaado xariiqda
-        // (`top`) dushiisa — box-ku wuxuu bilaabmaa 2.2% ka sarreeya
-        // xariiqda, si qoraalka fontka ah uu si sax ah ugu dul dhigmo.
         top: `${top - 2.5}%`,
         height: "2.8%",
         left: `${left}%`,
