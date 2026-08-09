@@ -2,10 +2,15 @@
 //
 // Admin page for posting photos/videos with a caption to the public
 // Gallery page, and for editing or deleting posts already made. Uploads
-// the file to Firebase Storage (`gallery/`) and writes a doc to
-// Firestore `gallery` collection with the media URL, type, caption,
-// likeCount, likedBy[], and comments[] — the same shape the public
-// Gallery.jsx reads and lets visitors like/comment/share.
+// the file(s) to Firebase Storage (`gallery/`) and writes a doc to
+// Firestore `gallery` collection with a `mediaItems` array (one post can
+// hold multiple photos/videos, shown one-at-a-time carousel-style on the
+// public page, like Facebook). For backward compatibility with posts
+// created before multi-media support, the doc's top-level `mediaUrl` /
+// `mediaType` / `storagePath` are always kept equal to the FIRST item in
+// `mediaItems`, and any post that never had `mediaItems` still renders
+// fine everywhere via a fallback that wraps the single mediaUrl/mediaType
+// into a one-item list.
 
 import { useEffect, useState } from "react";
 import { db, storage } from "../../firebase/firebase";
@@ -21,7 +26,7 @@ import {
   deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { Image as ImageIcon, Upload, Trash2, Heart, MessageCircle, Pencil, X, Save } from "lucide-react";
+import { Image as ImageIcon, Upload, Trash2, Heart, MessageCircle, Pencil, X, Save, ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
@@ -34,22 +39,40 @@ function formatDate(ts) {
   });
 }
 
+// Returns the list of {url, type, storagePath} media for a gallery doc,
+// whether it was created with the new multi-media `mediaItems` array or
+// the old single `mediaUrl`/`mediaType`/`storagePath` fields.
+function getMediaList(item) {
+  if (Array.isArray(item?.mediaItems) && item.mediaItems.length > 0) {
+    return item.mediaItems;
+  }
+  if (item?.mediaUrl) {
+    return [{ url: item.mediaUrl, type: item.mediaType || "image", storagePath: item.storagePath || "" }];
+  }
+  return [];
+}
+
 export default function GalleryManager() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [mediaType, setMediaType] = useState("image");
+
+  // ---- New post: multi-file selection ----
+  // Each entry: { file, url (local object URL preview), type }
+  const [pendingFiles, setPendingFiles] = useState([]);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
 
+  // Which slide (0-indexed) each grid card is currently showing.
+  const [gridSlide, setGridSlide] = useState({});
+
   // ---- Edit modal state ----
   const [editTarget, setEditTarget] = useState(null); // the gallery item being edited
   const [editCaption, setEditCaption] = useState("");
-  const [editFile, setEditFile] = useState(null); // new media file, if replaced
-  const [editPreview, setEditPreview] = useState(null);
-  const [editMediaType, setEditMediaType] = useState("image");
+  // Existing kept items: { url, type, storagePath, isNew:false }
+  // Newly added items:   { file, url (local preview), type, isNew:true }
+  const [editItems, setEditItems] = useState([]);
+  const [removedOriginalPaths, setRemovedOriginalPaths] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
@@ -68,43 +91,57 @@ export default function GalleryManager() {
     return () => unsub();
   }, []);
 
+  // ---- New post: file selection (multiple) ----
   const handleFileChange = (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setFile(f);
-    setMediaType(f.type.startsWith("video") ? "video" : "image");
-    setPreview(URL.createObjectURL(f));
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
+    const mapped = selected.map((f) => ({
+      file: f,
+      url: URL.createObjectURL(f),
+      type: f.type.startsWith("video") ? "video" : "image",
+    }));
+    setPendingFiles((prev) => [...prev, ...mapped]);
+    e.target.value = ""; // allow re-selecting the same file again later
   };
 
+  function removePendingFile(index) {
+    setPendingFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
   const handleUpload = async () => {
-    if (!file) {
-      alert("Fadlan dooro sawir ama muuqaal.");
+    if (pendingFiles.length === 0) {
+      alert("Fadlan dooro ugu yaraan hal sawir ama muuqaal.");
       return;
     }
 
     try {
       setUploading(true);
 
-      const fileRef = ref(storage, `gallery/${Date.now()}_${file.name}`);
-      await uploadBytes(fileRef, file);
-      const mediaUrl = await getDownloadURL(fileRef);
+      const uploadedItems = [];
+      for (const pf of pendingFiles) {
+        const fileRef = ref(storage, `gallery/${Date.now()}_${pf.file.name}`);
+        await uploadBytes(fileRef, pf.file);
+        const url = await getDownloadURL(fileRef);
+        uploadedItems.push({ url, type: pf.type, storagePath: fileRef.fullPath });
+      }
 
       const docId = `${Date.now()}`;
       await setDoc(doc(db, "gallery", docId), {
-        mediaUrl,
-        mediaType,
+        mediaItems: uploadedItems,
+        // Kept for backward compatibility with any code/readers still
+        // expecting a single mediaUrl/mediaType/storagePath.
+        mediaUrl: uploadedItems[0].url,
+        mediaType: uploadedItems[0].type,
+        storagePath: uploadedItems[0].storagePath,
         caption: caption.trim(),
-        storagePath: fileRef.fullPath,
         likeCount: 0,
         likedBy: [],
         comments: [],
         createdAt: serverTimestamp(),
       });
 
-      setFile(null);
-      setPreview(null);
+      setPendingFiles([]);
       setCaption("");
-      setMediaType("image");
       alert("Waa la daabacay!");
     } catch (err) {
       console.error(err);
@@ -116,11 +153,14 @@ export default function GalleryManager() {
 
   const handleDelete = async (item) => {
     try {
-      if (item.storagePath) {
-        try {
-          await deleteObject(ref(storage, item.storagePath));
-        } catch (e) {
-          // File may already be gone from storage — continue removing the doc.
+      const media = getMediaList(item);
+      for (const m of media) {
+        if (m.storagePath) {
+          try {
+            await deleteObject(ref(storage, m.storagePath));
+          } catch (e) {
+            // File may already be gone from storage — continue removing the doc.
+          }
         }
       }
       await deleteDoc(doc(db, "gallery", item.id));
@@ -131,62 +171,99 @@ export default function GalleryManager() {
     }
   };
 
+  function gridPrev(itemId, count) {
+    setGridSlide((prev) => {
+      const cur = prev[itemId] || 0;
+      return { ...prev, [itemId]: cur > 0 ? cur - 1 : count - 1 };
+    });
+  }
+  function gridNext(itemId, count) {
+    setGridSlide((prev) => {
+      const cur = prev[itemId] || 0;
+      return { ...prev, [itemId]: cur < count - 1 ? cur + 1 : 0 };
+    });
+  }
+
   // ---- Fur modal-ka wax-ka-bedelka post-ga ----
   function openEdit(item) {
     setEditTarget(item);
     setEditCaption(item.caption || "");
-    setEditFile(null);
-    setEditPreview(item.mediaUrl || null);
-    setEditMediaType(item.mediaType || "image");
+    const media = getMediaList(item);
+    setEditItems(media.map((m) => ({ url: m.url, type: m.type, storagePath: m.storagePath || "", isNew: false })));
+    setRemovedOriginalPaths([]);
   }
 
   function closeEdit() {
     setEditTarget(null);
     setEditCaption("");
-    setEditFile(null);
-    setEditPreview(null);
-    setEditMediaType("image");
+    setEditItems([]);
+    setRemovedOriginalPaths([]);
   }
 
   function handleEditFileChange(e) {
-    const f = e.target.files[0];
-    if (!f) return;
-    setEditFile(f);
-    setEditMediaType(f.type.startsWith("video") ? "video" : "image");
-    setEditPreview(URL.createObjectURL(f));
+    const selected = Array.from(e.target.files || []);
+    if (selected.length === 0) return;
+    const mapped = selected.map((f) => ({
+      file: f,
+      url: URL.createObjectURL(f),
+      type: f.type.startsWith("video") ? "video" : "image",
+      isNew: true,
+    }));
+    setEditItems((prev) => [...prev, ...mapped]);
+    e.target.value = "";
   }
 
-  // ---- Kaydi wax-ka-bedelka post-ga: qoraalka marwalba, sawirka/muuqaalka
-  // kaliya haddii mid cusub la doortay. Haddii sawir cusub la doortay,
-  // kii hore Storage-ka waa laga tirtiraa si aan looga tagin file aan
-  // la isticmaalin. ----
+  function removeEditItem(index) {
+    setEditItems((prev) => {
+      const target = prev[index];
+      if (target && !target.isNew && target.storagePath) {
+        setRemovedOriginalPaths((paths) => [...paths, target.storagePath]);
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  // ---- Kaydi wax-ka-bedelka post-ga: qoraalka marwalba, iyo liiska
+  // sawirrada/muuqaallada — kuwa cusub waa la soo shubaa (upload), kuwa
+  // la tuuray Storage-ka waa laga tirtiraa, kuwa la haystay ayaa sii
+  // ahaanaya sidoodii. ----
   async function saveEdit() {
     if (!editTarget) return;
+    if (editItems.length === 0) {
+      alert("Post-ku waa in uu leeyahay ugu yaraan hal sawir ama muuqaal.");
+      return;
+    }
 
     try {
       setSavingEdit(true);
 
-      const updatedFields = {
-        caption: editCaption.trim(),
-      };
-
-      if (editFile) {
-        const newFileRef = ref(storage, `gallery/${Date.now()}_${editFile.name}`);
-        await uploadBytes(newFileRef, editFile);
-        const newMediaUrl = await getDownloadURL(newFileRef);
-
-        updatedFields.mediaUrl = newMediaUrl;
-        updatedFields.mediaType = editMediaType;
-        updatedFields.storagePath = newFileRef.fullPath;
-
-        if (editTarget.storagePath) {
-          try {
-            await deleteObject(ref(storage, editTarget.storagePath));
-          } catch (e) {
-            // Old file may already be gone — ignore.
-          }
+      const finalItems = [];
+      for (const it of editItems) {
+        if (it.isNew) {
+          const newFileRef = ref(storage, `gallery/${Date.now()}_${it.file.name}`);
+          await uploadBytes(newFileRef, it.file);
+          const url = await getDownloadURL(newFileRef);
+          finalItems.push({ url, type: it.type, storagePath: newFileRef.fullPath });
+        } else {
+          finalItems.push({ url: it.url, type: it.type, storagePath: it.storagePath });
         }
       }
+
+      for (const path of removedOriginalPaths) {
+        try {
+          await deleteObject(ref(storage, path));
+        } catch (e) {
+          // Already gone — ignore.
+        }
+      }
+
+      const updatedFields = {
+        caption: editCaption.trim(),
+        mediaItems: finalItems,
+        mediaUrl: finalItems[0].url,
+        mediaType: finalItems[0].type,
+        storagePath: finalItems[0].storagePath,
+      };
 
       await updateDoc(doc(db, "gallery", editTarget.id), updatedFields);
 
@@ -234,7 +311,7 @@ export default function GalleryManager() {
                 Gallery Manager
               </h1>
               <p style={{ margin: "3px 0 0", color: "#8b87ad", fontSize: 13 }}>
-                Soo dhig sawiro iyo muuqaallo — waxay isla markiiba ka muuqan doonaan bogga Gallery-ga
+                Soo dhig sawiro/muuqaallo (hal ama dhowr sawir hal post) — waxay isla markiiba ka muuqan doonaan bogga Gallery-ga
               </p>
             </div>
           </div>
@@ -252,47 +329,83 @@ export default function GalleryManager() {
               flexWrap: "wrap",
             }}
           >
-            <label
-              htmlFor="galleryFile"
-              style={{
-                width: 220,
-                minWidth: 220,
-                aspectRatio: "4/3",
-                borderRadius: 16,
-                border: "2px dashed rgba(139,108,245,0.4)",
-                background: preview
-                  ? mediaType === "video"
-                    ? "#000"
-                    : `url(${preview}) center/cover`
-                  : "rgba(139,108,245,0.06)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                overflow: "hidden",
-                position: "relative",
-              }}
-            >
-              {!preview && (
-                <>
-                  <Upload size={28} color="#8b6cf5" />
-                  <span style={{ color: "#8b87ad", fontSize: 12, marginTop: 8 }}>
-                    Riix si aad u soo dooratid
-                  </span>
-                </>
+            <div style={{ width: 220, minWidth: 220, display: "flex", flexDirection: "column", gap: 10 }}>
+              <label
+                htmlFor="galleryFile"
+                style={{
+                  width: "100%",
+                  aspectRatio: "4/3",
+                  borderRadius: 16,
+                  border: "2px dashed rgba(139,108,245,0.4)",
+                  background: "rgba(139,108,245,0.06)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  overflow: "hidden",
+                }}
+              >
+                <Upload size={28} color="#8b6cf5" />
+                <span style={{ color: "#8b87ad", fontSize: 12, marginTop: 8, textAlign: "center", padding: "0 10px" }}>
+                  Riix si aad u soo dooratid (dhowr sawir/muuqaal ayaad dooran kartaa)
+                </span>
+              </label>
+              <input
+                id="galleryFile"
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                onChange={handleFileChange}
+                style={{ display: "none" }}
+              />
+
+              {pendingFiles.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {pendingFiles.map((pf, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        position: "relative",
+                        width: 56,
+                        height: 56,
+                        borderRadius: 8,
+                        overflow: "hidden",
+                        background: "#000",
+                        border: "1px solid rgba(139,108,245,0.3)",
+                      }}
+                    >
+                      {pf.type === "video" ? (
+                        <video src={pf.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+                      ) : (
+                        <img src={pf.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      )}
+                      <button
+                        onClick={() => removePendingFile(i)}
+                        style={{
+                          position: "absolute",
+                          top: 2,
+                          right: 2,
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          border: "none",
+                          background: "rgba(0,0,0,0.7)",
+                          color: "#fff",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          padding: 0,
+                        }}
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
               )}
-              {preview && mediaType === "video" && (
-                <video src={preview} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
-              )}
-            </label>
-            <input
-              id="galleryFile"
-              type="file"
-              accept="image/*,video/*"
-              onChange={handleFileChange}
-              style={{ display: "none" }}
-            />
+            </div>
 
             <div style={{ flex: 1, minWidth: 240, display: "flex", flexDirection: "column", gap: 12 }}>
               <div>
@@ -341,7 +454,9 @@ export default function GalleryManager() {
                 }}
               >
                 <Upload size={16} />
-                {uploading ? "Soo dhigaya..." : "Post to Gallery"}
+                {uploading
+                  ? "Soo dhigaya..."
+                  : `Post to Gallery${pendingFiles.length > 1 ? ` (${pendingFiles.length})` : ""}`}
               </button>
             </div>
           </div>
@@ -359,142 +474,109 @@ export default function GalleryManager() {
                 gap: 18,
               }}
             >
-              {items.map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    background: "linear-gradient(160deg,#1c1840,#211c48)",
-                    borderRadius: 16,
-                    overflow: "hidden",
-                    border: "1px solid rgba(255,255,255,0.05)",
-                  }}
-                >
-                  <div style={{ width: "100%", aspectRatio: "4/3", background: "#000" }}>
-                    {item.mediaType === "video" ? (
-                      <video src={item.mediaUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
-                    ) : (
-                      <img src={item.mediaUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    )}
-                  </div>
+              {items.map((item) => {
+                const media = getMediaList(item);
+                const slide = Math.min(gridSlide[item.id] || 0, media.length - 1);
+                const current = media[slide];
 
-                  <div style={{ padding: 14 }}>
-                    <p
-                      style={{
-                        color: "#e5e3f7",
-                        fontSize: 12.5,
-                        margin: "0 0 10px",
-                        minHeight: 18,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                      }}
-                    >
-                      {item.caption || "—"}
-                    </p>
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      background: "linear-gradient(160deg,#1c1840,#211c48)",
+                      borderRadius: 16,
+                      overflow: "hidden",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <div style={{ width: "100%", aspectRatio: "4/3", background: "#000", position: "relative" }}>
+                      {current?.type === "video" ? (
+                        <video src={current.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+                      ) : (
+                        <img src={current?.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                      )}
 
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        fontSize: 11.5,
-                        color: "#8b87ad",
-                        marginBottom: 10,
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <Heart size={12} /> {item.likeCount || 0}
-                      </span>
-                      <span
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <MessageCircle size={12} /> {(item.comments || []).length}
-                      </span>
-                      <span>{formatDate(item.createdAt)}</span>
+                      {media.length > 1 && (
+                        <>
+                          <button
+                            onClick={() => gridPrev(item.id, media.length)}
+                            style={carouselArrowStyle("left")}
+                          >
+                            <ChevronLeft size={16} />
+                          </button>
+                          <button
+                            onClick={() => gridNext(item.id, media.length)}
+                            style={carouselArrowStyle("right")}
+                          >
+                            <ChevronRight size={16} />
+                          </button>
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: 8,
+                              right: 8,
+                              background: "rgba(0,0,0,0.6)",
+                              color: "#fff",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: "2px 8px",
+                              borderRadius: 10,
+                            }}
+                          >
+                            {slide + 1}/{media.length}
+                          </div>
+                        </>
+                      )}
                     </div>
 
-                    <div style={{ display: "flex", gap: 6, marginBottom: confirmDelete === item.id ? 6 : 0 }}>
-                      <button
-                        onClick={() => openEdit(item)}
+                    <div style={{ padding: 14 }}>
+                      <p
                         style={{
-                          flex: 1,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: 6,
-                          border: "1px solid rgba(139,108,245,0.35)",
-                          background: "rgba(139,108,245,0.12)",
-                          color: "#c4b5fd",
-                          fontWeight: 700,
-                          fontSize: 11.5,
-                          padding: "7px 0",
-                          borderRadius: 8,
-                          cursor: "pointer",
+                          color: "#e5e3f7",
+                          fontSize: 12.5,
+                          margin: "0 0 10px",
+                          minHeight: 18,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
                         }}
                       >
-                        <Pencil size={12} />
-                        Edit
-                      </button>
+                        {item.caption || "—"}
+                      </p>
 
-                      {confirmDelete === item.id ? (
-                        <div style={{ display: "flex", gap: 6, flex: 1 }}>
-                          <button
-                            onClick={() => handleDelete(item)}
-                            style={{
-                              flex: 1,
-                              border: "none",
-                              background: "#ef4444",
-                              color: "#fff",
-                              fontWeight: 700,
-                              fontSize: 11.5,
-                              padding: "7px 0",
-                              borderRadius: 8,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Xaqiiji
-                          </button>
-                          <button
-                            onClick={() => setConfirmDelete(null)}
-                            style={{
-                              flex: 1,
-                              border: "1px solid rgba(255,255,255,0.15)",
-                              background: "transparent",
-                              color: "#a9a6c4",
-                              fontWeight: 700,
-                              fontSize: 11.5,
-                              padding: "7px 0",
-                              borderRadius: 8,
-                              cursor: "pointer",
-                            }}
-                          >
-                            Jooji
-                          </button>
-                        </div>
-                      ) : (
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          fontSize: 11.5,
+                          color: "#8b87ad",
+                          marginBottom: 10,
+                        }}
+                      >
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <Heart size={12} /> {item.likeCount || 0}
+                        </span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <MessageCircle size={12} /> {(item.comments || []).length}
+                        </span>
+                        <span>{formatDate(item.createdAt)}</span>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6, marginBottom: confirmDelete === item.id ? 6 : 0 }}>
                         <button
-                          onClick={() => setConfirmDelete(item.id)}
+                          onClick={() => openEdit(item)}
                           style={{
                             flex: 1,
                             display: "inline-flex",
                             alignItems: "center",
                             justifyContent: "center",
                             gap: 6,
-                            border: "1px solid rgba(239,68,68,0.3)",
-                            background: "rgba(239,68,68,0.12)",
-                            color: "#f87171",
+                            border: "1px solid rgba(139,108,245,0.35)",
+                            background: "rgba(139,108,245,0.12)",
+                            color: "#c4b5fd",
                             fontWeight: 700,
                             fontSize: 11.5,
                             padding: "7px 0",
@@ -502,14 +584,73 @@ export default function GalleryManager() {
                             cursor: "pointer",
                           }}
                         >
-                          <Trash2 size={12} />
-                          Tirtir
+                          <Pencil size={12} />
+                          Edit
                         </button>
-                      )}
+
+                        {confirmDelete === item.id ? (
+                          <div style={{ display: "flex", gap: 6, flex: 1 }}>
+                            <button
+                              onClick={() => handleDelete(item)}
+                              style={{
+                                flex: 1,
+                                border: "none",
+                                background: "#ef4444",
+                                color: "#fff",
+                                fontWeight: 700,
+                                fontSize: 11.5,
+                                padding: "7px 0",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Xaqiiji
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              style={{
+                                flex: 1,
+                                border: "1px solid rgba(255,255,255,0.15)",
+                                background: "transparent",
+                                color: "#a9a6c4",
+                                fontWeight: 700,
+                                fontSize: 11.5,
+                                padding: "7px 0",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                              }}
+                            >
+                              Jooji
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDelete(item.id)}
+                            style={{
+                              flex: 1,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 6,
+                              border: "1px solid rgba(239,68,68,0.3)",
+                              background: "rgba(239,68,68,0.12)",
+                              color: "#f87171",
+                              fontWeight: 700,
+                              fontSize: 11.5,
+                              padding: "7px 0",
+                              borderRadius: 8,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <Trash2 size={12} />
+                            Tirtir
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -573,50 +714,80 @@ export default function GalleryManager() {
             </div>
 
             <div style={{ padding: "22px 24px" }}>
-              <label
-                htmlFor="editGalleryFile"
-                style={{
-                  display: "block",
-                  width: "100%",
-                  aspectRatio: "4/3",
-                  borderRadius: 14,
-                  border: "2px dashed rgba(139,108,245,0.4)",
-                  background: editPreview
-                    ? editMediaType === "video"
-                      ? "#000"
-                      : `url(${editPreview}) center/cover`
-                    : "rgba(139,108,245,0.06)",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  overflow: "hidden",
-                  marginBottom: 18,
-                }}
-              >
-                {!editPreview && (
-                  <>
-                    <Upload size={26} color="#8b6cf5" />
-                    <span style={{ color: "#8b87ad", fontSize: 12, marginTop: 8 }}>
-                      Riix si aad sawir/muuqaal cusub uga soo dooratid
-                    </span>
-                  </>
-                )}
-                {editPreview && editMediaType === "video" && (
-                  <video src={editPreview} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
-                )}
+              <label style={{ color: "#a9a6c4", fontSize: 12.5, fontWeight: 700, display: "block", marginBottom: 8 }}>
+                Sawiro/Muuqaallo ({editItems.length})
               </label>
-              <input
-                id="editGalleryFile"
-                type="file"
-                accept="image/*,video/*"
-                onChange={handleEditFileChange}
-                style={{ display: "none" }}
-              />
-              <p style={{ color: "#6b6890", fontSize: 11.5, margin: "-10px 0 18px" }}>
-                Haddii aadan sawir/muuqaal cusub dooran, kii hore ayaa sii jiri doona.
-              </p>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+                {editItems.map((it, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      position: "relative",
+                      width: 84,
+                      height: 84,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      background: "#000",
+                      border: "1px solid rgba(139,108,245,0.3)",
+                    }}
+                  >
+                    {it.type === "video" ? (
+                      <video src={it.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+                    ) : (
+                      <img src={it.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    )}
+                    <button
+                      onClick={() => removeEditItem(i)}
+                      style={{
+                        position: "absolute",
+                        top: 3,
+                        right: 3,
+                        width: 20,
+                        height: 20,
+                        borderRadius: "50%",
+                        border: "none",
+                        background: "rgba(0,0,0,0.75)",
+                        color: "#fff",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+
+                <label
+                  htmlFor="editGalleryFile"
+                  style={{
+                    width: 84,
+                    height: 84,
+                    borderRadius: 12,
+                    border: "2px dashed rgba(139,108,245,0.4)",
+                    background: "rgba(139,108,245,0.06)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  <Upload size={18} color="#8b6cf5" />
+                  <span style={{ color: "#8b87ad", fontSize: 9.5, marginTop: 4 }}>Kudar</span>
+                </label>
+                <input
+                  id="editGalleryFile"
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  onChange={handleEditFileChange}
+                  style={{ display: "none" }}
+                />
+              </div>
 
               <label
                 style={{
@@ -701,4 +872,24 @@ export default function GalleryManager() {
       )}
     </div>
   );
+}
+
+function carouselArrowStyle(side) {
+  return {
+    position: "absolute",
+    top: "50%",
+    [side]: 6,
+    transform: "translateY(-50%)",
+    width: 26,
+    height: 26,
+    borderRadius: "50%",
+    border: "none",
+    background: "rgba(0,0,0,0.55)",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    padding: 0,
+  };
 }

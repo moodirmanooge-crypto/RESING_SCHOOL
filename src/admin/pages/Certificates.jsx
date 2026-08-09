@@ -2,21 +2,30 @@
 // Class Leaving Certificate — AUTO-READ version.
 //
 // Flow:
-// 1. Admin types ONLY: Roll Number, Date of Birth, Student Photo, and the
-//    12 subjects (left = Somali, right = English is auto-mirrored by the
-//    card). Everything else is READ from Firestore.
-// 2. On Roll Number entry (blur / "Fetch"), the system reads:
-//      students/{rollNumber}  -> fullName, motherName (parentName), className, year
-//      results  -> the FINAL class-8 result row for that student (used only
-//                  to confirm the student has a final result; subject marks
-//                  are NOT auto-filled — they are always typed by hand).
-// 3. Result Average is auto-computed from the entered subject marks.
-// 4. Generate saves to `certificates` (doc id = safe Roll Number).
+// 1. Admin types Roll Number, then presses Fetch. The system reads:
+//      students/{rollNumber}          -> fullName, motherName (parentName)
+//      results (where studentId==id) -> ALL "results" docs for that
+//         student, keeps only className == "8" AND examType == "Final",
+//         sorts by marks DESC, and keeps the TOP 6 subjects by marks.
+//         Those 6 auto-fill the ENGLISH (right) subject table — subject
+//         name exactly as stored in Firestore (e.g. "islamic"), and its
+//         marks. This is READ-ONLY / automatic; the admin cannot edit it.
+//         The same 6 subjects are then DUPLICATED into rows 7-12 so the
+//         full 12-row English table is filled (No 1-6 == No 7-12).
+// 2. The SOMALI (left) 12-subject table is always typed by hand, and
+//    is fully independent of the English side (can hold different
+//    subjects, does not have to mirror it).
+// 3. Year and School Name are typed by hand (no longer auto-read).
+// 4. Result Average is auto-computed from ALL entered/auto-filled marks
+//    (English auto 6 + Somali manual 12 combined — the duplicated 7-12
+//    English rows are excluded from the average so they don't double-
+//    count the same 6 marks twice).
+// 5. Generate saves to `certificates` (doc id = safe Roll Number).
 //
-// ⚠️ ADJUST THE FIELD NAMES MARKED «CHECK» BELOW TO MATCH YOUR ACTUAL
-//    Firestore schema (send me a `results` doc screenshot and I'll lock
-//    these exactly). Current guesses are based on your `students` doc:
-//    fullName, motherName, parentName, className, year, studentId.
+// ⚠️ FIELD NAMES CONFIRMED FROM YOUR FIRESTORE SCREENSHOT (results doc):
+//    className, examId, examType, marks, maxMarks, studentId,
+//    studentName, subject, teacherId, teacherName, updatedAt.
+//    Each results doc = ONE subject's mark for ONE student/exam.
 
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -38,12 +47,15 @@ import CertificateCard from "../components/CertificateCard";
 
 const GREEN = "#14532d";
 const SUBJECT_COUNT = 12;
-const FINAL_CLASS = "8"; // «CHECK» kaliya natiijada Final Class 8 ayaa la soo aqrinayaa
+const ENGLISH_AUTO_COUNT = 6; // top 6 subjects by marks, auto-read
+const ENGLISH_DISPLAY_COUNT = 12; // the 6 are duplicated to fill all 12 rows
+const FINAL_CLASS = "8";
+const FINAL_EXAM_TYPE = "Final";
 const VERIFY_BASE_URL =
   typeof window !== "undefined" ? `${window.location.origin}/verify` : "/verify";
 
-function emptySubjects() {
-  return Array.from({ length: SUBJECT_COUNT }, () => ({ name: "", marks: "" }));
+function emptySubjects(count = SUBJECT_COUNT) {
+  return Array.from({ length: count }, () => ({ name: "", marks: "" }));
 }
 
 function emptyForm() {
@@ -55,6 +67,7 @@ function emptyForm() {
     fullName: "",
     motherName: "",
     placeOfBirth: "",
+    // Typed by hand:
     completedSchool: "Rising Star Primary & Secondary School",
     year: "",
   };
@@ -64,10 +77,19 @@ function toSafeDocId(rawId) {
   return rawId.trim().replace(/[\/\s]+/g, "-");
 }
 
-function computeAverage(subjects) {
-  const marks = subjects
-    .map((s) => Number(s.marks))
-    .filter((n) => !isNaN(n) && String(n).trim() !== "");
+// Averages ALL entered marks across BOTH subject tables (English auto-6 +
+// Somali manual-12). Blank/empty marks are correctly excluded so they
+// don't drag the average down toward 0. Only the FIRST 6 English rows
+// are counted (rows 7-12 are a visual duplicate of rows 1-6, so counting
+// them too would double-weight those same 6 marks).
+function computeAverage(subjectsSomali, subjectsEnglish) {
+  const englishForAverage = subjectsEnglish.slice(0, ENGLISH_AUTO_COUNT);
+  const marks = [...subjectsSomali, ...englishForAverage]
+    .map((s) => (s?.marks ?? "").toString().trim())
+    .filter((v) => v !== "")
+    .map((v) => Number(v))
+    .filter((n) => !Number.isNaN(n));
+
   if (marks.length === 0) return "";
   const avg = marks.reduce((a, b) => a + b, 0) / marks.length;
   return Math.round(avg * 10) / 10;
@@ -142,40 +164,165 @@ async function downloadCertificateImage(name, elementId = "certificate-render-ca
   }
 }
 
-function printCertificate(elementId = "certificate-render-card") {
+// Prints on a single clean A4 landscape page (the certificate is wider
+// than tall), no browser header/footer padding, scaled to fill the page.
+// Rebuilt to snapshot the certificate via html2canvas FIRST (same as the
+// PDF/image downloads), then print that single flat image — this avoids
+// the blank-page bug caused by the background template image and student
+// photo (crossOrigin="anonymous") failing to (re)load inside a fresh
+// about:blank print window with a different origin/base URL.
+async function printCertificate(elementId = "certificate-render-card") {
   const node = document.getElementById(elementId);
   if (!node) return;
-  const html = node.outerHTML;
-  const win = window.open("", "_blank", "width=1200,height=850");
-  if (!win) {
-    window.print();
-    return;
+  try {
+    if (!window.html2canvas) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = resolve;
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+    }
+    const rect = node.getBoundingClientRect();
+    const canvas = await window.html2canvas(node, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height),
+      windowWidth: document.documentElement.scrollWidth,
+    });
+    const imgData = canvas.toDataURL("image/png");
+
+    const win = window.open("", "_blank", "width=1200,height=850");
+    if (!win) {
+      window.print();
+      return;
+    }
+    win.document.open();
+    win.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Certificate</title>
+          <meta charset="utf-8" />
+          <style>
+            @page { size: A4 landscape; margin: 0; }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: #fff;
+              width: 297mm;
+              height: 210mm;
+              overflow: hidden;
+            }
+            img {
+              position: absolute;
+              top: 0;
+              left: 0;
+              width: 297mm;
+              height: 210mm;
+              object-fit: fill;
+              margin: 0;
+            }
+            @media print {
+              html, body { width: 297mm; height: 210mm; }
+            }
+          </style>
+        </head>
+        <body>
+          <img src="${imgData}" />
+          <script>
+            window.onload = function () {
+              setTimeout(function () { window.focus(); window.print(); }, 300);
+            };
+            window.onafterprint = function () { window.close(); };
+          <\/script>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  } catch (err) {
+    console.log("Print snapshot failed:", err);
   }
-  win.document.open();
-  win.document.write(`
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <title>Certificate</title>
-        <meta charset="utf-8" />
-        <style>
-          @page { size: A4 landscape; margin: 0; }
-          html, body { margin: 0; padding: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          .print-wrap { width: 100%; display: flex; align-items: center; justify-content: center; }
-          .print-wrap > * { width: 100% !important; max-width: 100% !important; }
-          @media print { .print-wrap { page-break-inside: avoid; } }
-        </style>
-      </head>
-      <body>
-        <div class="print-wrap">${html}</div>
-        <script>
-          window.onload = function () { setTimeout(function () { window.focus(); window.print(); }, 400); };
-          window.onafterprint = function () { window.close(); };
-        <\/script>
-      </body>
-    </html>
-  `);
-  win.document.close();
+}
+
+// Downloads a real A4-landscape PDF file (no print dialog) using
+// html2canvas (snapshot the certificate) + jsPDF (place it on an A4
+// landscape page, scaled to fill the page edge-to-edge). Both libs are
+// lazy-loaded from CDN only once, then cached on `window`.
+async function downloadCertificatePdf(name, elementId = "certificate-render-card") {
+  const node = document.getElementById(elementId);
+  if (!node) return;
+  try {
+    if (!window.html2canvas) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.onload = resolve;
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+    }
+    if (!window.jspdf) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+        script.onload = resolve;
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+    }
+
+    const rect = node.getBoundingClientRect();
+    const canvas = await window.html2canvas(node, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height),
+      windowWidth: document.documentElement.scrollWidth,
+    });
+
+    const imgData = canvas.toDataURL("image/png");
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+      orientation: "landscape",
+      unit: "mm",
+      format: "a4",
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth(); // 297mm
+    const pageHeight = pdf.internal.pageSize.getHeight(); // 210mm
+
+    // Fit the certificate image edge-to-edge on the A4 landscape page,
+    // preserving aspect ratio and centering it (letterboxed if the
+    // certificate's own ratio isn't exactly 297:210).
+    const imgRatio = canvas.width / canvas.height;
+    const pageRatio = pageWidth / pageHeight;
+
+    let drawWidth, drawHeight;
+    if (imgRatio > pageRatio) {
+      drawWidth = pageWidth;
+      drawHeight = pageWidth / imgRatio;
+    } else {
+      drawHeight = pageHeight;
+      drawWidth = pageHeight * imgRatio;
+    }
+    const offsetX = (pageWidth - drawWidth) / 2;
+    const offsetY = (pageHeight - drawHeight) / 2;
+
+    pdf.addImage(imgData, "PNG", offsetX, offsetY, drawWidth, drawHeight);
+    pdf.save(`Certificate-${(name || "student").replace(/\s+/g, "-")}.pdf`);
+  } catch (err) {
+    console.log("PDF generation failed, falling back to print:", err);
+    printCertificate(elementId);
+  }
 }
 
 export default function Certificates() {
@@ -187,7 +334,11 @@ export default function Certificates() {
   const [fetchMsg, setFetchMsg] = useState("");
 
   const [form, setForm] = useState(emptyForm());
-  const [subjects, setSubjects] = useState(emptySubjects());
+  // Somali (left) table = always typed by hand, independent, 12 rows.
+  const [subjectsSomali, setSubjectsSomali] = useState(emptySubjects(SUBJECT_COUNT));
+  // English (right) table = auto-read TOP 6 subjects by marks, DUPLICATED
+  // into all 12 rows (rows 1-6 == rows 7-12), read-only.
+  const [subjectsEnglish, setSubjectsEnglish] = useState(emptySubjects(ENGLISH_DISPLAY_COUNT));
   const [photo, setPhoto] = useState("");
   const [photoFile, setPhotoFile] = useState(null);
 
@@ -195,7 +346,10 @@ export default function Certificates() {
   const [viewCert, setViewCert] = useState(null);
   const [search, setSearch] = useState("");
 
-  const resultAverage = useMemo(() => computeAverage(subjects), [subjects]);
+  const resultAverage = useMemo(
+    () => computeAverage(subjectsSomali, subjectsEnglish),
+    [subjectsSomali, subjectsEnglish]
+  );
 
   useEffect(() => {
     load();
@@ -215,7 +369,7 @@ export default function Certificates() {
     }
   }
 
-  // ── Roll Number entered → read student + final class-8 result ──────────
+  // ── Roll Number entered → read student + auto top-6 Final-8 subjects ──
   async function handleFetchStudent() {
     const roll = form.rollNumber.trim();
     if (!roll) {
@@ -236,54 +390,49 @@ export default function Certificates() {
         return;
       }
       const st = studentSnap.data();
-
-      // «CHECK» field names — based on your students doc:
-      //   fullName, motherName / parentName, className, year
       const fullName = st.fullName || "";
       const motherName = st.motherName || st.parentName || "";
-      const className = (st.className || "").toString();
-      const year = (st.year || st.academicYear || "").toString();
 
-      // 2) Read the FINAL class-8 result for this student from `results`.
-      //    «CHECK» — how results link to the student & how the year/class
-      //    is stored. Common patterns handled below; adjust as needed.
-      //    NOTE: this is only used to confirm a final result exists and to
-      //    show a status message — subject marks are NEVER auto-filled from
-      //    it. The 12 subjects are always typed by hand below.
-      let resultRow = null;
-      try {
-        // Try: results where studentId == roll AND className == "8"
-        const rq = fsQuery(
-          collection(db, "results"),
-          where("studentId", "==", id)
-        );
-        const rSnap = await getDocs(rq);
-        const rows = rSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        // keep only the FINAL class-8 row (by className or year label)
-        resultRow =
-          rows.find((r) => (r.className || "").toString() === FINAL_CLASS) ||
-          rows[0] ||
-          null;
-      } catch (e) {
-        console.log("results query failed (adjust field names):", e);
-      }
+      // 2) Read ALL `results` docs for this student, keep only the FINAL
+      //    class-8 rows, sort by marks DESC, take the top 6 subjects.
+      //    Each results doc = { className, examType, subject, marks,
+      //    maxMarks, studentId, ... } — one subject per doc.
+      const rq = fsQuery(collection(db, "results"), where("studentId", "==", id));
+      const rSnap = await getDocs(rq);
+      const rows = rSnap.docs.map((d) => d.data());
 
-      // Maadooyinka LAMA soo aqrinayo — mid kastaa gooni ayaa gacanta
-      // loogu qorayaa (12-ka maado). Kaliya magaca, hooyada iyo sanadka
-      // ayaa la soo aqrinayaa.
-
-      setForm((f) => ({
-        ...f,
-        fullName,
-        motherName,
-        year: year || className, // fallback: use class as year label if no year
-      }));
-
-      setFetchMsg(
-        resultRow
-          ? "✅ Xogta ardayga iyo natiijada la soo aqriyay."
-          : "⚠️ Ardayga waa la helay, laakiin natiijo Final-8 lama helin — maadooyinka gacanta ku qor."
+      const finalRows = rows.filter(
+        (r) =>
+          (r.className || "").toString() === FINAL_CLASS &&
+          (r.examType || "").toString() === FINAL_EXAM_TYPE
       );
+
+      const top6 = [...finalRows]
+        .sort((a, b) => (Number(b.marks) || 0) - (Number(a.marks) || 0))
+        .slice(0, ENGLISH_AUTO_COUNT)
+        .map((r) => ({
+          name: r.subject || "",
+          marks: r.marks !== undefined && r.marks !== null ? String(r.marks) : "",
+        }));
+
+      // Pad the top-6 to exactly 6 rows, then DUPLICATE those same 6 rows
+      // into rows 7-12 so the full 12-row English table is filled
+      // (No 1-6 on screen == No 7-12 on screen, same subjects/marks).
+      const paddedTop6 = Array.from({ length: ENGLISH_AUTO_COUNT }, (_, i) => top6[i] || { name: "", marks: "" });
+      const duplicated12 = [...paddedTop6, ...paddedTop6];
+
+      setForm((f) => ({ ...f, fullName, motherName }));
+      setSubjectsEnglish(duplicated12);
+
+      if (finalRows.length === 0) {
+        setFetchMsg(
+          "⚠️ Ardayga waa la helay, laakiin natiijo Final-8 lama helin — maadooyinka English-ka looma soo aqrin karin."
+        );
+      } else {
+        setFetchMsg(
+          `✅ Xogta ardayga la soo aqriyay — ${Math.min(finalRows.length, ENGLISH_AUTO_COUNT)} maado oo ugu sarreeya marks ayaa si toos ah loo buuxiyay (oo laba jibbaaray si buuxda loogu soo bandhigo).`
+        );
+      }
     } catch (e) {
       console.error("Fetch error:", e);
       setFetchMsg("Khalad ayaa dhacay markii xogta la soo aqrinayay.");
@@ -302,8 +451,8 @@ export default function Certificates() {
     );
   }, [certificates, search]);
 
-  function updateSubject(index, field, value) {
-    setSubjects((prev) => {
+  function updateSubjectSomali(index, field, value) {
+    setSubjectsSomali((prev) => {
       const next = [...prev];
       next[index] = { ...next[index], [field]: value };
       return next;
@@ -325,7 +474,8 @@ export default function Certificates() {
 
   function resetForm() {
     setForm(emptyForm());
-    setSubjects(emptySubjects());
+    setSubjectsSomali(emptySubjects(SUBJECT_COUNT));
+    setSubjectsEnglish(emptySubjects(ENGLISH_DISPLAY_COUNT));
     setPhoto("");
     setPhotoFile(null);
     setFetchMsg("");
@@ -370,7 +520,11 @@ export default function Certificates() {
         photoUrl = photo;
       }
 
-      const cleanSubjects = subjects
+      const cleanSubjectsSomali = subjectsSomali
+        .filter((s) => s.name.trim() || s.marks.toString().trim())
+        .map((s) => ({ name: s.name.trim(), marks: s.marks.toString().trim() }));
+
+      const cleanSubjectsEnglish = subjectsEnglish
         .filter((s) => s.name.trim() || s.marks.toString().trim())
         .map((s) => ({ name: s.name.trim(), marks: s.marks.toString().trim() }));
 
@@ -384,7 +538,8 @@ export default function Certificates() {
         rollNumber: form.rollNumber.trim(),
         issueDate: form.issueDate.trim(),
         resultAverage: resultAverage === "" ? "" : resultAverage,
-        subjects: cleanSubjects,
+        subjects: cleanSubjectsSomali,
+        subjectsEnglish: cleanSubjectsEnglish,
         studentPhoto: photoUrl,
         createdAt: existing.exists() ? existing.data().createdAt : serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -427,9 +582,12 @@ export default function Certificates() {
             Class Leaving Certificates
           </h1>
           <p style={{ fontSize: 13.5, color: "#6B7280", margin: "0 0 24px" }}>
-            Geli Roll Number-ka, riix Fetch — magaca, magaca hooyada iyo sanadka waa la
-            soo aqrinayaa. Kaliya Taariikhda Dhalashada, Sawirka iyo Maadooyinka ayaa
-            gacanta lagu qoraa.
+            Geli Roll Number-ka, riix Fetch — magaca, magaca hooyada, iyo 6-ka
+            maado ee English-ka ee ugu sarreeya marks (natiijada Final-8) waa
+            la soo aqrinayaa si toos ah, oo laba jibbaaran si loo buuxiyo
+            dhammaan 12-ka saf. Sanadka, Magaca Dugsiga, Taariikhda
+            Dhalashada, Sawirka, iyo 12-ka Maado ee Soomaaliga ayaa gacanta
+            lagu qoraa.
           </p>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 22 }} className="cert-row">
@@ -465,11 +623,30 @@ export default function Certificates() {
                   )}
                 </Field>
 
-                {/* Auto-filled read-only summary */}
+                {/* Auto-filled read-only summary (name only) */}
                 <div style={{ padding: "10px 12px", borderRadius: 10, background: "#F9FAFB", border: "1px solid rgba(17,24,39,0.08)", fontSize: 12.5, color: "#374151", display: "flex", flexDirection: "column", gap: 4 }}>
                   <div><b>Magaca:</b> {form.fullName || "—"}</div>
                   <div><b>Magaca Hooyada:</b> {form.motherName || "—"}</div>
-                  <div><b>Sanadka:</b> {form.year || "—"}</div>
+                </div>
+
+                {/* Manual: Year + School Name */}
+                <div style={{ display: "flex", gap: 12 }}>
+                  <Field label="Year / Sanadka (gacanta)">
+                    <input
+                      value={form.year}
+                      onChange={(e) => setForm({ ...form, year: e.target.value })}
+                      placeholder="e.g. 2026/2027"
+                      style={inputStyle}
+                    />
+                  </Field>
+                  <Field label="School Name / Magaca Dugsiga (gacanta)">
+                    <input
+                      value={form.completedSchool}
+                      onChange={(e) => setForm({ ...form, completedSchool: e.target.value })}
+                      placeholder="e.g. Rising Star Primary & Secondary School"
+                      style={inputStyle}
+                    />
+                  </Field>
                 </div>
 
                 {/* Manual: Place + DOB */}
@@ -514,25 +691,49 @@ export default function Certificates() {
                   </div>
                 </Field>
 
-                {/* Manual: 12 subjects */}
+                {/* Manual: 12 subjects — Somali (left table) — independent */}
                 <div style={{ fontSize: 12.5, color: "#6B7280", fontWeight: 700, marginTop: 6 }}>
                   Maadooyinka (12) — Soomaali (bidix) — gacanta ku qor
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 70px", gap: 8, alignItems: "center" }}>
-                  {subjects.map((s, i) => (
-                    <div key={i} style={{ display: "contents" }}>
+                  {subjectsSomali.map((s, i) => (
+                    <div key={`so-${i}`} style={{ display: "contents" }}>
                       <span style={{ fontSize: 12, color: "#9CA3AF", textAlign: "center" }}>{i + 1}</span>
                       <input
                         value={s.name}
-                        onChange={(e) => updateSubject(i, "name", e.target.value)}
+                        onChange={(e) => updateSubjectSomali(i, "name", e.target.value)}
                         placeholder={`Maado ${i + 1}`}
                         style={{ ...inputStyle, padding: "7px 10px" }}
                       />
                       <input
                         value={s.marks}
-                        onChange={(e) => updateSubject(i, "marks", e.target.value)}
+                        onChange={(e) => updateSubjectSomali(i, "marks", e.target.value)}
                         placeholder="Dhibco"
                         style={{ ...inputStyle, padding: "7px 10px" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                {/* AUTO: top 6 English subjects by marks, duplicated to 12 rows — read-only */}
+                <div style={{ fontSize: 12.5, color: "#6B7280", fontWeight: 700, marginTop: 12 }}>
+                  Subjects (12) — English (midig) — si toos ah ayaa loo soo aqrinayaa (6-ka la soo aqriyay ayaa laba jibbaaran)
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 70px", gap: 8, alignItems: "center" }}>
+                  {subjectsEnglish.map((s, i) => (
+                    <div key={`en-${i}`} style={{ display: "contents" }}>
+                      <span style={{ fontSize: 12, color: "#9CA3AF", textAlign: "center" }}>{i + 1}</span>
+                      <input
+                        value={s.name}
+                        readOnly
+                        placeholder={`Subject ${i + 1}`}
+                        style={{ ...inputStyle, padding: "7px 10px", background: "#F3F4F6", color: "#374151", cursor: "not-allowed" }}
+                      />
+                      <input
+                        value={s.marks}
+                        readOnly
+                        placeholder="Marks"
+                        style={{ ...inputStyle, padding: "7px 10px", background: "#F3F4F6", color: "#374151", cursor: "not-allowed" }}
                       />
                     </div>
                   ))}
@@ -559,6 +760,9 @@ export default function Certificates() {
                   <button onClick={() => downloadCertificateImage(previewCert.fullName)} style={{ marginTop: 10, width: "100%", padding: "11px 0", borderRadius: 12, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
                     ⬇️ Download Certificate Image
                   </button>
+                  <button onClick={() => downloadCertificatePdf(previewCert.fullName)} style={{ marginTop: 10, width: "100%", padding: "11px 0", borderRadius: 12, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
+                    📄 Download PDF
+                  </button>
                   <button onClick={() => printCertificate("certificate-render-card")} style={{ marginTop: 10, width: "100%", padding: "11px 0", borderRadius: 12, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>
                     🖨️ Print Certificate
                   </button>
@@ -582,7 +786,8 @@ export default function Certificates() {
                     year: form.year,
                     rollNumber: form.rollNumber,
                     resultAverage,
-                    subjects,
+                    subjects: subjectsSomali,
+                    subjectsEnglish,
                     studentPhoto: photo,
                     issueDate: form.issueDate,
                   }}
@@ -651,6 +856,7 @@ export default function Certificates() {
               <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>{viewCert.fullName} — Certificate</div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button onClick={() => downloadCertificateImage(viewCert.fullName, "certificate-view-modal-card")} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>⬇️ Download</button>
+                <button onClick={() => downloadCertificatePdf(viewCert.fullName, "certificate-view-modal-card")} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>📄 PDF</button>
                 <button onClick={() => printCertificate("certificate-view-modal-card")} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${GREEN}`, background: "#fff", color: GREEN, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>🖨️ Print</button>
                 <button onClick={() => setViewCert(null)} style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(17,24,39,0.15)", background: "#fff", color: "#6B7280", fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>✕ Close</button>
               </div>

@@ -11,6 +11,12 @@
 // Layout: LEFT half = Somali column, RIGHT half = English column.
 // Both halves are mirrored horizontally at IDENTICAL row heights, so
 // every Somali field and its English twin share the same `top`.
+//
+// NOTE: The 12-subject table is INDEPENDENT per side. This component
+// itself doesn't care which side is auto-read vs hand-typed — it just
+// renders whatever is passed in `subjects` (Somali/left table) and
+// `subjectsEnglish` (English/right table). The auto-read vs manual
+// logic lives in Certificates.jsx.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import certificateTemplate from "./assets/certificate-template.png";
@@ -18,13 +24,16 @@ import certificateTemplate from "./assets/certificate-template.png";
 const CARD_W = 900;
 const RATIO = 2481 / 3508;
 
+// School name is fixed — always "Rising Star School" on both sides.
+const SCHOOL_NAME = "Rising Star School";
+
 // Font sizes — per-field, tuned to match the real printed certificate's
 // proportions (wider fields get smaller text so they never overflow).
 const FONT = {
-  name: 13,
-  mother: 12.5,
-  dob: 12,
-  school: 10.5,
+  name: 14,
+  mother: 11.5,
+  dob: 11,
+  school: 8,
   year: 12.5,
   roll: 12.5,
   result: 12.5,
@@ -44,49 +53,51 @@ const PHOTO_BOX = { left: 45.0, top: 33.5, width: 10.3, height: 16.5 };
 // Qoraalku wuxuu ku dul dhacaa xariiqda (underline), ee kuma dul dhaco
 // label-ka. `left` waa halka blank-ku ka bilaabmayo (label-ka ka dib).
 const FIELD_SOMALI = {
-  fullName: { top: 38.6, left: 18.0, right: 44.0 },
-  motherName: { top: 41.7, left: 25.5, right: 44.0 },
-  placeDob: { top: 44.7, left: 34.5, right: 44.0 },
-  year: { top: 50.6, left: 21.5, right: 67.0 },
-  rollNumber: { top: 50.6, left: 41.0, right: 44.0 },
-  resultAverage: { top: 53.6, left: 34.5, right: 44.5 },
+  fullName: { top: 37.6, left: 15.0, right: 44.0 },
+  motherName: { top: 40.5, left: 24.5, right: 40.0 },
+  placeDob: { top: 43.5, left: 31.5, right: 43.0 },
+  schoolName: { top: 46.5, left: 36.0, right: 8.0 },
+  year: { top: 50.1, left: 16.5, right: 67.0 },
+  rollNumber: { top: 49.9, left: 35.9, right: 44.0 },
+  resultAverage: { top: 53.3, left: 32.5, right: 44.5 },
 };
 
 // Goobaha qoraalada Ingiriiska (English Fields) — DHINACA MIDIG (right half)
 const FIELD = {
-  fullName: { top: 38.6, left: 65.5, right: 7.5 },
-  motherName: { top: 41.7, left: 72.5, right: 7.5 },
-  placeDob: { top: 44.7, left: 75.5, right: 7.5 },
-  year: { top: 50.6, left: 65.5, right: 24.5 },
-  rollNumber: { top: 50.6, left: 84.0, right: 7.5 },
-  resultAverage: { top: 53.6, left: 73.5, right: 11.0 },
+  fullName: { top: 37.6, left: 62.5, right: 8.5 },
+  motherName: { top: 40.7, left: 69.5, right: 7.5 },
+  placeDob: { top: 43.5, left: 70.5, right: 7.5 },
+  schoolName: { top: 46.5, left: 74.5, right: 2.0 },
+  year: { top: 50.6, left: 60.5, right: 24.5 },
+  rollNumber: { top: 50.5, left: 81.0, right: 7.5 },
+  resultAverage: { top: 53.5, left: 70.0, right: 11.0 },
 };
 
 // Miisaska Maadooyinka (Rows Y-axis) — top edge of each row's text line
-const ROW_TOPS = [60.8, 63.2, 65.6, 68.0, 70.4, 72.8];
+const ROW_TOPS = [61.2, 63.6, 66.0, 68.4, 70.8, 73.2];
 
 const TABLE_SOMALI_A = {
-  subjectLeft: 17.8, subjectRight: 32.5,
-  marksLeft: 34.3, marksRight: 39.8,
+  subjectLeft: 13.8, subjectRight: 40.2,
+  marksLeft: 10.5, marksRight: 39.7,
 };
 const TABLE_SOMALI_B = {
-  subjectLeft: 44.3, subjectRight: 49.5,
-  marksLeft: 51.0, marksRight: 55.0,
+  subjectLeft: 31.3, subjectRight: 49.5,
+  marksLeft: 28.0, marksRight: 55.0,
 };
 
 const TABLE_ENGLISH_A = {
-  subjectLeft: 60.0, subjectRight: 73.5,
-  marksLeft: 75.0, marksRight: 80.5,
+  subjectLeft: 61.0, subjectRight: 73.5,
+  marksLeft: 65.0, marksRight: 80.5,
 };
 const TABLE_ENGLISH_B = {
-  subjectLeft: 84.0, subjectRight: 89.5,
-  marksLeft: 91.0, marksRight: 95.5,
+  subjectLeft: 80.0, subjectRight: 89.5,
+  marksLeft: 91.2, marksRight: 96.0,
 };
 
 // Taariikhda la bixiyay (Date of Issue) — printed as three short slots
 // ( __ / __ / __ ) rather than one long blank, on both sides.
-const ISSUE_DATE_SOMALI = { top: 78.6, left: 25.0, right: 44.0 };
-const ISSUE_DATE = { top: 78.6, left: 71.5, right: 7.5 };
+const ISSUE_DATE_SOMALI = { top: 83.6, left: 27.2, right: 44.0 };
+const ISSUE_DATE = { top: 83.5, left: 66.5, right: 7.5 };
 
 export default function CertificateCard({ certificate, verifyUrl, elementId }) {
   const {
@@ -97,14 +108,26 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
     year,
     rollNumber,
     resultAverage,
+    // Somali (left) table — now hand-typed by the teacher, 12 rows.
     subjects = [],
+    // English (right) table — now auto-read (top 6 by marks). If not
+    // supplied (or empty), falls back to mirroring `subjects` so older
+    // callers keep working unchanged.
+    subjectsEnglish,
     studentPhoto,
     issueDate,
   } = certificate || {};
 
   const placeDobText = [placeOfBirth, dateOfBirth].filter(Boolean).join(" - ");
-  const firstSix = subjects.slice(0, 6);
-  const lastSix = subjects.slice(6, 12);
+
+  const somaliSubjects = subjects;
+  const englishSubjects =
+    subjectsEnglish && subjectsEnglish.length ? subjectsEnglish : subjects;
+
+  const firstSixSo = somaliSubjects.slice(0, 6);
+  const lastSixSo = somaliSubjects.slice(6, 12);
+  const firstSixEn = englishSubjects.slice(0, 6);
+  const lastSixEn = englishSubjects.slice(6, 12);
 
   const qrSrc = verifyUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(
@@ -157,6 +180,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       <FitText text={fullName} {...FIELD_SOMALI.fullName} maxFontPx={FONT.name} />
       <FitText text={motherName} {...FIELD_SOMALI.motherName} maxFontPx={FONT.mother} />
       <FitText text={placeDobText} {...FIELD_SOMALI.placeDob} maxFontPx={FONT.dob} />
+      <FitText text={SCHOOL_NAME} {...FIELD_SOMALI.schoolName} maxFontPx={FONT.school} />
       <FitText text={year} {...FIELD_SOMALI.year} maxFontPx={FONT.year} />
       <FitText text={rollNumber} {...FIELD_SOMALI.rollNumber} maxFontPx={FONT.roll} />
       <FitText
@@ -170,6 +194,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       <FitText text={fullName} {...FIELD.fullName} maxFontPx={FONT.name} />
       <FitText text={motherName} {...FIELD.motherName} maxFontPx={FONT.mother} />
       <FitText text={placeDobText} {...FIELD.placeDob} maxFontPx={FONT.dob} />
+      <FitText text={SCHOOL_NAME} {...FIELD.schoolName} maxFontPx={FONT.school} />
       <FitText text={year} {...FIELD.year} maxFontPx={FONT.year} />
       <FitText text={rollNumber} {...FIELD.rollNumber} maxFontPx={FONT.roll} />
       <FitText
@@ -180,7 +205,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       <FitText text={issueDate} {...ISSUE_DATE} maxFontPx={FONT.issue} />
 
       {/* Subjects - Somali A (left table, cols 1-6) */}
-      {firstSix.map((s, i) => (
+      {firstSixSo.map((s, i) => (
         <div key={`so-a-${i}`}>
           <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_SOMALI_A.subjectLeft} right={100 - TABLE_SOMALI_A.subjectRight} maxFontPx={FONT.subject} align="left" />
           <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_SOMALI_A.marksLeft} right={100 - TABLE_SOMALI_A.marksRight} maxFontPx={FONT.marks} align="center" />
@@ -188,7 +213,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       ))}
 
       {/* Subjects - Somali B (left table, cols 7-12) */}
-      {lastSix.map((s, i) => (
+      {lastSixSo.map((s, i) => (
         <div key={`so-b-${i}`}>
           <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_SOMALI_B.subjectLeft} right={100 - TABLE_SOMALI_B.subjectRight} maxFontPx={FONT.subject} align="left" />
           <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_SOMALI_B.marksLeft} right={100 - TABLE_SOMALI_B.marksRight} maxFontPx={FONT.marks} align="center" />
@@ -196,7 +221,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       ))}
 
       {/* Subjects - English A (right table, cols 1-6) */}
-      {firstSix.map((s, i) => (
+      {firstSixEn.map((s, i) => (
         <div key={`en-a-${i}`}>
           <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_ENGLISH_A.subjectLeft} right={100 - TABLE_ENGLISH_A.subjectRight} maxFontPx={FONT.subject} align="left" />
           <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_ENGLISH_A.marksLeft} right={100 - TABLE_ENGLISH_A.marksRight} maxFontPx={FONT.marks} align="center" />
@@ -204,7 +229,7 @@ export default function CertificateCard({ certificate, verifyUrl, elementId }) {
       ))}
 
       {/* Subjects - English B (right table, cols 7-12) */}
-      {lastSix.map((s, i) => (
+      {lastSixEn.map((s, i) => (
         <div key={`en-b-${i}`}>
           <FitText text={s?.name} top={ROW_TOPS[i]} left={TABLE_ENGLISH_B.subjectLeft} right={100 - TABLE_ENGLISH_B.subjectRight} maxFontPx={FONT.subject} align="left" />
           <FitText text={s?.marks} top={ROW_TOPS[i]} left={TABLE_ENGLISH_B.marksLeft} right={100 - TABLE_ENGLISH_B.marksRight} maxFontPx={FONT.marks} align="center" />

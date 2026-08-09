@@ -1,5 +1,5 @@
 // src/pages/Gallery.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "../styles/gallery.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
@@ -55,6 +55,427 @@ function formatCount(n) {
   return (val % 1 === 0 ? val.toFixed(0) : val.toFixed(1)) + "M";
 }
 
+// Returns the list of {url, type} media for a gallery doc, whether it
+// was created with the new multi-media `mediaItems` array or the old
+// single `mediaUrl`/`mediaType` fields — so old posts keep working
+// unchanged (shown as a one-item grid/carousel).
+function getMediaList(item) {
+  if (Array.isArray(item?.mediaItems) && item.mediaItems.length > 0) {
+    return item.mediaItems;
+  }
+  if (item?.mediaUrl) {
+    return [{ url: item.mediaUrl, type: item.mediaType || "image" }];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------
+// Facebook-style multi-photo grid for the feed: 1 photo = full width,
+// 2 = side by side, 3 = one big + two stacked, 4+ = 2x2 with a "+N"
+// overlay on the last tile when there are more than 4. Tapping ANY tile
+// opens the fullscreen Lightbox starting at that photo's index — exactly
+// like tapping a Facebook post's photo grid opens the full-screen viewer.
+// ---------------------------------------------------------------------
+function PostMediaGrid({ media, onOpen }) {
+  if (!media || media.length === 0) return null;
+  const count = media.length;
+
+  function Tile({ item, idx, overlay }) {
+    return (
+      <div
+        onClick={() => onOpen(idx)}
+        style={{
+          position: "relative",
+          width: "100%",
+          height: "100%",
+          overflow: "hidden",
+          cursor: "pointer",
+          background: "#000",
+        }}
+      >
+        {item.type === "video" ? (
+          <video src={item.url} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} muted />
+        ) : (
+          <img src={item.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        )}
+        {item.type === "video" && !overlay && (
+          <span className="gal-video-badge">▶ Video</span>
+        )}
+        {overlay}
+      </div>
+    );
+  }
+
+  if (count === 1) {
+    return (
+      <div className="gal-media-wrap" style={{ position: "relative", cursor: "pointer" }}>
+        <Tile item={media[0]} idx={0} />
+      </div>
+    );
+  }
+
+  if (count === 2) {
+    return (
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, aspectRatio: "16/9", borderRadius: 12, overflow: "hidden" }}>
+        {media.map((m, i) => (
+          <Tile key={i} item={m} idx={i} />
+        ))}
+      </div>
+    );
+  }
+
+  if (count === 3) {
+    return (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr 1fr",
+          gridTemplateRows: "1fr 1fr",
+          gap: 2,
+          aspectRatio: "4/3",
+          borderRadius: 12,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ gridRow: "1 / 3" }}>
+          <Tile item={media[0]} idx={0} />
+        </div>
+        <Tile item={media[1]} idx={1} />
+        <Tile item={media[2]} idx={2} />
+      </div>
+    );
+  }
+
+  // 4 or more
+  const extra = count - 4;
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        gridTemplateRows: "1fr 1fr",
+        gap: 2,
+        aspectRatio: "1/1",
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      {media.slice(0, 4).map((m, i) => {
+        if (i === 3 && extra > 0) {
+          return (
+            <Tile
+              key={i}
+              item={m}
+              idx={i}
+              overlay={
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "rgba(0,0,0,0.55)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontSize: 30,
+                    fontWeight: 800,
+                  }}
+                >
+                  +{extra}
+                </div>
+              }
+            />
+          );
+        }
+        return <Tile key={i} item={m} idx={i} />;
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Fullscreen photo/video viewer (Facebook-style lightbox): dark
+// near-black backdrop, the media centered and scaled to fit, round
+// prev/next arrow buttons on the sides, an index counter, and a close
+// (✕) button — opened by tapping any photo in a post's grid, starting
+// at that exact photo. Supports left/right arrow keys and Escape.
+// ---------------------------------------------------------------------
+function Lightbox({ media, startIndex, onClose }) {
+  const [index, setIndex] = useState(startIndex);
+
+  useEffect(() => {
+    setIndex(startIndex);
+  }, [startIndex]);
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft") setIndex((i) => (i > 0 ? i - 1 : media.length - 1));
+      if (e.key === "ArrowRight") setIndex((i) => (i < media.length - 1 ? i + 1 : 0));
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [media, onClose]);
+
+  if (!media || media.length === 0) return null;
+  const current = media[Math.min(index, media.length - 1)];
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.94)",
+        zIndex: 2000,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        aria-label="Close"
+        style={{
+          position: "absolute",
+          top: 18,
+          left: 18,
+          width: 40,
+          height: 40,
+          borderRadius: "50%",
+          border: "none",
+          background: "rgba(255,255,255,0.15)",
+          color: "#fff",
+          fontSize: 20,
+          cursor: "pointer",
+          zIndex: 3,
+        }}
+      >
+        ✕
+      </button>
+
+      {media.length > 1 && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIndex((i) => (i > 0 ? i - 1 : media.length - 1));
+          }}
+          aria-label="Previous"
+          style={{
+            position: "absolute",
+            left: 20,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 50,
+            height: 50,
+            borderRadius: "50%",
+            border: "none",
+            background: "rgba(255,255,255,0.15)",
+            color: "#fff",
+            fontSize: 26,
+            cursor: "pointer",
+            zIndex: 3,
+          }}
+        >
+          ‹
+        </button>
+      )}
+
+      <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh" }}>
+        {current.type === "video" ? (
+          <video
+            src={current.url}
+            controls
+            autoPlay
+            style={{ maxWidth: "90vw", maxHeight: "88vh", display: "block" }}
+          />
+        ) : (
+          <img
+            src={current.url}
+            alt=""
+            style={{ maxWidth: "90vw", maxHeight: "88vh", objectFit: "contain", display: "block" }}
+          />
+        )}
+      </div>
+
+      {media.length > 1 && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIndex((i) => (i < media.length - 1 ? i + 1 : 0));
+          }}
+          aria-label="Next"
+          style={{
+            position: "absolute",
+            right: 20,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: 50,
+            height: 50,
+            borderRadius: "50%",
+            border: "none",
+            background: "rgba(255,255,255,0.15)",
+            color: "#fff",
+            fontSize: 26,
+            cursor: "pointer",
+            zIndex: 3,
+          }}
+        >
+          ›
+        </button>
+      )}
+
+      {media.length > 1 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: 22,
+            left: "50%",
+            transform: "translateX(-50%)",
+            color: "#fff",
+            fontSize: 13.5,
+            fontWeight: 600,
+            background: "rgba(255,255,255,0.15)",
+            padding: "5px 16px",
+            borderRadius: 14,
+          }}
+        >
+          {Math.min(index, media.length - 1) + 1} / {media.length}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One-at-a-time media carousel (used inside the comments side-modal),
+// with prev/next arrows and dot indicators when a post has more than
+// one photo/video, plus basic touch-swipe support for mobile.
+function MediaCarousel({ media, videoBadge = true }) {
+  const [index, setIndex] = useState(0);
+  const touchStartX = useRef(null);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [media]);
+
+  if (!media || media.length === 0) return null;
+  const safeIndex = Math.min(index, media.length - 1);
+  const current = media[safeIndex];
+
+  function goPrev(e) {
+    e.stopPropagation();
+    setIndex((i) => (i > 0 ? i - 1 : media.length - 1));
+  }
+  function goNext(e) {
+    e.stopPropagation();
+    setIndex((i) => (i < media.length - 1 ? i + 1 : 0));
+  }
+
+  function handleTouchStart(e) {
+    touchStartX.current = e.touches[0].clientX;
+  }
+  function handleTouchEnd(e) {
+    if (touchStartX.current == null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    if (Math.abs(dx) > 40) {
+      if (dx > 0) setIndex((i) => (i > 0 ? i - 1 : media.length - 1));
+      else setIndex((i) => (i < media.length - 1 ? i + 1 : 0));
+    }
+    touchStartX.current = null;
+  }
+
+  return (
+    <div
+      className="gal-media-wrap"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      style={{ position: "relative" }}
+    >
+      {current.type === "video" ? (
+        <>
+          <video src={current.url} muted />
+          {videoBadge && <span className="gal-video-badge">▶ Video</span>}
+        </>
+      ) : (
+        <img src={current.url} alt="" />
+      )}
+
+      {media.length > 1 && (
+        <>
+          <button onClick={goPrev} style={carouselArrowStyle("left")} aria-label="Previous">
+            ‹
+          </button>
+          <button onClick={goNext} style={carouselArrowStyle("right")} aria-label="Next">
+            ›
+          </button>
+          <div
+            style={{
+              position: "absolute",
+              top: 10,
+              right: 10,
+              background: "rgba(0,0,0,0.6)",
+              color: "#fff",
+              fontSize: 12,
+              fontWeight: 700,
+              padding: "3px 10px",
+              borderRadius: 12,
+              zIndex: 2,
+            }}
+          >
+            {safeIndex + 1}/{media.length}
+          </div>
+          <div
+            style={{
+              position: "absolute",
+              bottom: 10,
+              left: "50%",
+              transform: "translateX(-50%)",
+              display: "flex",
+              gap: 6,
+              zIndex: 2,
+            }}
+          >
+            {media.map((_, i) => (
+              <span
+                key={i}
+                style={{
+                  width: 6,
+                  height: 6,
+                  borderRadius: "50%",
+                  background: i === safeIndex ? "#fff" : "rgba(255,255,255,0.45)",
+                }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function carouselArrowStyle(side) {
+  return {
+    position: "absolute",
+    top: "50%",
+    [side]: 8,
+    transform: "translateY(-50%)",
+    width: 34,
+    height: 34,
+    borderRadius: "50%",
+    border: "none",
+    background: "rgba(0,0,0,0.5)",
+    color: "#fff",
+    fontSize: 20,
+    lineHeight: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    padding: 0,
+    zIndex: 2,
+  };
+}
+
 export default function Gallery() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +483,9 @@ export default function Gallery() {
   const [active, setActive] = useState(null);
   const [commentText, setCommentText] = useState("");
   const [toast, setToast] = useState("");
+
+  // Fullscreen photo viewer (Facebook-style) — { media, startIndex } | null
+  const [lightbox, setLightbox] = useState(null);
 
   const [account, setAccount] = useState(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -243,8 +667,11 @@ export default function Gallery() {
   };
 
   const filtered = items.filter((i) => {
-    if (filter === "Photos") return i.mediaType !== "video";
-    if (filter === "Videos") return i.mediaType === "video";
+    const media = getMediaList(i);
+    const hasVideo = media.some((m) => m.type === "video");
+    const hasPhoto = media.some((m) => m.type !== "video");
+    if (filter === "Photos") return hasPhoto;
+    if (filter === "Videos") return hasVideo;
     return true;
   });
 
@@ -473,78 +900,75 @@ export default function Gallery() {
             </div>
           ) : (
             <div className="gal-feed">
-              {filtered.map((item) => (
-                <div className="gal-post" key={item.id}>
-                  <div className="gal-post-header">
-                    <img src={logo} alt="" className="gal-post-avatar" />
-                    <div className="gal-post-author-block">
-                      <div className="gal-post-author-row">
-                        <span className="gal-post-author-name">
-                          Rising Star School
-                        </span>
-                        <span className="gal-post-verified">✓</span>
-                      </div>
-                      <span className="gal-post-date">
-                        {formatDate(item.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-
-                  {item.caption && (
-                    <div className="gal-caption">{item.caption}</div>
-                  )}
-
-                  <div className="gal-media-wrap" onClick={() => setActive(item)}>
-                    {item.mediaType === "video" ? (
-                      <>
-                        <video src={item.mediaUrl} muted />
-                        <span className="gal-video-badge">▶ Video</span>
-                      </>
-                    ) : (
-                      <img src={item.mediaUrl} alt={item.caption || "Gallery"} />
-                    )}
-                  </div>
-
-                  <div className="gal-post-body">
-                    {(item.likeCount > 0 || (item.comments || []).length > 0) && (
-                      <div className="gal-meta-row">
-                        <span>
-                          {item.likeCount > 0 ? `♥ ${formatCount(item.likeCount)}` : ""}
-                        </span>
-                        <span>
-                          {(item.comments || []).length > 0
-                            ? `${formatCount(item.comments.length)} comments`
-                            : ""}
+              {filtered.map((item) => {
+                const media = getMediaList(item);
+                return (
+                  <div className="gal-post" key={item.id}>
+                    <div className="gal-post-header">
+                      <img src={logo} alt="" className="gal-post-avatar" />
+                      <div className="gal-post-author-block">
+                        <div className="gal-post-author-row">
+                          <span className="gal-post-author-name">
+                            Rising Star School
+                          </span>
+                          <span className="gal-post-verified">✓</span>
+                        </div>
+                        <span className="gal-post-date">
+                          {formatDate(item.createdAt)}
                         </span>
                       </div>
+                    </div>
+
+                    {item.caption && (
+                      <div className="gal-caption">{item.caption}</div>
                     )}
 
-                    <div className="gal-actions-row">
-                      <button
-                        className={
-                          "gal-action-btn" + (hasLiked(item) ? " liked" : "")
-                        }
-                        onClick={() => toggleLike(item)}
-                        disabled={likeBusyId === item.id}
-                      >
-                        {hasLiked(item) ? "♥" : "♡"} Like
-                      </button>
-                      <button
-                        className="gal-action-btn"
-                        onClick={() => setActive(item)}
-                      >
-                        💬 Comment
-                      </button>
-                      <button
-                        className="gal-action-btn"
-                        onClick={() => shareItem(item)}
-                      >
-                        ↗ Share
-                      </button>
+                    <PostMediaGrid
+                      media={media}
+                      onOpen={(idx) => setLightbox({ media, startIndex: idx })}
+                    />
+
+                    <div className="gal-post-body">
+                      {(item.likeCount > 0 || (item.comments || []).length > 0) && (
+                        <div className="gal-meta-row">
+                          <span>
+                            {item.likeCount > 0 ? `♥ ${formatCount(item.likeCount)}` : ""}
+                          </span>
+                          <span>
+                            {(item.comments || []).length > 0
+                              ? `${formatCount(item.comments.length)} comments`
+                              : ""}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="gal-actions-row">
+                        <button
+                          className={
+                            "gal-action-btn" + (hasLiked(item) ? " liked" : "")
+                          }
+                          onClick={() => toggleLike(item)}
+                          disabled={likeBusyId === item.id}
+                        >
+                          {hasLiked(item) ? "♥" : "♡"} Like
+                        </button>
+                        <button
+                          className="gal-action-btn"
+                          onClick={() => setActive(item)}
+                        >
+                          💬 Comment
+                        </button>
+                        <button
+                          className="gal-action-btn"
+                          onClick={() => shareItem(item)}
+                        >
+                          ↗ Share
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -554,11 +978,7 @@ export default function Gallery() {
         <div className="gal-modal-overlay" onClick={() => setActive(null)}>
           <div className="gal-modal" onClick={(e) => e.stopPropagation()}>
             <div className="gal-modal-media">
-              {active.mediaType === "video" ? (
-                <video src={active.mediaUrl} controls autoPlay />
-              ) : (
-                <img src={active.mediaUrl} alt={active.caption || "Gallery"} />
-              )}
+              <MediaCarousel media={getMediaList(active)} videoBadge={false} />
             </div>
 
             <div className="gal-modal-side">
@@ -642,6 +1062,14 @@ export default function Gallery() {
             </div>
           </div>
         </div>
+      )}
+
+      {lightbox && (
+        <Lightbox
+          media={lightbox.media}
+          startIndex={lightbox.startIndex}
+          onClose={() => setLightbox(null)}
+        />
       )}
 
       {toast && <div className="gal-share-toast">{toast}</div>}
