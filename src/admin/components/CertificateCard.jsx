@@ -90,8 +90,8 @@ const TABLE_ENGLISH_A = {
   marksLeft: 65.0, marksRight: 80.5,
 };
 const TABLE_ENGLISH_B = {
-  subjectLeft: 80.0, subjectRight: 89.5,
-  marksLeft: 91.2, marksRight: 96.0,
+  subjectLeft: 79.0, subjectRight: 86.8,
+  marksLeft: 89.2, marksRight: 89.0,
 };
 
 // Taariikhda la bixiyay (Date of Issue) — printed as three short slots
