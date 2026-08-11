@@ -213,10 +213,17 @@ function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
                     width: 15,
                     height: 15,
                     border: "1.5px solid #1a1a1a",
-                    display: "inline-block",
-                    background: t.label === examLabel ? "#0f5132" : "transparent",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                    fontSize: 12,
+                    fontWeight: 900,
+                    color: "#0f5132",
                   }}
-                />
+                >
+                  {t.label === examLabel ? "✔" : ""}
+                </span>
                 {t.label}
               </label>
             ))}
