@@ -57,10 +57,45 @@ function ExamCardStyles() {
         box-shadow: 0 4px 10px rgba(0,0,0,0.35);
       }
       @media print {
+        @page { size: A4 portrait; margin: 10mm; }
         body * { visibility: hidden; }
         .ec-print-area, .ec-print-area * { visibility: visible; }
         .ec-print-area { position: absolute; top: 0; left: 0; width: 100%; }
-        .ec-card { break-inside: avoid; page-break-inside: avoid; margin-bottom: 14px !important; box-shadow: none !important; }
+        .ec-print-area, .ec-print-area * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+          color-adjust: exact !important;
+        }
+        .ec-grid {
+          display: block !important;
+        }
+        .ec-card-wrap {
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin-bottom: 6mm;
+        }
+        .ec-card-wrap:nth-child(4n) {
+          page-break-after: always;
+          margin-bottom: 0;
+        }
+        .ec-hide-print {
+          display: none !important;
+        }
+        .ec-card {
+          zoom: 0.8 !important;
+          break-inside: avoid;
+          page-break-inside: avoid;
+          margin-bottom: 0 !important;
+          box-shadow: none !important;
+          border-bottom: 2px dashed #7a4e2a !important;
+          padding-bottom: 12px !important;
+        }
+        .ec-card-wrap:nth-child(4n) .ec-card {
+          border-bottom: none !important;
+        }
+        .ec-single-print .ec-card-wrap:nth-child(4n) {
+          page-break-after: auto !important;
+        }
         .ec-card-actions { display: none !important; }
       }
       @media (max-width: 900px) {
@@ -72,11 +107,19 @@ function ExamCardStyles() {
   );
 }
 
-function ExamCard({ card, onDelete }) {
+function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
   const examLabel = EXAM_TYPES.find((t) => t.key === card.examType)?.label || "Final";
   return (
-    <div className="ec-card-wrap">
+    <div className={`ec-card-wrap${isPrintHidden ? " ec-hide-print" : ""}`}>
       <div className="ec-card-actions">
+        <button
+          className="ec-icon-btn"
+          onClick={() => onPrintSingle(card)}
+          title="Daabac Card-kan Kaliya"
+          style={{ background: "#22C55E", color: "#fff" }}
+        >
+          <Printer size={14} />
+        </button>
         <button
           className="ec-icon-btn"
           onClick={() => onDelete(card)}
@@ -207,9 +250,20 @@ export default function ExamCards() {
   const [search, setSearch] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState(null); // { type: "one"|"all", card? }
+  const [printOnlyId, setPrintOnlyId] = useState(null); // card.id la doonayo in kaliya la daabaco
 
   useEffect(() => {
     load();
+  }, []);
+
+  // ---- Marka daabacaadda dhamaato (ama la joojiyo), dib u soo celi
+  // muuqaalka grid-ka oo dhammaan card-yada laga arki karo mar kale. ----
+  useEffect(() => {
+    function handleAfterPrint() {
+      setPrintOnlyId(null);
+    }
+    window.addEventListener("afterprint", handleAfterPrint);
+    return () => window.removeEventListener("afterprint", handleAfterPrint);
   }, []);
 
   // ---- Kaliya soo aqri examCards collection-ka — waxaa ka buuxiya
@@ -252,6 +306,16 @@ export default function ExamCards() {
 
   function handlePrint() {
     window.print();
+  }
+
+  // ---- Kaliya card-kan la doortay ayaa la muujinayaa (kuwa kale si
+  // caadi ah waa la qariyaa daabacaadda), kadibna daabacaadda ayaa
+  // toos loo furayaa — hal card, hal warqad. ----
+  function printSingleCard(card) {
+    setPrintOnlyId(card.id);
+    requestAnimationFrame(() => {
+      window.print();
+    });
   }
 
   function askDeleteOne(card) {
@@ -467,10 +531,16 @@ export default function ExamCards() {
                   Cardad lama helin fasalkan/raadintan.
                 </div>
               ) : (
-                <div className="ec-print-area">
+                <div className={`ec-print-area${printOnlyId ? " ec-single-print" : ""}`}>
                   <div className="ec-grid">
                     {cardsForClass.map((c) => (
-                      <ExamCard key={c.id} card={c} onDelete={askDeleteOne} />
+                      <ExamCard
+                        key={c.id}
+                        card={c}
+                        onDelete={askDeleteOne}
+                        onPrintSingle={printSingleCard}
+                        isPrintHidden={!!printOnlyId && printOnlyId !== c.id}
+                      />
                     ))}
                   </div>
                 </div>

@@ -40,6 +40,19 @@ const DAYS = [
   { key: "Wednesday", label: "ARBACO" },
 ];
 
+// ---- Nuuca imtixaanka ee maamulku ka dooran karo fasalka. Sameyska
+// (key) halkan waa isla midka ExamCards.jsx iyo ExamPayments.jsx
+// isticmaalaan, si dhammaan bogagga isku mid ay noqdaan. ----
+const EXAM_TYPES = [
+  { key: "monthly1", label: "Monthly 1" },
+  { key: "midterm", label: "Mid Term" },
+  { key: "monthly2", label: "Monthly 2" },
+  { key: "final", label: "Final" },
+];
+function examTypeLabel(key) {
+  return EXAM_TYPES.find((t) => t.key === key)?.label || "Final";
+}
+
 function emptyExamSlot() {
   return {
     id: `e_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
@@ -208,13 +221,14 @@ export default function ExamTimetable() {
   const [saving, setSaving] = useState(false);
   const [teachers, setTeachers] = useState({}); // id -> { fullName, subject, classes }
   const [examDocs, setExamDocs] = useState({}); // `${className}__${day}` -> { slots: [] }
-  const [examWeekDates, setExamWeekDates] = useState({}); // className -> { startDate, endDate }
+  const [examWeekDates, setExamWeekDates] = useState({}); // className -> { startDate, endDate, examType }
   const [selectedClass, setSelectedClass] = useState(null);
   const [activeDay, setActiveDay] = useState(DAYS[0].key);
   const [draftSlots, setDraftSlots] = useState([]);
   const [dirty, setDirty] = useState(false);
   const [draftStartDate, setDraftStartDate] = useState("");
   const [draftEndDate, setDraftEndDate] = useState("");
+  const [draftExamType, setDraftExamType] = useState("final");
   const [savingDates, setSavingDates] = useState(false);
   const [deletingDay, setDeletingDay] = useState(null); // day key currently being deleted, for the summary table
 
@@ -296,6 +310,7 @@ export default function ExamTimetable() {
     const wk = examWeekDates[selectedClass];
     setDraftStartDate(wk?.startDate || "");
     setDraftEndDate(wk?.endDate || "");
+    setDraftExamType(wk?.examType || "final");
   }, [selectedClass, examWeekDates]);
 
   function openClass(cls) {
@@ -344,8 +359,10 @@ export default function ExamTimetable() {
   }
 
   // ---- Kaydiyo taariikhda bilowga iyo dhamaadka usbuuca imtixaanka
-  // fasalkan, kuna qor ardayda fasalkaas si Student/Parent Dashboard-ku
-  // si toos ah uga soo aqriyo. ----
+  // fasalkan, nuuca imtixaanka (Monthly 1 / Mid Term / Monthly 2 / Final),
+  // kuna qor ardayda fasalkaas si Student/Parent Dashboard-ku si toos ah
+  // uga soo aqriyo. Nuuca imtixaanka halkan lagu doortay ayaa isla markaana
+  // ExamPayments.jsx isticmaali doona marka Exam Card la sameenayo. ----
   async function saveExamWeekDates() {
     if (!selectedClass) return;
     if (!draftStartDate || !draftEndDate) {
@@ -363,6 +380,7 @@ export default function ExamTimetable() {
         className: selectedClass,
         startDate: draftStartDate,
         endDate: draftEndDate,
+        examType: draftExamType,
         updatedAt: new Date(),
       };
       await setDoc(doc(db, "examWeek", selectedClass), payload);
@@ -377,6 +395,7 @@ export default function ExamTimetable() {
           batch.update(doc(db, "students", studentDoc.id), {
             examWeekStartDate: draftStartDate,
             examWeekEndDate: draftEndDate,
+            examWeekExamType: draftExamType,
           });
         });
         await batch.commit();
@@ -638,6 +657,24 @@ export default function ExamTimetable() {
                           {examWeekDates[cls].endDate}
                         </span>
                       )}
+                      {examWeekDates[cls]?.examType && (
+                        <span
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            background: "rgba(245,158,11,0.1)",
+                            border: "1px solid rgba(245,158,11,0.3)",
+                            borderRadius: 20,
+                            padding: "5px 12px",
+                            color: "#FBBF24",
+                            fontSize: 11.5,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {examTypeLabel(examWeekDates[cls].examType)}
+                        </span>
+                      )}
                     </div>
 
                     <span
@@ -745,7 +782,7 @@ export default function ExamTimetable() {
                 </div>
               </div>
 
-              {/* Exam week date range */}
+              {/* Exam week date range + exam type */}
               <div
                 style={{
                   background: "linear-gradient(160deg,#151233,#181341)",
@@ -781,6 +818,22 @@ export default function ExamTimetable() {
                     style={fieldStyle}
                   />
                 </div>
+                <div style={{ flex: "1 1 160px" }}>
+                  <div style={{ color: "#8b87ad", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                    Nuuca Imtixaanka
+                  </div>
+                  <select
+                    value={draftExamType}
+                    onChange={(e) => setDraftExamType(e.target.value)}
+                    style={fieldStyle}
+                  >
+                    {EXAM_TYPES.map((t) => (
+                      <option key={t.key} value={t.key}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <button
                   onClick={saveExamWeekDates}
                   disabled={savingDates}
@@ -814,6 +867,10 @@ export default function ExamTimetable() {
                     wuxuuna dhammaanayaa{" "}
                     <strong style={{ color: "#fff" }}>
                       {examWeekDates[selectedClass].endDate}
+                    </strong>{" "}
+                    — Nuuca:{" "}
+                    <strong style={{ color: "#fff" }}>
+                      {examTypeLabel(examWeekDates[selectedClass].examType)}
                     </strong>
                   </div>
                 )}

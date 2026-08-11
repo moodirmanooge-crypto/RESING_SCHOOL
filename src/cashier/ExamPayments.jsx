@@ -13,6 +13,18 @@ import { theme } from "./theme.js";
 
 const SCHOOL_NAME = "Rising School";
 
+// ---- Nuuca imtixaanka ee maamulku ka doortay Exam Timetable-ka fasalka
+// (isla EXAM_TYPES ee ExamTimetable.jsx iyo ExamCards.jsx isticmaalaan) ----
+const EXAM_TYPE_LABELS = {
+  monthly1: "Monthly 1",
+  midterm: "Mid Term",
+  monthly2: "Monthly 2",
+  final: "Final",
+};
+function examTypeLabel(key) {
+  return EXAM_TYPE_LABELS[key] || "Final";
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -30,8 +42,9 @@ function isExamWeekActive(wk) {
 export default function ExamPayments() {
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
-  const [examWeeks, setExamWeeks] = useState({}); // className -> {startDate,endDate}
-  const [examCardStatus, setExamCardStatus] = useState({}); // studentId -> {cardNo, paid}
+  const [examWeeks, setExamWeeks] = useState({}); // className -> {startDate,endDate,examType}
+  const [examTypeByClass, setExamTypeByClass] = useState({}); // CLASSNAME (upper) -> examType
+  const [examCardStatus, setExamCardStatus] = useState({}); // studentId -> {cardNo, paid, examType}
   const [search, setSearch] = useState("");
   const [amounts, setAmounts] = useState({});
   const [savingId, setSavingId] = useState(null);
@@ -52,11 +65,14 @@ export default function ExamPayments() {
       });
       setExamWeeks(weekMap);
 
-      const activeClasses = new Set(
-        Object.entries(weekMap)
-          .filter(([, wk]) => isExamWeekActive(wk))
-          .map(([cls]) => cls.toUpperCase())
-      );
+      const activeEntries = Object.entries(weekMap).filter(([, wk]) => isExamWeekActive(wk));
+      const activeClasses = new Set(activeEntries.map(([cls]) => cls.toUpperCase()));
+
+      const typeMap = {};
+      activeEntries.forEach(([cls, wk]) => {
+        typeMap[cls.toUpperCase()] = wk.examType || "final";
+      });
+      setExamTypeByClass(typeMap);
 
       const studentsSnap = await getDocs(collection(db, "students"));
       const studentData = studentsSnap.docs
@@ -72,13 +88,19 @@ export default function ExamPayments() {
       setStudents(studentData);
 
       // Xagee la joogaa — arday kastoo horey loo sameeyay Exam Card
-      // xilligan (si aan loo soo bandhigin sidii mid aan la bixin).
+      // nuucan (examType) xilligan (si aan loo soo bandhigin sidii mid
+      // aan la bixin). Nuuca card-ka waa la kaydiyaa si loo barbardhigo
+      // nuuca hadda socda ee fasalkiisa.
       const cardsSnap = await getDocs(collection(db, "examCards"));
       const statusMap = {};
       cardsSnap.docs.forEach((d) => {
         const data = d.data();
         if (!data.studentId) return;
-        statusMap[data.studentId] = { cardNo: data.cardNo, paid: true };
+        statusMap[data.studentId] = {
+          cardNo: data.cardNo,
+          paid: true,
+          examType: data.examType || "final",
+        };
       });
       setExamCardStatus(statusMap);
     } catch (err) {
@@ -99,10 +121,11 @@ export default function ExamPayments() {
   });
 
   // ---- Marka cashierku "Save" riixo: 1) kaydi diiwaanka lacagta
-  // examCardPayments gudihiisa, 2) samee Card No otomatig ah (isla
-  // counter-ka ExamCards.jsx isticmaalo, examType "final" default ah
-  // si uga wada shaqeeyaan), 3) kaydi examCards gudihiisa si Admin-ka
-  // Exam Cards page-ku si toos ah ugu daawado. ----
+  // examCardPayments gudihiisa, 2) samee Card No otomatig ah (counter
+  // gaar u leh nuuca imtixaanka ee fasalkan hadda socda — Monthly 1,
+  // Mid Term, Monthly 2 ama Final, sidii Exam Timetable-ka loo doortay),
+  // 3) kaydi examCards gudihiisa oo leh examType-kaas oo sax ah, si
+  // Admin-ka Exam Cards page-ku si toos ah ugu daawado tick-ga saxda ah. ----
   async function savePaymentAndCard(student) {
     const entered = Number(amounts[student.id] || 0);
     if (entered <= 0) {
@@ -110,9 +133,11 @@ export default function ExamPayments() {
       return;
     }
 
+    const examType = examTypeByClass[String(student.className || "").toUpperCase()] || "final";
+
     setSavingId(student.id);
     try {
-      const counterRef = doc(db, "examCardCounters", "final");
+      const counterRef = doc(db, "examCardCounters", examType);
       let cardNo = 0;
 
       await runTransaction(db, async (tx) => {
@@ -130,18 +155,18 @@ export default function ExamPayments() {
 
         tx.set(
           counterRef,
-          { lastNumber: current, assigned, examType: "final", updatedAt: new Date() },
+          { lastNumber: current, assigned, examType, updatedAt: new Date() },
           { merge: true }
         );
       });
 
-      const cardDocId = `${student.studentId}_final`;
+      const cardDocId = `${student.studentId}_${examType}`;
       const cardRecord = {
         studentId: student.studentId,
         studentName: student.fullName,
         className: student.className || "",
         cardNo,
-        examType: "final",
+        examType,
         amountPaid: entered,
         schoolName: SCHOOL_NAME,
         createdAt: serverTimestamp(),
@@ -155,7 +180,7 @@ export default function ExamPayments() {
 
       setExamCardStatus((prev) => ({
         ...prev,
-        [student.studentId]: { cardNo, paid: true },
+        [student.studentId]: { cardNo, paid: true, examType },
       }));
       setAmounts((prev) => ({ ...prev, [student.id]: "" }));
       setLastCard({ ...cardRecord, createdAt: { seconds: Math.floor(Date.now() / 1000) } });
@@ -189,7 +214,13 @@ export default function ExamPayments() {
           </div>
           <div style={styles.statPill}>
             <span style={styles.statNum}>
-              {students.filter((s) => examCardStatus[s.studentId]?.paid).length}
+              {
+                students.filter((s) => {
+                  const cardInfo = examCardStatus[s.studentId];
+                  const type = examTypeByClass[String(s.className || "").toUpperCase()] || "final";
+                  return cardInfo?.paid && cardInfo.examType === type;
+                }).length
+              }
             </span>
             <span style={styles.statLabel}>Cards issued</span>
           </div>
@@ -241,6 +272,7 @@ export default function ExamPayments() {
                 <th style={styles.th}>ID</th>
                 <th style={styles.th}>Name</th>
                 <th style={styles.th}>Class</th>
+                <th style={styles.th}>Nuuca Imtixaanka</th>
                 <th style={styles.th}>Enter Amount</th>
                 <th style={styles.th}>Card No</th>
                 <th style={styles.th}>Status</th>
@@ -249,8 +281,10 @@ export default function ExamPayments() {
             </thead>
             <tbody>
               {filtered.map((student, i) => {
+                const studentExamType =
+                  examTypeByClass[String(student.className || "").toUpperCase()] || "final";
                 const cardInfo = examCardStatus[student.studentId];
-                const alreadyPaid = !!cardInfo?.paid;
+                const alreadyPaid = !!cardInfo?.paid && cardInfo.examType === studentExamType;
                 const isSaving = savingId === student.id;
 
                 return (
@@ -263,6 +297,9 @@ export default function ExamPayments() {
                     </td>
                     <td style={{ ...styles.td, fontWeight: 600 }}>{student.fullName}</td>
                     <td style={styles.td}>{student.className || "—"}</td>
+                    <td style={styles.td}>
+                      <span style={styles.examTypeChip}>{examTypeLabel(studentExamType)}</span>
+                    </td>
                     <td style={styles.td}>
                       {alreadyPaid ? (
                         <span style={{ color: theme.colors.inkMuted, fontSize: 12.5 }}>—</span>
@@ -324,8 +361,8 @@ export default function ExamPayments() {
 
       {lastCard && (
         <div style={styles.toast}>
-          Exam Card #{String(lastCard.cardNo).padStart(4, "0")} waa la sameeyay ardayga{" "}
-          <strong>{lastCard.studentName}</strong>.
+          Exam Card #{String(lastCard.cardNo).padStart(4, "0")} ({examTypeLabel(lastCard.examType)}
+          ) waa la sameeyay ardayga <strong>{lastCard.studentName}</strong>.
           <button onClick={() => setLastCard(null)} style={styles.toastClose}>
             ✕
           </button>
@@ -462,6 +499,16 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     color: theme.colors.brand,
+  },
+  examTypeChip: {
+    display: "inline-block",
+    padding: "3px 10px",
+    borderRadius: 999,
+    background: "#FEF3C7",
+    border: "1px solid #FDE68A",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#92400E",
   },
   amountInput: {
     width: 90,
