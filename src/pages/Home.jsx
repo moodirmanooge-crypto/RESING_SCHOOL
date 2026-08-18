@@ -1,10 +1,10 @@
 // src/pages/Home.jsx
 import "../styles/home.css";
 import logo from "../assets/logo.png";
-import heroPhoto from "../admin/assets/student.png";
+import galleryPhoto from "../admin/assets/student.png";
 import { Link } from "react-router-dom";
 import { useState, useRef, useEffect } from "react";
-import { collection, getCountFromServer } from "firebase/firestore";
+import { collection, getCountFromServer, doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import {
   Users,
@@ -16,6 +16,11 @@ import {
   Award,
   QrCode,
   ClipboardList,
+  GraduationCap,
+  ShieldCheck,
+  TrendingUp,
+  Trophy,
+  User,
 } from "lucide-react";
 
 // Admin contact info — waxaa loo isticmaalaa qaybta "Contact" iyo "Need Help?"
@@ -36,33 +41,64 @@ const NAV_LINKS = [
 ];
 
 const FEATURE_STRIP = [
-  { icon: "📖", label: "Quality Education" },
-  { icon: "👥", label: "Experienced Teachers" },
-  { icon: "🛡️", label: "Safe Environment" },
-  { icon: "⭐", label: "Holistic Development" },
-  { icon: "👨‍👩‍👧", label: "Strong Community" },
+  {
+    icon: GraduationCap,
+    label: "Quality Education",
+    desc: "Excellence in teaching & learning",
+    color: "green",
+  },
+  {
+    icon: ShieldCheck,
+    label: "Safe Environment",
+    desc: "Secure and caring school community",
+    color: "yellow",
+  },
+  {
+    icon: Award,
+    label: "Experienced Staff",
+    desc: "Qualified and dedicated teachers",
+    color: "purple",
+  },
+  {
+    icon: Users,
+    label: "Student Focused",
+    desc: "Developing every child's potential",
+    color: "orange",
+  },
+  {
+    icon: TrendingUp,
+    label: "Modern Facilities",
+    desc: "Advanced resources for better learning",
+    color: "green",
+  },
+  {
+    icon: Trophy,
+    label: "Proven Results",
+    desc: "Outstanding academic performance",
+    color: "blue",
+  },
 ];
 
 const PORTALS = [
   {
     key: "student",
-    emoji: "🎒",
+    icon: GraduationCap,
     title: "Student Portal",
     desc: "Access your profile, materials, results and more.",
     to: "/student-login",
-    color: "blue",
-  },
-  {
-    key: "teacher",
-    emoji: "👨‍🏫",
-    title: "Teacher Portal",
-    desc: "Manage classes, resources and assignments.",
-    to: "/teacher-login",
     color: "green",
   },
   {
+    key: "teacher",
+    icon: Users2,
+    title: "Teacher Portal",
+    desc: "Manage classes, resources and assignments.",
+    to: "/teacher-login",
+    color: "gold",
+  },
+  {
     key: "parent",
-    emoji: "👩‍🦱",
+    icon: User,
     title: "Parent Portal",
     desc: "Track your child's progress and activities.",
     to: "/parent-login",
@@ -70,7 +106,7 @@ const PORTALS = [
   },
   {
     key: "cashier",
-    emoji: "💰",
+    icon: DollarSign,
     title: "Cashier Portal",
     desc: "Record payments and manage school fees.",
     to: "/cashier-login",
@@ -78,7 +114,7 @@ const PORTALS = [
   },
   {
     key: "admission",
-    emoji: "📋",
+    icon: ClipboardList,
     title: "Online Admission",
     desc: "Apply online for admissions easily and quickly.",
     to: "/admissions",
@@ -93,13 +129,11 @@ const ABOUT_STATS = [
   { icon: "🏆", value: "100%", label: "Pass Rate" },
 ];
 
-const GALLERY_PREVIEW = [heroPhoto, heroPhoto, heroPhoto, heroPhoto, heroPhoto];
+const GALLERY_PREVIEW = [galleryPhoto, galleryPhoto, galleryPhoto, galleryPhoto, galleryPhoto];
 
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
   const menuRef = useRef(null);
-  const helpRef = useRef(null);
 
   const [statsData, setStatsData] = useState({
     students: null,
@@ -129,13 +163,24 @@ export default function Home() {
     loadStats();
   }, []);
 
+  const [heroMedia, setHeroMedia] = useState(null); // { mediaUrl, mediaType } | null while waiting
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      doc(db, "settings", "homepage"),
+      (snap) => {
+        const data = snap.exists() ? snap.data() : null;
+        setHeroMedia(data?.mediaUrl ? data : null);
+      },
+      (err) => console.error("Failed to load homepage media:", err)
+    );
+    return () => unsub();
+  }, []);
+
   useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setMenuOpen(false);
-      }
-      if (helpRef.current && !helpRef.current.contains(e.target)) {
-        setHelpOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -183,6 +228,25 @@ export default function Home() {
     };
   }, []);
 
+  const HERO_STATS = [
+    {
+      icon: GraduationCap,
+      value: statsData.students != null ? `${statsData.students}+` : "…",
+      label: "Students Enrolled",
+    },
+    {
+      icon: Users2,
+      value: statsData.teachers != null ? `${statsData.teachers}+` : "…",
+      label: "Qualified Teachers",
+    },
+    {
+      icon: BookOpen,
+      value: statsData.classes != null ? `${statsData.classes}+` : "…",
+      label: "Subjects Offered",
+    },
+    { icon: Trophy, value: "98%", label: "Pass Rate" },
+  ];
+
   return (
     <div className="home">
       {/* ---------- Top Nav ---------- */}
@@ -204,18 +268,21 @@ export default function Home() {
         </nav>
 
         <div className="header-actions">
-          <div className="menu-wrap" ref={helpRef}>
+          <div className="menu-wrap" ref={menuRef}>
             <button
               type="button"
-              className="help-pill-hidden"
-              onClick={() => setHelpOpen((v) => !v)}
-              aria-label="Need help?"
+              className="nav-dots-btn"
+              aria-label="More options"
+              onClick={() => setMenuOpen((v) => !v)}
             >
-              ?
+              ⋮
             </button>
 
-            {helpOpen && (
-              <div className="dots-menu help-menu">
+            {menuOpen && (
+              <div className="dots-menu">
+                <Link to="/admin-login" className="dots-menu-item">
+                  👑 Admin Login
+                </Link>
                 <a
                   href={`https://wa.me/${SUPPORT_WHATSAPP}`}
                   target="_blank"
@@ -230,121 +297,144 @@ export default function Home() {
               </div>
             )}
           </div>
-
-          <div className="menu-wrap" ref={menuRef}>
-            <Link to="/admin-login" className="login-portal-btn">
-              <span className="login-portal-icon">👤</span>
-              Login / Portal
-            </Link>
-
-            <button
-              type="button"
-              className="dots-btn-hidden"
-              aria-label="More options"
-              onClick={() => setMenuOpen((v) => !v)}
-            >
-              ⋮
-            </button>
-
-            {menuOpen && (
-              <div className="dots-menu">
-                <Link to="/admin-login" className="dots-menu-item">
-                  👑 Admin Login
-                </Link>
-              </div>
-            )}
-          </div>
         </div>
       </header>
 
-      {/* ---------- Hero + System Panel ---------- */}
-      <section className="hero-grid">
-        <div className="hero-left">
-          <div className="hero-card">
-            <h1 className="hero-title">
-              NURTURING MINDS,
-              <br />
-              <span className="hero-title-accent">BUILDING FUTURES</span>
-            </h1>
-            <div className="hero-rule" />
-            <p className="hero-lede">
-              Providing quality education in a safe, caring and inspiring
-              environment where every child can achieve greatness.
-            </p>
+      {/* ---------- Hero Banner ---------- */}
+      <section className="hero-banner">
+        <div className="hero-banner-inner">
+          <span className="hero-badge">
+            <Award size={14} /> Excellence in Education
+          </span>
+          <h1 className="hero-title">
+            NURTURING MINDS,
+            <br />
+            <span className="hero-title-accent">BUILDING FUTURES</span>
+          </h1>
+          <p className="hero-lede">
+            Providing quality education in a safe, caring and inspiring
+            environment where every child can achieve greatness.
+          </p>
 
-            <div className="hero-cta-row">
-              <Link to="/admissions" className="hero-cta hero-cta-primary">
-                Apply for Admission <span>➜</span>
-              </Link>
-              <Link to="/about" className="hero-cta hero-cta-secondary">
-                Learn More <span>➜</span>
-              </Link>
-            </div>
-
-            <img src={heroPhoto} alt="Rising Star School students" className="hero-photo" />
-
-            <div className="feature-strip">
-              {FEATURE_STRIP.map((f) => (
-                <span key={f.label} className="feature-strip-item">
-                  <span className="feature-strip-icon">{f.icon}</span>
-                  {f.label}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          {/* About Our School */}
-          <div className="about-preview-card">
-            <h2 className="about-preview-title">About Our School</h2>
-            <p className="about-preview-text">
-              At Rising Star School, we are dedicated to nurturing young
-              minds through academic excellence, character building and
-              innovative learning. Our mission is to prepare students to
-              become responsible global citizens and future leaders.
-            </p>
-
-            <div className="about-stats-grid">
-              {ABOUT_STATS.map((s) => (
-                <div className="about-stat-box" key={s.label}>
-                  <span className="about-stat-icon">{s.icon}</span>
-                  <span className="about-stat-value">{s.value}</span>
-                  <span className="about-stat-label">{s.label}</span>
-                </div>
-              ))}
-            </div>
-
-            <h3 className="gallery-preview-title">Gallery</h3>
-            <div className="gallery-preview-grid">
-              {GALLERY_PREVIEW.map((img, i) => (
-                <img key={i} src={img} alt="" className="gallery-preview-img" />
-              ))}
-            </div>
-            <Link to="/gallery" className="view-more-btn">
-              View More Photos <span>➜</span>
+          <div className="hero-cta-row">
+            <Link to="/admissions" className="hero-cta hero-cta-primary">
+              Apply for Admission <span>➜</span>
+            </Link>
+            <Link to="/about" className="hero-cta hero-cta-secondary">
+              Learn More <span>➜</span>
             </Link>
           </div>
         </div>
 
-        <aside className="hero-right">
-          <div className="portals-card">
-            <h3 className="portals-title">
-              <span className="portals-title-icon">🌐</span>
-              Online System
-            </h3>
-            <div className="portals-grid">
-              {PORTALS.map((p) => (
-                <div className={`portal-box portal-${p.color}`} key={p.key}>
-                  <span className="portal-emoji">{p.emoji}</span>
-                  <div className="portal-title">{p.title}</div>
-                  <p className="portal-desc">{p.desc}</p>
-                  <Link to={p.to} className="portal-btn">
-                    {p.key === "admission" ? "Apply Now" : "Login"}
-                  </Link>
-                </div>
-              ))}
+        <div className="hero-photo-box">
+          {heroMedia?.mediaUrl ? (
+            heroMedia.mediaType === "video" ? (
+              <video
+                src={heroMedia.mediaUrl}
+                className="hero-photo-box-img"
+                autoPlay
+                loop
+                muted
+                playsInline
+              />
+            ) : (
+              <img
+                src={heroMedia.mediaUrl}
+                alt="Rising Star School"
+                className="hero-photo-box-img"
+              />
+            )
+          ) : (
+            <div className="hero-photo-box-placeholder">
+              <span>Sawirka bogga hore ayaa la sugayaa</span>
             </div>
+          )}
+        </div>
+      </section>
+
+      {/* ---------- Feature strip + Stats ---------- */}
+      <section className="feature-stats-row">
+        <div className="feature-strip-card">
+          {FEATURE_STRIP.map((f) => {
+            const Icon = f.icon;
+            return (
+              <div className="feature-item" key={f.label}>
+                <span className={`feature-icon-circle feature-icon-${f.color}`}>
+                  <Icon size={20} />
+                </span>
+                <span className="feature-item-label">{f.label}</span>
+                <span className="feature-item-desc">{f.desc}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="stats-dark-card">
+          {HERO_STATS.map((s) => {
+            const Icon = s.icon;
+            return (
+              <div className="stat-mini-box" key={s.label}>
+                <Icon size={22} />
+                <span className="stat-mini-value">{s.value}</span>
+                <span className="stat-mini-label">{s.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ---------- Portals ---------- */}
+      <section className="school-portals-row">
+        <div className="portals-inline-grid">
+          {PORTALS.map((p) => {
+            const Icon = p.icon;
+            return (
+              <div className={`portal-box portal-${p.color}`} key={p.key}>
+                <span className="portal-icon-circle">
+                  <Icon size={26} />
+                </span>
+                <div className="portal-title">{p.title}</div>
+                <p className="portal-desc">{p.desc}</p>
+                <Link to={p.to} className="portal-btn">
+                  {p.key === "admission" ? "Apply Now" : "Login"} <span>➜</span>
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ---------- About Our School ---------- */}
+      <section className="about-section-wrap">
+        <div className="about-preview-card">
+          <h2 className="about-preview-title">About Our School</h2>
+          <p className="about-preview-text">
+            At Rising Star School, we are dedicated to nurturing young
+            minds through academic excellence, character building and
+            innovative learning. Our mission is to prepare students to
+            become responsible global citizens and future leaders.
+          </p>
+
+          <div className="about-stats-grid">
+            {ABOUT_STATS.map((s) => (
+              <div className="about-stat-box" key={s.label}>
+                <span className="about-stat-icon">{s.icon}</span>
+                <span className="about-stat-value">{s.value}</span>
+                <span className="about-stat-label">{s.label}</span>
+              </div>
+            ))}
           </div>
-        </aside>
+
+          <h3 className="gallery-preview-title">Gallery</h3>
+          <div className="gallery-preview-grid">
+            {GALLERY_PREVIEW.map((img, i) => (
+              <img key={i} src={img} alt="" className="gallery-preview-img" />
+            ))}
+          </div>
+          <Link to="/gallery" className="view-more-btn">
+            View More Photos <span>➜</span>
+          </Link>
+        </div>
       </section>
 
       {/* ---------- Footer ---------- */}

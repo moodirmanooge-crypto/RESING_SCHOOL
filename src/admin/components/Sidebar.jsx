@@ -30,6 +30,7 @@ import {
   ShieldCheck,
   ClipboardCheck,
   BookOpen,
+  UploadCloud,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -50,6 +51,7 @@ const menus = [
   { name: "Exam Cards", icon: IdCard, path: "/admin/exam-cards" },
   { name: "ID Cards", icon: IdCard, path: "/admin/id-cards" },
   { name: "Certificates", icon: Award, path: "/admin/certificates" },
+  { name: "Upload Certificate", icon: UploadCloud, path: "/admin/upload-certificate" },
   { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
   { name: "Gallery", icon: ImageIcon, path: "/admin/gallery" },
   { name: "News", icon: Newspaper, path: "/admin/news" },

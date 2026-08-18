@@ -41,6 +41,7 @@ import AddSubAdmin from "./admin/pages/AddSubAdmin";
 import ManageAdmins from "./admin/pages/ManageAdmins";
 import AdmissionsList from "./admin/pages/AdmissionsList";
 import LibraryManager from "./admin/pages/LibraryManager";
+import UploadCertificate from "./admin/pages/UploadCertificate";
 
 // STUDENT / PARENT
 import StudentDashboard from "./student/Dashboard";
@@ -104,6 +105,11 @@ function App() {
         <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
         <Route path="/admin/manage-admins" element={<ManageAdmins />} />
         <Route path="/admin/library" element={<LibraryManager />} />
+
+        {/* Admin page for uploading the single photo/video shown on the
+            public homepage hero section — writes to the
+            `settings/homepage` Firestore doc that Home.jsx reads live. */}
+        <Route path="/admin/upload-certificate" element={<UploadCertificate />} />
 
         {/* Admin view of all admission applications submitted from the
             public /admissions page — lists every applicant, shows a

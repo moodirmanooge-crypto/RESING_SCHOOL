@@ -1,3 +1,4 @@
+//src/cashier/Payments.jsx // rise school
 import { useEffect, useState } from "react";
 import {
   collection,
