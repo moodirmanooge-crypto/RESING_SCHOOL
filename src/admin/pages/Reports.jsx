@@ -122,6 +122,21 @@ export default function Reports() {
     return Number(p.monthlyFee) || 0;
   };
 
+  // Numb. Ardayga iyo Numb. Waalidka: labada collection ee payments
+  // (payments / examCardPayments) mar walba kuma hayaan telefoonnada —
+  // haddii ay leeyihiin isticmaal kooda, haddii kalese ka soo qaad
+  // document-ka `students/{studentId}` ee horey loo soo shubay
+  // (studentPhone / parentPhone), sida ku muuqda Firestore-ka.
+  const getStudentPhone = (p) => {
+    const student = students[p.studentId] || {};
+    return p.studentPhone || student.studentPhone || "-";
+  };
+
+  const getParentPhone = (p) => {
+    const student = students[p.studentId] || {};
+    return p.parentPhone || student.parentPhone || "-";
+  };
+
   // Status: aad ugu kalsoonow field-ka `status` haddii uu jiro (waa xaalada ansixinta cashierka),
   // haddii kalese ku xisaab tir lacagta la bixiyay iyo fee-ga
   const getStatus = (p) => {
@@ -177,16 +192,19 @@ export default function Reports() {
 
       const typeMatch = typeFilter === "All" || p.type === typeFilter;
 
+      const studentPhone = getStudentPhone(p);
+      const parentPhone = getParentPhone(p);
+
       const searchMatch =
         !search.trim() ||
         (p.studentName || "").toLowerCase().includes(search.toLowerCase()) ||
         (p.studentId || "").toLowerCase().includes(search.toLowerCase()) ||
-        (p.parentPhone || "").includes(search) ||
-        (p.studentPhone || "").includes(search);
+        parentPhone.includes(search) ||
+        studentPhone.includes(search);
 
       return rangeMatch && statusMatch && typeMatch && searchMatch;
     });
-  }, [payments, fromMonth, fromYear, toMonth, toYear, statusFilter, typeFilter, search]);
+  }, [payments, students, fromMonth, fromYear, toMonth, toYear, statusFilter, typeFilter, search]);
 
   const totals = useMemo(() => {
     let totalIncome = 0;
@@ -347,8 +365,8 @@ export default function Reports() {
           p.className || "-",
           isExamCard ? `Exam Card${p.examType ? " (" + p.examType + ")" : ""}` : "Cashier",
           monthLabel,
-          p.studentPhone || "-",
-          p.parentPhone || "-",
+          getStudentPhone(p),
+          getParentPhone(p),
           isExamCard ? "-" : `$${fee}`,
           `$${paid}`,
           isExamCard ? "-" : `$${remaining}`,
@@ -398,7 +416,40 @@ export default function Reports() {
       });
 
       const fileSafeRange = rangeLabel.replace(/\s+/g, "_").replace(/[^\w-]/g, "");
-      doc.save(`RisingStar_Transaction_Report_${fileSafeRange}.pdf`);
+      const fileName = `RisingStar_Transaction_Report_${fileSafeRange}.pdf`;
+
+      // Save a real copy to Firebase Storage + a Firestore doc in
+      // `reportHistory`, so every generated report can be reopened later
+      // from the History panel — not just downloaded once and forgotten.
+      try {
+        const pdfBlob = doc.output("blob");
+        const historyFileRef = ref(storage, `reportHistory/${Date.now()}_${fileName}`);
+        await uploadBytes(historyFileRef, pdfBlob);
+        const pdfUrl = await getDownloadURL(historyFileRef);
+
+        await addDoc(collection(db, "reportHistory"), {
+          fileName,
+          fileUrl: pdfUrl,
+          storagePath: historyFileRef.fullPath,
+          rangeLabel,
+          totalIncome: totals.totalIncome,
+          regularIncome: totals.regularIncome,
+          examCardIncome: totals.examCardIncome,
+          fullPaid: totals.fullPaid,
+          partialPaid: totals.partialPaid,
+          unpaid: totals.unpaid,
+          transactionCount: filteredPayments.length,
+          statusFilter,
+          typeFilter,
+          generatedAt: Timestamp.now(),
+        });
+      } catch (historyErr) {
+        // A failed history save shouldn't block the admin from getting
+        // their PDF — just log it and continue with the download.
+        console.log("Failed to save report to history:", historyErr);
+      }
+
+      doc.save(fileName);
     } catch (err) {
       console.log(err);
       alert("Wax baa qaldamay markii PDF-ka la sameynayay: " + err.message);
@@ -459,27 +510,49 @@ export default function Reports() {
             </div>
           </div>
 
-          <button
-            onClick={handleExportPdf}
-            disabled={exporting}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
-              color: "#fff",
-              border: "none",
-              borderRadius: 12,
-              padding: "12px 20px",
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: exporting ? "not-allowed" : "pointer",
-              opacity: exporting ? 0.7 : 1,
-            }}
-          >
-            <FileDown size={18} />
-            {exporting ? "Diyaarinaya PDF..." : "Export PDF"}
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              onClick={handleOpenHistory}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "rgba(255,255,255,0.04)",
+                color: "#e5e3f7",
+                border: "1.5px solid rgba(139,108,245,0.35)",
+                borderRadius: 12,
+                padding: "12px 20px",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <History size={18} />
+              History
+            </button>
+
+            <button
+              onClick={handleExportPdf}
+              disabled={exporting}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                color: "#fff",
+                border: "none",
+                borderRadius: 12,
+                padding: "12px 20px",
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: exporting ? "not-allowed" : "pointer",
+                opacity: exporting ? 0.7 : 1,
+              }}
+            >
+              <FileDown size={18} />
+              {exporting ? "Diyaarinaya PDF..." : "Export PDF"}
+            </button>
+          </div>
         </div>
 
         {/* Range label */}
@@ -724,13 +797,13 @@ export default function Reports() {
                       <Td>
                         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <Smartphone size={14} color="#8b87ad" />
-                          {p.studentPhone || "-"}
+                          {getStudentPhone(p)}
                         </span>
                       </Td>
                       <Td>
                         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <Phone size={14} color="#8b87ad" />
-                          {p.parentPhone || "-"}
+                          {getParentPhone(p)}
                         </span>
                       </Td>
                       <Td>{isExamCard ? "-" : `$${fee}`}</Td>
@@ -747,6 +820,151 @@ export default function Reports() {
           </div>
         )}
       </div>
+
+      {/* ---- History modal: every PDF ever exported, stored for real in
+          Firestore (`reportHistory`) + Storage — not just this session ---- */}
+      {showHistory && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.65)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "linear-gradient(160deg,#151233,#181341)",
+              border: "1px solid rgba(139,108,245,0.3)",
+              borderRadius: 20,
+              width: "100%",
+              maxWidth: 720,
+              maxHeight: "85vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "20px 24px",
+                borderBottom: "1px solid rgba(139,108,245,0.2)",
+                position: "sticky",
+                top: 0,
+                background: "#181341",
+              }}
+            >
+              <h2
+                style={{
+                  color: "#fff",
+                  margin: 0,
+                  fontSize: 18,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <History size={20} color="#8b6cf5" />
+                Report History
+              </h2>
+              <button
+                onClick={() => setShowHistory(false)}
+                style={{
+                  background: "rgba(255,255,255,0.05)",
+                  border: "none",
+                  color: "#fff",
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: "18px 24px 24px" }}>
+              {loadingHistory ? (
+                <p style={{ color: "#8b87ad" }}>Loading...</p>
+              ) : historyList.length === 0 ? (
+                <p style={{ color: "#8b87ad" }}>
+                  Weli ma jiraan report-yo la export-gareeyay.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {historyList.map((h) => (
+                    <div
+                      key={h.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 14,
+                        background: "rgba(255,255,255,0.02)",
+                        border: "1px solid rgba(139,108,245,0.2)",
+                        borderRadius: 14,
+                        padding: "14px 18px",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
+                          {h.rangeLabel || "-"}
+                        </div>
+                        <div style={{ color: "#8b87ad", fontSize: 12, marginTop: 3 }}>
+                          {h.transactionCount ?? 0} transaction
+                          {(h.transactionCount ?? 0) === 1 ? "" : "s"} · Total: $
+                          {(h.totalIncome ?? 0).toLocaleString()}
+                        </div>
+                        <div style={{ color: "#6f6a92", fontSize: 11.5, marginTop: 2 }}>
+                          {h.generatedAt?.toDate
+                            ? h.generatedAt.toDate().toLocaleString()
+                            : "-"}
+                        </div>
+                      </div>
+
+                      {h.fileUrl && (
+                        <a
+                          href={h.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 6,
+                            border: "1px solid rgba(139,108,245,0.35)",
+                            background: "rgba(139,108,245,0.12)",
+                            color: "#c4b5fd",
+                            fontWeight: 700,
+                            fontSize: 12.5,
+                            padding: "9px 14px",
+                            borderRadius: 8,
+                            textDecoration: "none",
+                          }}
+                        >
+                          <ExternalLink size={13} />
+                          Fur PDF
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
