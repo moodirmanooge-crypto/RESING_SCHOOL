@@ -4,6 +4,31 @@
 // (name, grade, ID No, issue date, expire date) and uploaded photo overlaid
 // on top at the correct positions.
 //
+// FIX (this pass): the QR overlay on the back had gone missing in a prior
+// version of this file — restored below, alongside the grade/photo fixes
+// from the previous pass. A real QR code linking to this card's own
+// /verify/student/{studentId} page is drawn on top of the printed QR
+// placeholder box on ID_Back.png, so scanning it opens THIS card instead of
+// the general site.
+//
+// FIX (earlier pass):
+//   1) The GRADE value ("8" etc.) was rendering much smaller than the word
+//      "GRADE" printed on the template — maxFontPx for that field is now
+//      bumped up to match the template's own letter size.
+//   2) The student photo box was a plain rounded rectangle that only
+//      approximated the shield/arch shape baked into ID_Front.png — on real
+//      photos it visibly poked out past the green outline at the bottom
+//      corners. The box position/size AND the clip-path below were
+//      re-derived by measuring the actual green outline pixel-by-pixel in
+//      ID_Front.png (inner edge of the stroke, so the photo sits just
+//      inside the green line without covering it), so the photo now always
+//      stays exactly inside the printed frame, top corners to bottom point.
+//
+// FIX (earlier pass): this file was pointing at src/student/assets/id-front.png
+// and id-back.png, which are NOT the real printed template. The actual
+// template artwork lives at src/admin/assets/ID_Front.png and ID_Back.png
+// (RISING STAR PRIMARY & SECONDARY SCHOOL card).
+//
 // The template artwork itself is never redrawn here — the two PNGs below ARE
 // the design (front is the blank template, back is unchanged). Only the data
 // is positioned over the front. All positions are percentages of the card, so
@@ -13,31 +38,50 @@
 // The full name auto-shrinks to fit on its single line, so long names like
 // "GUULEED IBRAAHIM DAAHIR" are shown in full instead of being clipped.
 //
-// NOTE: this card's back is the static id-back.png template and has no QR
-// code overlay — unlike TeacherIdCard/StudentIdCard, there's nothing to fix
-// here for the "QR opens the original card" flow. If you want a scannable
-// QR on manual student cards too, it would need to be added as an overlay
-// here (same /verify/student/{studentId} link pattern used elsewhere).
-//
-// Used by admin/pages/AllIdCards.jsx for manually-created student cards.
+// Used by admin/pages/AllIdCards.jsx for manually-created student cards, and
+// by pages/StudentIdVerify.jsx for the public QR-scan verification page.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import idFront from "./assets/id-front.png";
-import idBack from "./assets/id-back.png";
+import idFront from "../admin/assets/ID_Front.png";
+import idBack from "../admin/assets/ID_Back.png";
 
 // The card keeps the template's real aspect ratio (851 x 1355 px source).
 const CARD_W = 340; // on-screen width; height derived from the ratio
 const RATIO = 1355 / 851;
 
-// Label row centers, measured directly from the real id-front.png template
+// Label row centers, measured directly from the real ID_Front.png template
 // (851x1355 source, as % of card height):
 //   GRADE line ~63.1% · ID No ~74.6% · Issue Date line ~80.1% · Expire Date line ~86.9%
 const POS = {
   name: 60.5,   // name baseline sits just above the GRADE line
-  grade: 67.7,
+  grade: 66.6, // nudged up slightly to align with the larger GRADE value font
   idNo: 74.6,
   issue: 80.1,  // Issue Date - top row (matches template)
   expire: 86.9, // Expire Date - bottom row (matches template)
 };
+
+// Student photo box — measured pixel-by-pixel from the green shield outline
+// in ID_Front.png (inner edge of the stroke, so the photo never covers the
+// green line). The shield has straight sides down to about 51% of its own
+// height, then curves inward to a rounded point at the bottom — that's what
+// PHOTO_CLIP traces, in percentages relative to this box (0,0 = top-left,
+// 100,100 = bottom-right of the box below).
+const PHOTO_BOX = { left: "29.6%", top: "27.2%", width: "44%", height: "30.5%" };
+const PHOTO_CLIP =
+  "polygon(0.0% 0.0%, 0.0% 1.9%, 0.0% 3.9%, 0.0% 5.8%, 0.0% 7.7%, 0.0% 9.7%, 0.0% 11.6%, 0.0% 13.5%, 0.0% 15.5%, 0.0% 17.4%, 0.0% 19.4%, 0.0% 21.3%, 0.0% 23.2%, 0.0% 25.2%, 0.0% 27.1%, 0.0% 29.0%, 0.0% 31.0%, 0.0% 32.9%, 0.0% 34.8%, 0.0% 36.8%, 0.0% 38.7%, 0.0% 40.6%, 0.0% 42.6%, 0.0% 44.5%, 0.0% 46.5%, 0.0% 48.4%, 0.0% 50.3%, 0.0% 52.3%, 0.0% 54.2%, 0.0% 56.1%, 0.0% 58.1%, 0.0% 60.0%, 0.0% 61.9%, 0.0% 63.9%, 0.0% 65.8%, 0.0% 67.7%, 0.0% 69.7%, 0.0% 71.6%, 0.0% 73.5%, 0.0% 75.5%, 0.0% 77.4%, 0.0% 79.4%, 0.0% 81.3%, 0.7% 83.2%, 1.4% 85.2%, 2.1% 87.1%, 3.2% 89.0%, 5.0% 91.0%, 6.8% 92.9%, 9.6% 94.8%, 13.2% 96.8%, 13.9% 98.7%, 19.6% 100.0%, 50.0% 100.0%, 80.4% 100.0%, 85.8% 98.7%, 86.5% 96.8%, 90.4% 94.8%, 92.9% 92.9%, 95.0% 91.0%, 96.4% 89.0%, 97.5% 87.1%, 98.6% 85.2%, 99.3% 83.2%, 99.6% 81.3%, 99.6% 79.4%, 100.0% 77.4%, 100.0% 75.5%, 100.0% 73.5%, 100.0% 71.6%, 100.0% 69.7%, 100.0% 67.7%, 100.0% 65.8%, 100.0% 63.9%, 100.0% 61.9%, 100.0% 60.0%, 100.0% 58.1%, 100.0% 56.1%, 100.0% 54.2%, 100.0% 52.3%, 100.0% 50.3%, 100.0% 48.4%, 100.0% 46.5%, 100.0% 44.5%, 100.0% 42.6%, 100.0% 40.6%, 100.0% 38.7%, 100.0% 36.8%, 100.0% 34.8%, 100.0% 32.9%, 100.0% 31.0%, 100.0% 29.0%, 100.0% 27.1%, 100.0% 25.2%, 100.0% 23.2%, 100.0% 21.3%, 100.0% 19.4%, 100.0% 17.4%, 100.0% 15.5%, 100.0% 13.5%, 100.0% 11.6%, 100.0% 9.7%, 100.0% 7.7%, 100.0% 5.8%, 100.0% 3.9%, 100.0% 1.9%, 100.0% 0.0%)";
+
+// Verify-link QR code shown on the back — mirrors StudentIdCard.jsx's own
+// /verify/student/{id} pattern so a manual card's QR resolves the same way.
+const SCHOOL_WEBSITE = "resingstarschools.com";
+function qrSrc(studentId) {
+  const qrTarget = `https://${SCHOOL_WEBSITE}/verify/student/${encodeURIComponent(studentId)}`;
+  return `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=${encodeURIComponent(qrTarget)}`;
+}
+
+// Position of the printed QR placeholder box on ID_Back.png, as % of the
+// card (estimated from a screenshot of the template — send the raw
+// src/admin/assets/ID_Back.png file to get this pixel-exact like the front
+// photo/GRADE positions were).
+const QR_BOX = { left: "33%", top: "70%", width: "36%", height: "20.7%" };
 
 export default function ManualStudentIdCard({ card }) {
   const {
@@ -70,18 +114,19 @@ export default function ManualStudentIdCard({ card }) {
           flexShrink: 0,
         }}
       >
-        {/* Student photo — sits inside the green notch box.
-            Box interior ≈ x 26%..75%, y 26.6%..57.8% of the card. */}
+        {/* Student photo — clipped to the exact shield outline printed on
+            the template (straight sides, then a rounded point at the
+            bottom), so it can never poke out past the green line. */}
         <div
           style={{
             position: "absolute",
-            left: "26%",
-            top: "26.6%",
-            width: "49%",
-            height: "31.2%",
+            left: PHOTO_BOX.left,
+            top: PHOTO_BOX.top,
+            width: PHOTO_BOX.width,
+            height: PHOTO_BOX.height,
             overflow: "hidden",
-            borderBottomLeftRadius: "40% 20%",
-            borderBottomRightRadius: "40% 20%",
+            clipPath: PHOTO_CLIP,
+            WebkitClipPath: PHOTO_CLIP,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -110,15 +155,19 @@ export default function ManualStudentIdCard({ card }) {
           align="center"
         />
 
-        {/* GRADE value — sits in the gap between the word "GRADE" (ends ~56.6%)
-            and the right green dash (starts ~64.3%). */}
+        {/* GRADE value — sits in the gap between the word "GRADE" (ends ~56.7%)
+            and the right green dash, which ID_Front.png now has shifted
+            further right (starts ~70.7%) to give multi-character grades
+            like "F4" enough room without touching "GRADE". Font size now
+            matches the template's own "GRADE" letter size (previously much
+            smaller). */}
         <FitText
           text={gradeText}
           top={`${POS.grade}%`}
-          left="57.5%"
-          right="35.2%"
-          maxFontPx={CARD_W * 0.05}
-          minFontPx={CARD_W * 0.028}
+          left="57.1%"
+          right="29.8%"
+          maxFontPx={CARD_W * 0.08}
+          minFontPx={CARD_W * 0.032}
           bold
           color="#1e2a78"
           align="center"
@@ -161,9 +210,14 @@ export default function ManualStudentIdCard({ card }) {
         />
       </div>
 
-      {/* BACK (unchanged template) */}
+      {/* BACK — template background unchanged, but the printed QR box is no
+          longer just decorative artwork: a real QR code pointing at this
+          card's own /verify/student/{studentId} page is overlaid directly
+          on top of it (same link pattern StudentIdCard.jsx uses), so
+          scanning it opens this exact card instead of the general site. */}
       <div
         style={{
+          position: "relative",
           width: CARD_W,
           height: CARD_W * RATIO,
           backgroundImage: `url(${idBack})`,
@@ -172,8 +226,26 @@ export default function ManualStudentIdCard({ card }) {
           borderRadius: 10,
           boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
           flexShrink: 0,
+          overflow: "hidden",
         }}
-      />
+      >
+        {studentId ? (
+          <img
+            src={qrSrc(studentId)}
+            alt="Verify QR code"
+            crossOrigin="anonymous"
+            style={{
+              position: "absolute",
+              left: QR_BOX.left,
+              top: QR_BOX.top,
+              width: QR_BOX.width,
+              height: QR_BOX.height,
+              objectFit: "contain",
+              background: "#fff",
+            }}
+          />
+        ) : null}
+      </div>
     </div>
   );
 }

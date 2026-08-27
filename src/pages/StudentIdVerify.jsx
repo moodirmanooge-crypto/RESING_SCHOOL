@@ -1,27 +1,52 @@
 // src/pages/StudentIdVerify.jsx
-// Public page a Student ID card's QR code links to. Reads the student's
-// snapshot straight from `studentIdCards/{studentId}` (the same
-// persistent record StudentIdCard.jsx creates at issue time) and renders
-// the exact same front + back card design — no login required.
-
+// Public page a Student ID card's QR code links to. No login required.
+//
+// FIX: this page used to read ONLY from `studentIdCards/{studentId}` — the
+// collection StudentIdCard.jsx (the auto-generated card) writes to. Manual
+// cards created via AllIdCards.jsx's "Create ID Card" flow are saved in a
+// DIFFERENT collection, `manualStudentIdCards`, using ManualStudentIdCard.jsx
+// as their design. So scanning a manual card's QR always missed here and
+// fell through to "ID Card lama helin" (or, depending on the router's
+// fallback handling, back out to the site) — never the card itself.
+//
+// Now this page checks `manualStudentIdCards/{studentId}` FIRST (that's
+// where AllIdCards.jsx actually saves manual cards, keyed by the exact
+// Student ID typed in), and falls back to `studentIdCards/{studentId}` for
+// cards issued the automatic way. Whichever collection the record is found
+// in decides which card component renders it, so the scanner always sees
+// the exact same design that was printed/downloaded.
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import StudentIdCard from "../student/StudentIdCard";
+import ManualStudentIdCard from "../student/ManualStudentIdCard";
 
 export default function StudentIdVerify() {
   const { studentId } = useParams();
   const [student, setStudent] = useState(null);
+  const [isManual, setIsManual] = useState(false);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     async function load() {
       try {
+        // Manual cards first — this is where AllIdCards.jsx's "Create ID
+        // Card" flow actually saves them, under the exact Student ID typed
+        // in (matching what the card's own QR encodes).
+        const manualSnap = await getDoc(doc(db, "manualStudentIdCards", studentId));
+        if (manualSnap.exists()) {
+          setStudent(manualSnap.data());
+          setIsManual(true);
+          return;
+        }
+
+        // Fall back to the auto-generated card's collection.
         const snap = await getDoc(doc(db, "studentIdCards", studentId));
         if (snap.exists()) {
           setStudent(snap.data());
+          setIsManual(false);
         } else {
           setNotFound(true);
         }
@@ -61,7 +86,11 @@ export default function StudentIdVerify() {
           <div style={{ color: "#fff", marginBottom: 8, fontSize: 13, opacity: 0.7 }}>
             Rising Star School — Official Student ID Verification
           </div>
-          <StudentIdCard student={student} studentId={studentId} />
+          {isManual ? (
+            <ManualStudentIdCard card={student} />
+          ) : (
+            <StudentIdCard student={student} studentId={studentId} />
+          )}
         </>
       )}
     </div>
