@@ -476,6 +476,9 @@ export default function StudentDashboard() {
       ? Math.round((attendanceStats.present / attendanceStats.total) * 100)
       : null;
 
+  // Student is Free if feeType is explicitly "Free" (case-insensitive).
+  const isFreeStudent = String(student?.feeType || "").toLowerCase() === "free";
+
   // Payments written by the Cashier's Payments.jsx use paidAmount/monthKey/
   // status/monthLabel/schoolName — not amount/date/method/cashierName.
   // Sort newest first by monthKey (falls back to createdAt if monthKey missing).
@@ -498,8 +501,9 @@ export default function StudentDashboard() {
   const latestPayment = sortedPayments[0];
   const currentMonthKey = new Date().toISOString().slice(0, 7);
   const isCurrentMonthPaid =
-    latestPayment?.monthKey === currentMonthKey &&
-    latestPayment?.status === "Paid";
+    isFreeStudent ||
+    (latestPayment?.monthKey === currentMonthKey &&
+      latestPayment?.status === "Paid");
 
   const isClass8 = String(student?.className || "").toUpperCase() === "8";
   const visibleNavItems = NAV_ITEMS.filter(
@@ -897,59 +901,99 @@ export default function StudentDashboard() {
           {tab === "payments" && (
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>Payments</div>
-              <div className="rs-payment-summary-row">
-                <div style={styles.paymentSummaryCard}>
-                  <div style={styles.detailLabel}>Monthly fee</div>
-                  <div className="rs-stat-value" style={styles.statValue}>${monthlyFee.toLocaleString()}</div>
-                </div>
-                <div style={styles.paymentSummaryCard}>
-                  <div style={styles.detailLabel}>Total paid</div>
-                  <div className="rs-stat-value" style={{ ...styles.statValue, color: COLORS.accent }}>
-                    ${totalPaid.toLocaleString()}
+              {isFreeStudent ? (
+                <>
+                  <div className="rs-payment-summary-row">
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>Fee status</div>
+                      <div
+                        className="rs-stat-value"
+                        style={{ ...styles.statValue, color: COLORS.accent }}
+                      >
+                        Free
+                      </div>
+                    </div>
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>Total paid</div>
+                      <div
+                        className="rs-stat-value"
+                        style={{ ...styles.statValue, color: COLORS.accent }}
+                      >
+                        Free
+                      </div>
+                    </div>
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>This month</div>
+                      <div
+                        style={{
+                          ...styles.statValue,
+                          fontSize: 18,
+                          color: COLORS.accent,
+                        }}
+                      >
+                        Free
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div style={styles.paymentSummaryCard}>
-                  <div style={styles.detailLabel}>This month</div>
-                  <div
-                    style={{
-                      ...styles.statValue,
-                      fontSize: 18,
-                      color: isCurrentMonthPaid ? COLORS.accent : COLORS.danger,
-                    }}
-                  >
-                    {isCurrentMonthPaid ? "Paid" : "Not Paid"}
-                  </div>
-                </div>
-              </div>
-              {sortedPayments.length === 0 ? (
-                <EmptyState text="No payments have been recorded yet." />
+                  <EmptyState text="This student is registered as Free. No fees apply." />
+                </>
               ) : (
-                <div className="rs-table-wrap">
-                  <table className="rs-table" style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th style={styles.th}>Month</th>
-                        <th style={styles.th}>School</th>
-                        <th style={styles.th}>Paid</th>
-                        <th style={styles.th}>Remaining</th>
-                        <th style={styles.th}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedPayments.map((p) => (
-                        <tr key={p.id}>
-                          <td style={styles.td}>{p.monthLabel || p.monthKey || "—"}</td>
-                          <td style={styles.td}>{p.schoolName || "—"}</td>
-                          <td style={styles.td}>${Number(p.paidAmount || 0).toLocaleString()}</td>
-                          <td style={styles.td}>${Number(p.remaining || 0).toLocaleString()}</td>
-                          <td style={styles.td}>
-                            <StatusPill status={p.status} />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  <div className="rs-payment-summary-row">
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>Monthly fee</div>
+                      <div className="rs-stat-value" style={styles.statValue}>${monthlyFee.toLocaleString()}</div>
+                    </div>
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>Total paid</div>
+                      <div className="rs-stat-value" style={{ ...styles.statValue, color: COLORS.accent }}>
+                        ${totalPaid.toLocaleString()}
+                      </div>
+                    </div>
+                    <div style={styles.paymentSummaryCard}>
+                      <div style={styles.detailLabel}>This month</div>
+                      <div
+                        style={{
+                          ...styles.statValue,
+                          fontSize: 18,
+                          color: isCurrentMonthPaid ? COLORS.accent : COLORS.danger,
+                        }}
+                      >
+                        {isCurrentMonthPaid ? "Paid" : "Not Paid"}
+                      </div>
+                    </div>
+                  </div>
+                  {sortedPayments.length === 0 ? (
+                    <EmptyState text="No payments have been recorded yet." />
+                  ) : (
+                    <div className="rs-table-wrap">
+                      <table className="rs-table" style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th style={styles.th}>Month</th>
+                            <th style={styles.th}>School</th>
+                            <th style={styles.th}>Paid</th>
+                            <th style={styles.th}>Remaining</th>
+                            <th style={styles.th}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedPayments.map((p) => (
+                            <tr key={p.id}>
+                              <td style={styles.td}>{p.monthLabel || p.monthKey || "—"}</td>
+                              <td style={styles.td}>{p.schoolName || "—"}</td>
+                              <td style={styles.td}>${Number(p.paidAmount || 0).toLocaleString()}</td>
+                              <td style={styles.td}>${Number(p.remaining || 0).toLocaleString()}</td>
+                              <td style={styles.td}>
+                                <StatusPill status={p.status} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )}
             </section>
           )}
