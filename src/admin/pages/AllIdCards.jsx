@@ -65,6 +65,19 @@
 //     it landed on "ID Card Not Found". Manual cards are now saved with
 //     the doc ID equal to the entered teacherId/studentId itself.
 //
+// BULK PDF DOWNLOAD (added):
+//   - "Download PDF (Selected)" appears next to "Delete Selected" once at
+//     least one row's checkbox is ticked. It downloads ONE PDF PER
+//     checked card (both Student and Teacher), each file named by that
+//     card's own ID — not a single combined PDF.
+//   - Because only the currently-selected card is actually mounted in the
+//     preview panel, each queued card is rendered one at a time into an
+//     off-screen container (bulkPdfRef), given a moment for its photo/QR
+//     <img> tags to finish loading, captured with html2canvas, and saved
+//     as its own PDF — then the next card in the queue is rendered the
+//     same way. This reuses the exact same capture/PDF logic as the
+//     single-card "Download PDF" button below.
+//
 // PENDING DELETION support:
 //   - Students/teachers marked pendingDeletion are hidden from this list
 //     immediately, even though their card doc (if any) is untouched
@@ -150,6 +163,14 @@ function fileToResizedDataUrl(file, maxEdge = 500, quality = 0.85) {
 // exactly this id, and VerifyIdCard.jsx looks up that same id.
 function toSafeDocId(rawId) {
   return rawId.trim().replace(/[\/\s]+/g, "-");
+}
+
+// The label a card should be saved/downloaded under — its own ID, not a
+// Firestore doc id that might differ.
+function cardLabel(r) {
+  return r.type === "teacher"
+    ? r.teacherId || r.teacherUsername || r.id
+    : r.studentId || r.id;
 }
 
 const tableCardStyle = {
@@ -708,51 +729,59 @@ export default function AllIdCards() {
 
   const [downloadingPdf, setDownloadingPdf] = useState(false);
 
+  // Shared capture+save routine: given the DOM node holding a rendered
+  // card (front+back) and the label to save it under, produces one PDF
+  // and triggers its download. Used by both the single "Download PDF"
+  // button and the bulk "Download PDF (Selected)" flow below, so both
+  // always produce identical PDFs.
+  async function captureNodeToPdf(node, label) {
+    const [{ default: html2canvasPro }, jsPDFModule] = await Promise.all([
+      import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
+      import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
+    ]);
+    const { jsPDF } = jsPDFModule;
+
+    const canvas = await html2canvasPro(node, {
+      backgroundColor: "#ffffff",
+      scale: 2,
+      useCORS: true,
+    });
+    const imgData = canvas.toDataURL("image/png");
+
+    // ID cards are tall/portrait content, so the PDF page follows that
+    // shape rather than the fixed A4 landscape used for results sheets.
+    const imgRatio = canvas.height / canvas.width;
+    const pdf = new jsPDF({
+      orientation: imgRatio >= 1 ? "portrait" : "landscape",
+      unit: "pt",
+      format: "a4",
+    });
+
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    let renderWidth = pageWidth - 40;
+    let renderHeight = renderWidth * imgRatio;
+
+    if (renderHeight > pageHeight - 40) {
+      renderHeight = pageHeight - 40;
+      renderWidth = renderHeight / imgRatio;
+    }
+
+    const x = (pageWidth - renderWidth) / 2;
+    const y = (pageHeight - renderHeight) / 2;
+
+    pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
+    pdf.save(`id-card-${label || "card"}.pdf`);
+  }
+
   async function handleDownloadPdf() {
     if (!printRef.current || downloadingPdf) return;
     try {
       setDownloadingPdf(true);
-      const [{ default: html2canvasPro }, jsPDFModule] = await Promise.all([
-        import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
-        import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
-      ]);
-      const { jsPDF } = jsPDFModule;
-
-      const canvas = await html2canvasPro(printRef.current, {
-        backgroundColor: "#ffffff",
-        scale: 2,
-        useCORS: true,
-      });
-      const imgData = canvas.toDataURL("image/png");
-
-      // ID cards are tall/portrait content, so the PDF page follows that
-      // shape rather than the fixed A4 landscape used for results sheets.
-      const imgRatio = canvas.height / canvas.width;
-      const pdf = new jsPDF({
-        orientation: imgRatio >= 1 ? "portrait" : "landscape",
-        unit: "pt",
-        format: "a4",
-      });
-
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      let renderWidth = pageWidth - 40;
-      let renderHeight = renderWidth * imgRatio;
-
-      if (renderHeight > pageHeight - 40) {
-        renderHeight = pageHeight - 40;
-        renderWidth = renderHeight / imgRatio;
-      }
-
-      const x = (pageWidth - renderWidth) / 2;
-      const y = (pageHeight - renderHeight) / 2;
-
-      pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
-
       const label = selected?.type === "teacher"
         ? (selected.data.teacherId || selected.data.teacherUsername || selected.data.id)
         : (selected?.data.studentId || selected?.data.id);
-      pdf.save(`id-card-${label || "card"}.pdf`);
+      await captureNodeToPdf(printRef.current, label);
     } catch (err) {
       console.error("Failed to generate ID card PDF:", err);
       window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay. Fadlan isku day mar kale.");
@@ -760,6 +789,91 @@ export default function AllIdCards() {
       setDownloadingPdf(false);
     }
   }
+
+  // ── Bulk "Download PDF (Selected)" ──────────────────────────────────────
+  // Only the currently-selected card is mounted in the visible preview
+  // panel, so to capture every checked card we render them one at a time
+  // into an off-screen container (bulkPdfNode), wait for that card's own
+  // <img> tags (photo, QR code) to finish loading, capture it, save its
+  // PDF, then move on to the next one in the queue.
+  const [bulkPdfQueue, setBulkPdfQueue] = useState([]); // remaining cards still to process
+  const [bulkPdfCurrent, setBulkPdfCurrent] = useState(null); // card currently rendered off-screen
+  const [bulkPdfRunning, setBulkPdfRunning] = useState(false);
+  const [bulkPdfDone, setBulkPdfDone] = useState(0); // how many completed so far, for the button label
+  const [bulkPdfTotal, setBulkPdfTotal] = useState(0);
+  const bulkPdfRef = useRef(null);
+
+  function handleDownloadSelectedPdf() {
+    if (bulkPdfRunning) return;
+    const targets = combined.filter((r) => selectedIds.has(rowKey(r)));
+    if (targets.length === 0) {
+      window.alert("Fadlan xulo ugu yaraan hal ID card (checkbox) si aad PDF ugu soo dejiso.");
+      return;
+    }
+    setBulkPdfRunning(true);
+    setBulkPdfTotal(targets.length);
+    setBulkPdfDone(0);
+    setBulkPdfQueue(targets.slice(1));
+    setBulkPdfCurrent(targets[0]);
+  }
+
+  function advanceBulkPdfQueue() {
+    setBulkPdfDone((prev) => prev + 1);
+    setBulkPdfQueue((prev) => {
+      if (prev.length === 0) {
+        setBulkPdfCurrent(null);
+        setBulkPdfRunning(false);
+        return prev;
+      }
+      const [next, ...rest] = prev;
+      setBulkPdfCurrent(next);
+      return rest;
+    });
+  }
+
+  useEffect(() => {
+    if (!bulkPdfCurrent) return;
+    let cancelled = false;
+
+    async function run() {
+      // Let React finish mounting the off-screen card before we touch its DOM.
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const node = bulkPdfRef.current;
+      if (!node || cancelled) {
+        if (!cancelled) advanceBulkPdfQueue();
+        return;
+      }
+
+      // Wait for every <img> in this card (photo, QR code) to finish
+      // loading — otherwise html2canvas can capture it blank.
+      const imgs = Array.from(node.querySelectorAll("img"));
+      await Promise.all(
+        imgs.map((img) =>
+          img.complete
+            ? Promise.resolve()
+            : new Promise((resolve) => {
+                img.onload = resolve;
+                img.onerror = resolve;
+              })
+        )
+      );
+      if (cancelled) return;
+
+      try {
+        await captureNodeToPdf(node, cardLabel(bulkPdfCurrent));
+      } catch (err) {
+        console.error("Failed to generate PDF for", cardLabel(bulkPdfCurrent), err);
+      } finally {
+        if (!cancelled) advanceBulkPdfQueue();
+      }
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bulkPdfCurrent]);
 
   // Live preview data for the "Create Student ID Card" modal. Before a
   // lookup has run (or after one failed), the preview shows the typed
@@ -813,6 +927,34 @@ export default function AllIdCards() {
               <button onClick={() => migrateStudentIdCards().then(console.log)}>
                 Run Migration
               </button>
+
+              {/* Bulk PDF download — one PDF per checked card (student or
+                  teacher), only shown once at least one row is checked. */}
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleDownloadSelectedPdf}
+                  disabled={bulkPdfRunning}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "9px 16px",
+                    borderRadius: 10,
+                    border: "1px solid rgba(37,99,235,0.3)",
+                    background: bulkPdfRunning ? "#E5E7EB" : "#EFF6FF",
+                    color: "#2563eb",
+                    fontWeight: 700,
+                    fontSize: 12.5,
+                    cursor: bulkPdfRunning ? "not-allowed" : "pointer",
+                    opacity: bulkPdfRunning ? 0.7 : 1,
+                  }}
+                >
+                  <Download size={14} />
+                  {bulkPdfRunning
+                    ? `Generating PDFs... (${bulkPdfDone}/${bulkPdfTotal})`
+                    : `Download PDF (Selected) (${selectedIds.size})`}
+                </button>
+              )}
 
               {/* Bulk delete button — muuqda marka card la doorto ama liis jiro */}
               <button
@@ -1090,6 +1232,29 @@ export default function AllIdCards() {
           </div>
         </div>
       </div>
+
+      {/* Off-screen container used only during bulk PDF generation — never
+          visible to the admin, exists purely so html2canvas has a real
+          mounted card (with its photo/QR <img> tags actually loaded) to
+          capture for each queued item in turn. */}
+      {bulkPdfCurrent && (
+        <div style={{ position: "fixed", left: -9999, top: 0, pointerEvents: "none" }} aria-hidden="true">
+          <div ref={bulkPdfRef}>
+            {bulkPdfCurrent.manual && bulkPdfCurrent.type === "teacher" ? (
+              <ManualTeacherIdCard card={bulkPdfCurrent} />
+            ) : bulkPdfCurrent.manual ? (
+              <ManualStudentIdCard card={bulkPdfCurrent} />
+            ) : bulkPdfCurrent.type === "student" ? (
+              <StudentIdCard student={bulkPdfCurrent} studentId={bulkPdfCurrent.studentId} />
+            ) : (
+              <TeacherIdCard
+                teacher={bulkPdfCurrent}
+                teacherUsername={bulkPdfCurrent.teacherUsername || bulkPdfCurrent.id}
+              />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Create ID Card flow: Teacher/Student picker + the two modals ──── */}
       {createChoice === "choose" && (

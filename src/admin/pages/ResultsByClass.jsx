@@ -120,22 +120,42 @@ export default function ResultsByClass() {
           };
         }
 
-        const subjectName = (r.subject || "—").toString();
+        // FIX: subject names from Firestore aren't always entered with
+        // identical spacing/casing (e.g. "Saynis" vs "saynis " vs
+        // "SAYNIS"). Using the raw string as the column key meant each
+        // variant became its own separate column, so a student's real
+        // score could silently land in a duplicate column while the
+        // column everyone else uses showed "—" for them — looking like
+        // the wrong subject's score, when really it was a split column.
+        // subjectKey is normalized (trimmed, collapsed whitespace,
+        // lowercased) for matching/grouping; subjectLabel keeps the
+        // original text (just trimmed) for display on the header.
+        const subjectLabel = (r.subject || "—").toString().trim().replace(/\s+/g, " ");
+        const subjectKey = subjectLabel.toLowerCase();
         const marks = Number(r.marks) || 0;
         const maxMarks = Number(r.maxMarks) || 0;
         const submittedAt = extractSubmittedDate(r);
 
-        byClass[cls][studentKey].subjects[subjectName] = { marks, maxMarks, submittedAt };
+        byClass[cls][studentKey].subjects[subjectKey] = {
+          marks,
+          maxMarks,
+          submittedAt,
+          label: subjectLabel,
+        };
       });
 
       // 4) Isku dar xogta fasalada
       const classGroupsArr = Object.entries(byClass).map(([className, studentsMap]) => {
         const subjectSet = new Set();
+        const subjectLabels = {}; // subjectKey -> display label (first one seen)
         Object.values(studentsMap).forEach((s) => {
-          Object.keys(s.subjects).forEach((subj) => subjectSet.add(subj));
+          Object.entries(s.subjects).forEach(([subj, v]) => {
+            subjectSet.add(subj);
+            if (!subjectLabels[subj]) subjectLabels[subj] = v.label;
+          });
         });
         const subjects = Array.from(subjectSet).sort((a, b) =>
-          a.localeCompare(b, undefined, { sensitivity: "base" })
+          subjectLabels[a].localeCompare(subjectLabels[b], undefined, { sensitivity: "base" })
         );
 
         let earliestSubmitted = null;
@@ -175,7 +195,7 @@ export default function ResultsByClass() {
           })
         );
 
-        return { className, subjects, rows, submittedAt: earliestSubmitted };
+        return { className, subjects, subjectLabels, rows, submittedAt: earliestSubmitted };
       });
 
       classGroupsArr.sort((a, b) =>
@@ -589,7 +609,7 @@ export default function ResultsByClass() {
                           <th style={{ ...thStyle, textAlign: "left" }}>Student Name</th>
                           {group.subjects.map((subj) => (
                             <th key={subj} style={thStyle}>
-                              {subj}
+                              {group.subjectLabels[subj]}
                             </th>
                           ))}
                           <th style={thStyle}>Total</th>
@@ -638,7 +658,7 @@ export default function ResultsByClass() {
                                       {(row.studentName || "?").charAt(0).toUpperCase()}
                                     </div>
                                   )}
-                                  <span style={{ fontWeight: 600 }}>{row.studentName}</span>
+                                  <span style={{ fontWeight: 700 }}>{row.studentName}</span>
                                 </div>
                               </td>
                               {group.subjects.map((subj) => (
@@ -694,4 +714,5 @@ const tdStyle = {
   padding: "8px 10px",
   color: "#111827",
   whiteSpace: "nowrap",
+  fontWeight: 700,
 };
