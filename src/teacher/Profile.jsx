@@ -8,7 +8,6 @@ import { LogOut } from "lucide-react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
-import TeacherIdCard from "./TeacherIdCard";
 
 function ProfileStyles() {
   return (
@@ -277,12 +276,6 @@ export default function Profile() {
                 >
                   {savingProfile ? "Saving..." : "Save Profile"}
                 </button>
-              </div>
-
-              {/* Teacher ID Card — view only, no print/export available here */}
-              <div className="pf-section" style={section}>
-                <h3 style={sectionTitle}>My Teacher ID Card</h3>
-                <TeacherIdCard teacher={teacher} teacherUsername={username} />
               </div>
 
               <div className="pf-section" style={section}>

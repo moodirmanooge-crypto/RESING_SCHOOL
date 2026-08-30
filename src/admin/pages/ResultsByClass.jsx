@@ -59,10 +59,23 @@ export default function ResultsByClass() {
   const [classGroups, setClassGroups] = useState([]); 
   const printRefs = useRef({}); 
   const [pendingAction, setPendingAction] = useState({}); 
+  // Per-class page orientation for Print/Download PDF — "landscape" (the
+  // original, wide table layout) or "portrait" (normal upright A4).
+  // Defaults to "landscape" so existing behavior is unchanged unless the
+  // admin picks "Portrait" for a given class.
+  const [orientation, setOrientation] = useState({});
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  function getOrientation(className) {
+    return orientation[className] || "landscape";
+  }
+
+  function setClassOrientation(className, value) {
+    setOrientation((prev) => ({ ...prev, [className]: value }));
+  }
 
   async function fetchData() {
     try {
@@ -178,7 +191,7 @@ export default function ResultsByClass() {
   }
 
   // B&W Ready HTML Builder
-  function buildPrintHtml(classNamesList) {
+  function buildPrintHtml(classNamesList, pageOrientation) {
     const sections = classNamesList
       .map((className) => {
         const node = printRefs.current[className];
@@ -241,7 +254,7 @@ export default function ResultsByClass() {
             
             @media print {
               @page { 
-                size: landscape; 
+                size: ${pageOrientation === "portrait" ? "A4 portrait" : "landscape"}; 
                 margin: 10mm; 
               }
               body { 
@@ -255,14 +268,14 @@ export default function ResultsByClass() {
     `;
   }
 
-  function openAndPrint(classNamesList, onDone) {
+  function openAndPrint(classNamesList, pageOrientation, onDone) {
     const printWindow = window.open("", "_blank", "width=1200,height=800");
     if (!printWindow) {
       window.alert("Browser-ku wuu xannibay print window-ka (popup blocker). Fadlan u oggolow popups-ka.");
       if (onDone) onDone(false);
       return;
     }
-    printWindow.document.write(buildPrintHtml(classNamesList));
+    printWindow.document.write(buildPrintHtml(classNamesList, pageOrientation));
     printWindow.document.close();
 
     let settled = false;
@@ -288,7 +301,7 @@ export default function ResultsByClass() {
     if (!node) return;
 
     setPendingAction((prev) => ({ ...prev, [className]: "print" }));
-    openAndPrint([className], () => {
+    openAndPrint([className], getOrientation(className), () => {
       setPendingAction((prev) => {
         const next = { ...prev };
         delete next[className];
@@ -314,8 +327,9 @@ export default function ResultsByClass() {
       const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#ffffff" });
       const imgData = canvas.toDataURL("image/png");
 
+      const pageOrientation = getOrientation(className);
       const pdf = new jsPDF({
-        orientation: "landscape",
+        orientation: pageOrientation,
         unit: "pt",
         format: "a4",
       });
@@ -415,6 +429,7 @@ export default function ResultsByClass() {
 
           {!loading &&
             classGroups.map((group) => {
+              const currentOrientation = getOrientation(group.className);
               return (
                 <div
                   key={group.className}
@@ -446,9 +461,52 @@ export default function ResultsByClass() {
                         {group.rows.length !== 1 ? "s" : ""}
                       </span>
                     </div>
-                    
-                    {/* Always Enabled Print & Download Buttons */}
-                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                      {/* Page orientation toggle — A4 Landscape (original,
+                          wide table) or A4 Portrait (normal upright page). */}
+                      <div
+                        style={{
+                          display: "inline-flex",
+                          border: "1px solid rgba(17,24,39,0.12)",
+                          borderRadius: 10,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <button
+                          onClick={() => setClassOrientation(group.className, "portrait")}
+                          title="A4 Portrait"
+                          style={{
+                            padding: "8px 12px",
+                            border: "none",
+                            background: currentOrientation === "portrait" ? "#16a34a" : "#fff",
+                            color: currentOrientation === "portrait" ? "#fff" : "#374151",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Portrait
+                        </button>
+                        <button
+                          onClick={() => setClassOrientation(group.className, "landscape")}
+                          title="A4 Landscape"
+                          style={{
+                            padding: "8px 12px",
+                            border: "none",
+                            borderLeft: "1px solid rgba(17,24,39,0.12)",
+                            background: currentOrientation === "landscape" ? "#16a34a" : "#fff",
+                            color: currentOrientation === "landscape" ? "#fff" : "#374151",
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Landscape
+                        </button>
+                      </div>
+
+                      {/* Always Enabled Print & Download Buttons */}
                       <button
                         onClick={() => handlePrintClass(group.className)}
                         title="Print this class results"

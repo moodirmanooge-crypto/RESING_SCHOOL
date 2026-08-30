@@ -5,6 +5,7 @@ import {
   collection,
   getDocs,
   doc,
+  setDoc,
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
@@ -195,14 +196,32 @@ export default function Teachers() {
         classes: editData.classes,
       };
 
-      await updateDoc(doc(db, "teachers", selectedTeacher.id), updatedFields);
+      const oldId = selectedTeacher.id;
+      const newId = editData.username.trim();
+
+      if (newId !== oldId) {
+        // FIX: the doc ID must always match the `username` field. Simply
+        // calling updateDoc on the old doc only changes the `username`
+        // field inside it — the Firestore doc ID itself (oldId) never
+        // moves, so it silently drifts out of sync with `username`
+        // (breaking QR links / lookups that key off username, e.g. the
+        // Teacher ID card flow). Instead: write a new doc under the new
+        // id with the full merged record, then remove the old doc so the
+        // teacher exists under exactly one id — the current username.
+        const fullRecord = { ...selectedTeacher, ...updatedFields };
+        delete fullRecord.id; // `id` is a local-only field, not part of the Firestore doc data
+        await setDoc(doc(db, "teachers", newId), fullRecord);
+        await deleteDoc(doc(db, "teachers", oldId));
+      } else {
+        await updateDoc(doc(db, "teachers", oldId), updatedFields);
+      }
 
       // Isla markiiba cusboonaysii state-ka local-ka ah si liiska
       // Teacher List uu isla markiiba u muujiyo xogta cusub — iyada
       // oo aan loo baahnayn in bogga dib loo soo shubo (refresh).
       setTeachers((prev) =>
         prev.map((t) =>
-          t.id === selectedTeacher.id ? { ...t, ...updatedFields } : t
+          t.id === oldId ? { ...t, ...updatedFields, id: newId } : t
         )
       );
 

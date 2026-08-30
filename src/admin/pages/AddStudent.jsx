@@ -84,6 +84,24 @@ export default function AddStudent() {
     });
   };
 
+  // ✅ Hubi in aan horey loo diiwaan gelin arday isla Full Name ah. Isku
+  // dar (normalize) magaca — trim + hal space u dhexeeya erayada + lower
+  // case — si "Aamina Abdulkadir Mohamed" iyo "aamina  abdulkadir
+  // mohamed " ay isku noqdaan, kadibna isbarbardhig magacyada ardayda
+  // horey loogu diiwaan geliyay collection-ka `students`.
+  const normalizeName = (name) =>
+    name.trim().replace(/\s+/g, " ").toLowerCase();
+
+  const isDuplicateFullName = async (fullName) => {
+    const target = normalizeName(fullName);
+    if (!target) return false;
+    const existingSnap = await getDocs(collection(db, "students"));
+    return existingSnap.docs.some((docSnap) => {
+      const existingName = docSnap.data().fullName || "";
+      return normalizeName(existingName) === target;
+    });
+  };
+
   const attachStudentToClassTeachers = async (className, studentId, fullName) => {
     const teachersSnap = await getDocs(collection(db, "teachers"));
 
@@ -144,6 +162,17 @@ export default function AddStudent() {
       }
 
       setSaving(true);
+
+      // ✅ Hubi in Full Name-kan horey loo isticmaalin — haddii uu jiro,
+      // jooji diiwaan gelinta gabi ahaanba, wax lagama kaydiyo.
+      const duplicate = await isDuplicateFullName(student.fullName);
+      if (duplicate) {
+        alert(
+          `Arday hore ayaa loo diiwaan geliyay magacan "${student.fullName}". Fadlan isticmaal magac kale ama hubi in ardaygan horey loo diiwaan gelin.`
+        );
+        setSaving(false);
+        return;
+      }
 
       const existingSnap = await getDocs(collection(db, "students"));
       const studentId = String(existingSnap.size + 1).padStart(4, "0");

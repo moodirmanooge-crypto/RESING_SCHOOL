@@ -4,7 +4,19 @@
 // (name, grade, ID No, issue date, expire date) and uploaded photo overlaid
 // on top at the correct positions.
 //
-// FIX (this pass): the QR overlay on the back had gone missing in a prior
+// FIX (this pass): studentPhoto can now be a real Firebase Storage URL
+// (fetched straight from the student's own `students/{id}` record), not
+// only a base64 data URL from a manual upload. The front-photo <img> had
+// crossOrigin="anonymous" hardcoded on it — harmless for base64 data URLs,
+// but for a real cross-origin Storage URL it forces the browser into
+// CORS mode, and since the Storage bucket doesn't send CORS headers for
+// this origin, the request fails and the photo shows as broken. A plain
+// <img> (no crossOrigin) displays a cross-origin URL fine without any
+// CORS headers required — same as opening the URL directly in a tab — so
+// the attribute is removed. (Only affects display; not related to the
+// clip-path/positioning fixes below, which are untouched.)
+//
+// FIX (earlier pass): the QR overlay on the back had gone missing in a prior
 // version of this file — restored below, alongside the grade/photo fixes
 // from the previous pass. A real QR code linking to this card's own
 // /verify/student/{studentId} page is drawn on top of the printed QR
@@ -89,7 +101,7 @@ export default function ManualStudentIdCard({ card }) {
     studentId,
     grade,
     className,
-    studentPhoto, // data URL (base64) uploaded by the teacher
+    studentPhoto, // data URL (manual upload) OR a Firebase Storage URL (auto-fetched from students/{id})
     issueDate,
     expireDate,
   } = card || {};
@@ -133,11 +145,17 @@ export default function ManualStudentIdCard({ card }) {
           }}
         >
           {studentPhoto ? (
+            // No crossOrigin attribute here: studentPhoto can now be either
+            // a base64 data URL (manual upload, no CORS involved) or a real
+            // Firebase Storage URL fetched from the student's own record.
+            // A plain <img> displays a cross-origin URL fine without CORS
+            // headers; forcing crossOrigin="anonymous" only breaks display
+            // when the Storage bucket doesn't send CORS headers for this
+            // origin, which is exactly what was happening here.
             <img
               src={studentPhoto}
               alt=""
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
-              crossOrigin="anonymous"
             />
           ) : null}
         </div>
@@ -150,7 +168,6 @@ export default function ManualStudentIdCard({ card }) {
           right="6%"
           maxFontPx={CARD_W * 0.066}
           minFontPx={CARD_W * 0.03}
-          bold
           color="#111827"
           align="center"
         />
@@ -168,7 +185,6 @@ export default function ManualStudentIdCard({ card }) {
           right="29.8%"
           maxFontPx={CARD_W * 0.08}
           minFontPx={CARD_W * 0.032}
-          bold
           color="#1e2a78"
           align="center"
         />
