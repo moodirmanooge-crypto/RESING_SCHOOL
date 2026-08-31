@@ -4,7 +4,24 @@
 // (name, grade, ID No, issue date, expire date) and uploaded photo overlaid
 // on top at the correct positions.
 //
-// FIX (this pass): studentPhoto can now be a real Firebase Storage URL
+// FIX (this pass — bulk PDF download showing a BLANK or STALE photo):
+// The front-photo <img> (and the back's QR <img>) had no `key` prop. When
+// AllIdCards.jsx's bulk "Download PDF (Selected)" flow swaps `bulkPdfCurrent`
+// from one card to the next, both cards render the exact same JSX structure
+// — so React does NOT unmount/remount the <img> element between cards, it
+// just patches the existing DOM node's `src` attribute in place. The moment
+// `src` changes, the browser briefly shows that <img> as blank while it
+// decodes the new image — and if html2canvas captures during that window
+// (or if timing lines up wrong), the PDF comes out with a blank photo box,
+// or in some cases still shows the previous card's pixels.
+// FIX: both the photo <img> and the QR <img> now carry `key={studentPhoto}`
+// / `key={studentId}` — this forces React to fully unmount the old <img>
+// node and mount a brand-new one every time the photo/QR data changes,
+// instead of patching `src` on a reused node. Combined with AllIdCards.jsx's
+// own wait-for-this-card's-image-to-appear logic, this fully closes the gap
+// that let one card's photo bleed into (or blank out) the next card's PDF.
+//
+// FIX (earlier pass): studentPhoto can now be a real Firebase Storage URL
 // (fetched straight from the student's own `students/{id}` record), not
 // only a base64 data URL from a manual upload. The front-photo <img> had
 // crossOrigin="anonymous" hardcoded on it — harmless for base64 data URLs,
@@ -152,7 +169,18 @@ export default function ManualStudentIdCard({ card }) {
             // headers; forcing crossOrigin="anonymous" only breaks display
             // when the Storage bucket doesn't send CORS headers for this
             // origin, which is exactly what was happening here.
+            //
+            // FIX: `key={studentPhoto}` forces React to unmount+remount a
+            // brand-new <img> DOM node whenever the photo data changes
+            // (e.g. moving to the next card in AllIdCards.jsx's bulk PDF
+            // queue), instead of reusing the previous card's <img> node and
+            // just patching its `src` in place. Without this key, the same
+            // DOM node gets its `src` swapped, which browsers render as
+            // blank for a moment while the new image decodes — exactly the
+            // window html2canvas was capturing during, producing a blank
+            // photo box in the downloaded PDF.
             <img
+              key={studentPhoto}
               src={studentPhoto}
               alt=""
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -246,7 +274,11 @@ export default function ManualStudentIdCard({ card }) {
         }}
       >
         {studentId ? (
+          // FIX: same reasoning as the front photo above — `key={studentId}`
+          // makes React mount a fresh <img> node per card instead of
+          // patching `src` on a reused node during the bulk PDF queue.
           <img
+            key={studentId}
             src={qrSrc(studentId)}
             alt="Verify QR code"
             crossOrigin="anonymous"
