@@ -790,90 +790,212 @@ export default function AllIdCards() {
     }
   }
 
-  // ── Bulk "Download PDF (Selected)" ──────────────────────────────────────
-  // Only the currently-selected card is mounted in the visible preview
-  // panel, so to capture every checked card we render them one at a time
-  // into an off-screen container (bulkPdfNode), wait for that card's own
-  // <img> tags (photo, QR code) to finish loading, capture it, save its
-  // PDF, then move on to the next one in the queue.
-  const [bulkPdfQueue, setBulkPdfQueue] = useState([]); // remaining cards still to process
-  const [bulkPdfCurrent, setBulkPdfCurrent] = useState(null); // card currently rendered off-screen
-  const [bulkPdfRunning, setBulkPdfRunning] = useState(false);
-  const [bulkPdfDone, setBulkPdfDone] = useState(0); // how many completed so far, for the button label
-  const [bulkPdfTotal, setBulkPdfTotal] = useState(0);
-  const bulkPdfRef = useRef(null);
+// ============================================================================
+// XALKA: 2 dhibaato
+//
+// 1) SAWIRKA ARDAYGA WUXUU KA MADHNAADAYAA PDF-KA (single "Download PDF")
+//    Sababta: html2canvas-pro waxay bilaabaysaa capture-ka isla markiiba,
+//    iyada oo aan la sugin in <img> tag-yada (sawirka + QR) ay dhammaystiraan
+//    load-kooda. Bulk-download-ka (checkbox-yada) wuxuu hore u lahaa sugitaan
+//    (waitForImages), laakiin single-button-ka "Download PDF" ee preview
+//    panel-ka kuma jirin sugitaankaas — taasi waa sababta ay khilaafku ku
+//    xiran yahay button-ka aad isticmaasho.
+//
+// 2) MA WEYDIINAYO HALKA LOO KEYDINAYO (Save As dialog)
+//    jsPDF's pdf.save() si toos ah ayuu ugu shubaa Downloads folder-ka
+//    default-ka browser-ka. Si loo helo dialog dhab ah oo weydiiya
+//    "meesha lagu keydinayo", waxaan isticmaalnaa File System Access API
+//    (window.showSaveFilePicker) — Chrome/Edge way taageeraan. Haddii
+//    browser-ku aanu taageerin (Firefox/Safari), waxaan si automatic ah
+//    ugu noqonaynaa habkii hore (pdf.save направ Downloads).
+// ============================================================================
 
-  function handleDownloadSelectedPdf() {
-    if (bulkPdfRunning) return;
-    const targets = combined.filter((r) => selectedIds.has(rowKey(r)));
-    if (targets.length === 0) {
-      window.alert("Fadlan xulo ugu yaraan hal ID card (checkbox) si aad PDF ugu soo dejiso.");
+// Helper cusub: sug dhammaan <img> ee ku jira node-ka inay dhammaystiraan
+// load-kooda ka hor inta aan la bilaabin capture-ka. Isticmaal tan meel kasta
+// oo aad u baahan tahay in sawirka/QR-ku hubaal ku jiraan PDF-ka.
+async function waitForImagesToLoad(node) {
+  const imgs = Array.from(node.querySelectorAll("img"));
+  await Promise.all(
+    imgs.map((img) =>
+      img.complete && img.naturalWidth > 0
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+            img.onload = resolve;
+            img.onerror = resolve;
+            // Sifiican u hubi in src-gu horeba u dhamaystiran yahay
+            // (base64 data URLs badanaa waa isla markiiba, laakiin waan
+            // sugaynaa in decode-ku dhammaado).
+            if (img.decode) {
+              img.decode().then(resolve).catch(() => {});
+            }
+          })
+    )
+  );
+}
+
+// Shared capture+save routine — HADDA leh:
+//   (a) sugitaan sawirada ka hor capture-ka
+//   (b) "Save As" dialog (File System Access API) marka la awoodo, si
+//       user-ku u doorto halka file-ka lagu keydinayo
+async function captureNodeToPdf(node, label) {
+  const [{ default: html2canvasPro }, jsPDFModule] = await Promise.all([
+    import("https://cdn.jsdelivr.net/npm/html2canvas-pro@1.5.8/+esm"),
+    import("https://cdn.jsdelivr.net/npm/jspdf@2.5.2/+esm"),
+  ]);
+  const { jsPDF } = jsPDFModule;
+
+  // FIX #1: sug in sawirka + QR-ku dhammaystiraan load-kooda ka hor inta
+  // aan la bilaabin html2canvas-pro — kani waa isla habka bulk-download-ku
+  // horeba u lahaa, hadda waxaan ku darnay meel kasta oo capture ah.
+  await waitForImagesToLoad(node);
+  // Sug hal frame oo dheeraad ah si DOM-ku isugu dhigo (paint) ka hor
+  // inta aan la bilaabin capture-ka.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+
+  const canvas = await html2canvasPro(node, {
+    backgroundColor: "#ffffff",
+    scale: 2,
+    useCORS: true,
+    allowTaint: true, // base64 data URLs kuma taagna CORS dhibaato, laakiin
+                       // haddii sawir kale (Storage URL) la isticmaalo,
+                       // tan waxay ka caawineysaa in aanu capture-ku fashilmin
+  });
+  const imgData = canvas.toDataURL("image/png");
+
+  const imgRatio = canvas.height / canvas.width;
+  const pdf = new jsPDF({
+    orientation: imgRatio >= 1 ? "portrait" : "landscape",
+    unit: "pt",
+    format: "a4",
+  });
+
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  let renderWidth = pageWidth - 40;
+  let renderHeight = renderWidth * imgRatio;
+
+  if (renderHeight > pageHeight - 40) {
+    renderHeight = pageHeight - 40;
+    renderWidth = renderHeight / imgRatio;
+  }
+
+  const x = (pageWidth - renderWidth) / 2;
+  const y = (pageHeight - renderHeight) / 2;
+
+  pdf.addImage(imgData, "PNG", x, y, renderWidth, renderHeight);
+
+  const fileName = `id-card-${label || "card"}.pdf`;
+
+  // FIX #2: haddii browser-ku taageero File System Access API, weydii
+  // user-ka halka uu rabo inuu ku keydiyo (Save As dialog dhab ah).
+  // Haddii kale (Firefox, Safari, ama bulk-flow oo aan rabin dialog kasta
+  // oo mar walba soo baxa), ku noqo pdf.save() oo si toos ah ugu shuba
+  // Downloads folder-ka.
+  if (window.showSaveFilePicker) {
+    try {
+      const pdfBlob = pdf.output("blob");
+      const handle = await window.showSaveFilePicker({
+        suggestedName: fileName,
+        types: [
+          {
+            description: "PDF Document",
+            accept: { "application/pdf": [".pdf"] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(pdfBlob);
+      await writable.close();
       return;
-    }
-    setBulkPdfRunning(true);
-    setBulkPdfTotal(targets.length);
-    setBulkPdfDone(0);
-    setBulkPdfQueue(targets.slice(1));
-    setBulkPdfCurrent(targets[0]);
-  }
-
-  function advanceBulkPdfQueue() {
-    setBulkPdfDone((prev) => prev + 1);
-    setBulkPdfQueue((prev) => {
-      if (prev.length === 0) {
-        setBulkPdfCurrent(null);
-        setBulkPdfRunning(false);
-        return prev;
-      }
-      const [next, ...rest] = prev;
-      setBulkPdfCurrent(next);
-      return rest;
-    });
-  }
-
-  useEffect(() => {
-    if (!bulkPdfCurrent) return;
-    let cancelled = false;
-
-    async function run() {
-      // Let React finish mounting the off-screen card before we touch its DOM.
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      const node = bulkPdfRef.current;
-      if (!node || cancelled) {
-        if (!cancelled) advanceBulkPdfQueue();
+    } catch (err) {
+      // Haddii user-ku uu tridhay (cancel) dialog-ka, ha ku sii wadin
+      // fallback-ka — kaliya joogso si aanan u soo bandhigin file
+      // aan la rabin.
+      if (err && err.name === "AbortError") {
         return;
       }
+      // Khalad kale oo dhacay (mfx: API-gu ma shaqeynayo si sax ah) —
+      // ku noqo habkii hore.
+      console.warn("showSaveFilePicker failed, falling back to pdf.save():", err);
+    }
+  }
 
-      // Wait for every <img> in this card (photo, QR code) to finish
-      // loading — otherwise html2canvas can capture it blank.
-      const imgs = Array.from(node.querySelectorAll("img"));
-      await Promise.all(
-        imgs.map((img) =>
-          img.complete
-            ? Promise.resolve()
-            : new Promise((resolve) => {
-                img.onload = resolve;
-                img.onerror = resolve;
-              })
-        )
-      );
-      if (cancelled) return;
+  // Fallback: habkii hore ee toos u shubaya Downloads folder-ka.
+  pdf.save(fileName);
+}
 
-      try {
-        await captureNodeToPdf(node, cardLabel(bulkPdfCurrent));
-      } catch (err) {
-        console.error("Failed to generate PDF for", cardLabel(bulkPdfCurrent), err);
-      } finally {
-        if (!cancelled) advanceBulkPdfQueue();
-      }
+async function handleDownloadPdf() {
+  if (!printRef.current || downloadingPdf) return;
+  try {
+    setDownloadingPdf(true);
+    const label = selected?.type === "teacher"
+      ? (selected.data.teacherId || selected.data.teacherUsername || selected.data.id)
+      : (selected?.data.studentId || selected?.data.id);
+    await captureNodeToPdf(printRef.current, label);
+  } catch (err) {
+    console.error("Failed to generate ID card PDF:", err);
+    window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay. Fadlan isku day mar kale.");
+  } finally {
+    setDownloadingPdf(false);
+  }
+}
+
+// ============================================================================
+// FIICHASHIYA BULK PDF FLOW-GA (checkbox-yada + "Download PDF (Selected)")
+// ============================================================================
+// Wax badan kama beddelin halkan — waitForImagesToLoad hore ayaa isaga
+// oo la mid ah ku jiray useEffect-ka `run()`. Waxaan kaliya ku beddelay
+// inuu isticmaalo helper-ka cusub si loo hubiyo isku mid (consistency)
+// labada flow — oo showSaveFilePicker-ku bulk-ka kuma khasbaneyn (mar
+// walba dialog ayaa soo baxaya haddii aad 3 card doorato, taasi way
+// dhib badan tahay), markaa bulk-ku wuxuu sii wadaa isticmaalka
+// pdf.save() (toos u shubid Downloads) — kani waa habka ugu wanaagsan
+// marka faylal badan la soo saarayo isku mar.
+//
+// Haddii aad dooneyso in bulk-download-kuna weydiiyo folder (hal mar,
+// hal folder loo doorto dhammaan faylalka), waxaa suurtogal ah in la
+// isticmaalo showDirectoryPicker() halkii showSaveFilePicker() — waan
+// kuu sameyn karnaa haddii aad rabto.
+//
+// Tan hoose waa isla useEffect-kii hore, isaga oo isticmaalaya
+// waitForImagesToLoad helper-ka cusub halkii uu lahaa nuqul isku mid ah
+// oo gudaha ku qorreyd:
+
+useEffect(() => {
+  if (!bulkPdfCurrent) return;
+  let cancelled = false;
+
+  async function run() {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const node = bulkPdfRef.current;
+    if (!node || cancelled) {
+      if (!cancelled) advanceBulkPdfQueue();
+      return;
     }
 
-    run();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bulkPdfCurrent]);
+    await waitForImagesToLoad(node);
+    if (cancelled) return;
+
+    try {
+      // NOTE: bulk-ka gudihiisa waxaan si toos ah u isticmaaleynaa
+      // pdf.save() (ee ku jirta captureNodeToPdf), sababtoo ah
+      // showSaveFilePicker ee 3+ jeer soo baxa hal-hal si isugu xigta
+      // ma aha waxa user-ku filayo — waa kaliya single-download-ka oo
+      // weydiisa halka lagu keydinayo.
+      await captureNodeToPdf(node, cardLabel(bulkPdfCurrent));
+    } catch (err) {
+      console.error("Failed to generate PDF for", cardLabel(bulkPdfCurrent), err);
+    } finally {
+      if (!cancelled) advanceBulkPdfQueue();
+    }
+  }
+
+  run();
+  return () => {
+    cancelled = true;
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [bulkPdfCurrent]);
 
   // Live preview data for the "Create Student ID Card" modal. Before a
   // lookup has run (or after one failed), the preview shows the typed
