@@ -40,6 +40,18 @@ const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", 
 
 const emptySession = () => ({ startTime: "", endTime: "" });
 
+// ✅ Nooca shaqada macalinka ayaa hadda ku kaydsan collection-ka Firestore
+// oo array ah (tusaale: ["Full Time"], ["Part Time"], ama labadaba). Xogtii
+// hore ee macalimiinta laga yaabo inay lahaayeen string kaliya (Full Time
+// AMA Part Time) - halkan waxaan u beddelaynaa array si labada nooc uu si
+// isku mid ah loo maareeyo.
+function getEmploymentTypes(teacher) {
+  const raw = teacher.employmentType;
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
+  return [];
+}
+
 export default function Teachers() {
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -313,59 +325,87 @@ export default function Teachers() {
               <p style={{ color: "#8b87ad" }}>No Teachers Yet</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredTeachers.map((teacher) => (
-                  <div key={teacher.id} style={teacherRow}>
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        minWidth: 44,
-                        borderRadius: "50%",
-                        background: teacher.teacherPhoto
-                          ? `url(${teacher.teacherPhoto}) center/cover`
-                          : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: 15,
-                      }}
-                    >
-                      {!teacher.teacherPhoto &&
-                        (teacher.fullName || "?").slice(0, 2).toUpperCase()}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
-                        {teacher.fullName || "—"}
+                {filteredTeachers.map((teacher) => {
+                  const employmentTypes = getEmploymentTypes(teacher);
+                  return (
+                    <div key={teacher.id} style={teacherRow}>
+                      <div
+                        style={{
+                          width: 44,
+                          height: 44,
+                          minWidth: 44,
+                          borderRadius: "50%",
+                          background: teacher.teacherPhoto
+                            ? `url(${teacher.teacherPhoto}) center/cover`
+                            : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: 15,
+                        }}
+                      >
+                        {!teacher.teacherPhoto &&
+                          (teacher.fullName || "?").slice(0, 2).toUpperCase()}
                       </div>
-                      <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
-                        @{teacher.username || "—"}
-                      </div>
-                    </div>
 
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
-                      {(teacher.classes || []).slice(0, 4).map((c, i) => (
-                        <span key={i} style={classTag}>
-                          {c.className || "?"} · {c.subject || "?"}
-                        </span>
-                      ))}
-                      {(teacher.classes || []).length > 4 && (
-                        <span style={classTag}>+{teacher.classes.length - 4}</span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
+                          {teacher.fullName || "—"}
+                        </div>
+                        <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
+                          @{teacher.username || "—"}
+                        </div>
+                      </div>
+
+                      {/* ✅ Calaamadaha nooca shaqada - Full Time / Part Time / labadaba */}
+                      {employmentTypes.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {employmentTypes.map((type) => (
+                            <span
+                              key={type}
+                              style={{
+                                ...employmentTag,
+                                color: type === "Part Time" ? "#fbbf24" : "#4ade80",
+                                borderColor:
+                                  type === "Part Time"
+                                    ? "rgba(251,191,36,0.35)"
+                                    : "rgba(74,222,128,0.3)",
+                                background:
+                                  type === "Part Time"
+                                    ? "rgba(251,191,36,0.12)"
+                                    : "rgba(74,222,128,0.12)",
+                              }}
+                            >
+                              {type}
+                            </span>
+                          ))}
+                        </div>
                       )}
-                    </div>
 
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => openEdit(teacher)} style={iconBtnEdit}>
-                        <Pencil size={15} />
-                      </button>
-                      <button onClick={() => deleteTeacher(teacher)} style={iconBtnDelete}>
-                        <Trash2 size={15} />
-                      </button>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
+                        {(teacher.classes || []).slice(0, 4).map((c, i) => (
+                          <span key={i} style={classTag}>
+                            {c.className || "?"} · {c.subject || "?"}
+                          </span>
+                        ))}
+                        {(teacher.classes || []).length > 4 && (
+                          <span style={classTag}>+{teacher.classes.length - 4}</span>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => openEdit(teacher)} style={iconBtnEdit}>
+                          <Pencil size={15} />
+                        </button>
+                        <button onClick={() => deleteTeacher(teacher)} style={iconBtnDelete}>
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -696,6 +736,15 @@ const classTag = {
   padding: "5px 10px",
   borderRadius: 20,
   border: "1px solid rgba(139,108,245,0.25)",
+  whiteSpace: "nowrap",
+};
+
+const employmentTag = {
+  fontSize: 11.5,
+  padding: "5px 10px",
+  borderRadius: 20,
+  border: "1px solid",
+  fontWeight: 700,
   whiteSpace: "nowrap",
 };
 

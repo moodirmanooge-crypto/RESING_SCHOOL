@@ -4,6 +4,7 @@ import { theme } from "./theme.js";
 const NAV_ITEMS = [
   { to: "/cashier/dashboard", label: "Dashboard", icon: "📊" },
   { to: "/cashier/payments", label: "Payments", icon: "💳" },
+  { to: "/cashier/classes", label: "Classes", icon: "🏫" },
   { to: "/cashier/exam-payments", label: "Exam Payments", icon: "🪪" },
   { to: "/cashier/reports", label: "Reports", icon: "📁" },
   { to: "/cashier/profile", label: "Profile", icon: "👤" },

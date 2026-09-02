@@ -26,7 +26,7 @@ const emptyRow = () => ({
   fullName: "",
   motherName: "", // ✅ Magaca Hooyada - field cusub
   className: "",
-  shift: "",
+  studentType: "", // ✅ Full Time / Part Time - field cusub
   feeType: "Free",
   monthlyFee: "",
   parentPhone: "",
@@ -145,6 +145,12 @@ export default function BulkRegistration() {
         return false;
       }
 
+      // ✅ Hubinta Full Time / Part Time - waajib
+      if (!s.studentType) {
+        alert(`${rowLabel}: Fadlan dooro Full Time ama Part Time`);
+        return false;
+      }
+
       if (s.feeType === "Paid" && !String(s.monthlyFee).trim()) {
         alert(`${rowLabel}: Fadlan geli Qiimaha Fee-ga bishii (Paid)`);
         return false;
@@ -179,22 +185,38 @@ export default function BulkRegistration() {
 
       // ✅ Sida ay ku jireen ardayda hore ee database-ka, si aan ID-yadu
       // isugu daba socdaan oo aan wax laga tagin ama laba arday isku ID
-      // isku helin — waxaan halkan ka soo aqrinaynaa tirada ardayda jira.
-      const existingSnap = await getDocs(collection(db, "students"));
-      let nextIdNumber = existingSnap.size;
+      // isku helin — waxaan halkan ka soo aqrinaynaa tirada ardayda jira,
+      // gaar ahaan Full Time ("students") iyo Part Time ("partTimeStudents").
+      const [fullTimeSnap, partTimeSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "partTimeStudents")),
+      ]);
+      let nextFullTimeIdNumber = fullTimeSnap.size;
+      let nextPartTimeIdNumber = partTimeSnap.size;
 
       const teachersSnap = await getDocs(collection(db, "teachers"));
 
       for (let i = 0; i < students.length; i++) {
         const student = students[i];
 
-        nextIdNumber += 1;
-        const studentId = String(nextIdNumber).padStart(4, "0");
+        // ✅ Full Time -> collection "students" ID 0001, 0002...
+        // ✅ Part Time -> collection "partTimeStudents" ID R001, R002...
+        const isPartTime = student.studentType === "Part Time";
+        const targetCollection = isPartTime ? "partTimeStudents" : "students";
+
+        let studentId;
+        if (isPartTime) {
+          nextPartTimeIdNumber += 1;
+          studentId = "R" + String(nextPartTimeIdNumber).padStart(3, "0");
+        } else {
+          nextFullTimeIdNumber += 1;
+          studentId = String(nextFullTimeIdNumber).padStart(4, "0");
+        }
 
         let photoURL = "";
         const photoRef = ref(
           storage,
-          `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
+          `${targetCollection}/${studentId}/${Date.now()}_${student.studentPhoto.name}`
         );
 
         await uploadBytes(photoRef, student.studentPhoto);
@@ -203,12 +225,12 @@ export default function BulkRegistration() {
 
         const finalMonthlyFee = student.feeType === "Free" ? "0" : student.monthlyFee;
 
-        await setDoc(doc(db, "students", studentId), {
+        await setDoc(doc(db, targetCollection, studentId), {
           studentId,
           fullName: student.fullName,
           motherName: student.motherName, // ✅ Magaca Hooyada oo lagu kaydiyo students
           className: student.className,
-          shift: student.shift,
+          studentType: student.studentType,
           feeType: student.feeType,
           monthlyFee: finalMonthlyFee,
           parentPhone: student.parentPhone,
@@ -240,7 +262,7 @@ export default function BulkRegistration() {
           fullName: student.fullName,
           motherName: student.motherName, // ✅ Magaca Hooyada oo lagu daro ID Card-ka
           className: student.className,
-          shift: student.shift,
+          studentType: student.studentType,
           studentPhoto: photoURL,
           district: student.district,
           parentPhone: student.parentPhone,
@@ -250,7 +272,9 @@ export default function BulkRegistration() {
           createdAt: new Date(),
         });
 
-        if (student.className) {
+        // ✅ Kaliya ardayda Full Time ah ayaa lagu xidhayaa macalimiinta
+        // fasalkooda.
+        if (student.className && !isPartTime) {
           await attachStudentToClassTeachers(
             teachersSnap,
             student.className,
@@ -330,7 +354,7 @@ export default function BulkRegistration() {
                 <th style={th}>Full Name</th>
                 <th style={th}>Mother Name</th>
                 <th style={th}>Class Name</th>
-                <th style={th}>Shift</th>
+                <th style={th}>Student Type</th>
                 <th style={th}>Fee Type</th>
                 <th style={th}>Monthly Fee ($)</th>
                 <th style={th}>Parent Phone</th>
@@ -394,14 +418,14 @@ export default function BulkRegistration() {
                   <td style={td}>
                     <select
                       style={input}
-                      value={student.shift}
+                      value={student.studentType}
                       onChange={(e) =>
-                        handleChange(index, "shift", e.target.value)
+                        handleChange(index, "studentType", e.target.value)
                       }
                     >
                       <option value="">Select</option>
-                      <option value="Morning">🌅 Morning</option>
-                      <option value="Afternoon">🌇 Afternoon</option>
+                      <option value="Full Time">🕒 Full Time</option>
+                      <option value="Part Time">⏱️ Part Time</option>
                     </select>
                   </td>
 

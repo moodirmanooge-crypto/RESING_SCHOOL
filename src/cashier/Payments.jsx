@@ -1,20 +1,11 @@
-//src/cashier/Payments.jsx // rise school
+// src/cashier/Payments.jsx
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  doc,
-  setDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import { theme } from "./theme.js";
-import ReceiptModal from "./ReceiptModal.jsx";
 
-const SCHOOL_NAME = "Rising School"; // beddel magaca dugsigaaga haddii loo baahdo
-
-const currentMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-07"
+const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
 const monthLabel = (key) => {
   if (!key) return "—";
@@ -23,14 +14,40 @@ const monthLabel = (key) => {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 };
 
+function formatPaidDate(createdAt) {
+  if (!createdAt?.seconds) return "—";
+  const d = new Date(createdAt.seconds * 1000);
+  return d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function monthKeyAdd(key, n) {
+  const [y, m] = key.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return d.toISOString().slice(0, 7);
+}
+
+function registrationMonthKey(student) {
+  const ts = student.createdAt;
+  if (ts?.seconds) {
+    return new Date(ts.seconds * 1000).toISOString().slice(0, 7);
+  }
+  return currentMonthKey();
+}
+
+function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
+  let key = startKey;
+  for (let i = 0; i < safetyCap; i++) {
+    if (!fullyPaidSet.has(key)) return key;
+    key = monthKeyAdd(key, 1);
+  }
+  return key;
+}
+
 export default function Payments() {
   const [students, setStudents] = useState([]);
-  const [payments, setPayments] = useState({});
+  const [paymentsByStudent, setPaymentsByStudent] = useState({});
   const [search, setSearch] = useState("");
-  const [amounts, setAmounts] = useState({});
   const [loading, setLoading] = useState(true);
-  const [savingId, setSavingId] = useState(null);
-  const [receiptPayment, setReceiptPayment] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -40,16 +57,9 @@ export default function Payments() {
     try {
       setLoading(true);
 
-      // Xogta ardayda saxda ah waxay ku jirtaa collection-ka "students"
-      // ee laga sameeyay Add Student / Bulk Registration.
       const studentsSnap = await getDocs(collection(db, "students"));
       const studentData = studentsSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        // Ka reeb xogta aan lahayn studentId ama fullName sax ah —
-        // taasi waa waxa keenayay safafka "—" ee madhan.
-        // Ka reeb sidoo kale ardayda la calaamadeeyay pendingDeletion —
-        // isla markiiba ha ka baxeen Cashier/Payments, xitaa haddii
-        // backend-ku uusan weli si buuxda uga tirtirin Firestore.
         .filter(
           (s) =>
             !s.pendingDeletion &&
@@ -58,32 +68,21 @@ export default function Payments() {
             s.fullName &&
             String(s.fullName).trim() !== ""
         );
-
       setStudents(studentData);
 
-      // Liis ka mid ah studentId-yada ardayda wali JIRA — waxa loo
-      // isticmaalayaa in payments-ka arday la tirtiray aan lagu
-      // muujin miiska (haddii diiwaan-payment uu weli ku hadhay
-      // Firestore isaga oo aan si buuxda loo sync-garayn).
-      const activeStudentIds = new Set(studentData.map((s) => s.studentId));
-
       const paymentsSnap = await getDocs(collection(db, "payments"));
-      const paymentMap = {};
+      const byStudent = {};
       paymentsSnap.docs.forEach((d) => {
         const data = d.data();
         const sid = data.studentId;
         if (!sid) return;
-        if (!activeStudentIds.has(sid)) return; // arday la tirtiray — iska dhaaf
-        // Hay boqolka ugu dambeeyay ee bishaas studentId-gan
-        if (
-          !paymentMap[sid] ||
-          (data.createdAt?.seconds || 0) >
-            (paymentMap[sid].createdAt?.seconds || 0)
-        ) {
-          paymentMap[sid] = data;
-        }
+        if (!byStudent[sid]) byStudent[sid] = [];
+        byStudent[sid].push(data);
       });
-      setPayments(paymentMap);
+      Object.keys(byStudent).forEach((sid) => {
+        byStudent[sid].sort((a, b) => (a.monthKey || "").localeCompare(b.monthKey || ""));
+      });
+      setPaymentsByStudent(byStudent);
     } catch (err) {
       console.log(err);
     } finally {
@@ -96,90 +95,30 @@ export default function Payments() {
     return (
       (s.studentId || "").toLowerCase().includes(text) ||
       (s.fullName || "").toLowerCase().includes(text) ||
-      (s.className || "").toLowerCase().includes(text)
+      (s.className || "").toLowerCase().includes(text) ||
+      (s.feeCategory || "").toLowerCase().includes(text)
     );
   });
 
   const isFreeStudent = (student) => student.feeType === "Free";
 
-  const isPaidThisMonth = (studentId) => {
-    const record = payments[studentId];
-    if (!record) return false;
-    return record.monthKey === currentMonthKey() && record.status === "Paid";
-  };
+  function getStudentMonthState(studentId) {
+    const records = paymentsByStudent[studentId] || [];
+    const fullyPaidSet = new Set();
+    const partialMap = {};
+    records.forEach((r) => {
+      if (!r.monthKey) return;
+      if (r.status === "Paid") fullyPaidSet.add(r.monthKey);
+      else if (r.paidAmount) partialMap[r.monthKey] = r.paidAmount;
+    });
+    return { records, fullyPaidSet, partialMap };
+  }
 
-  const savePayment = async (student) => {
-    if (isFreeStudent(student)) return;
-
-    const entered = Number(amounts[student.id] || 0);
-
-    if (entered <= 0) {
-      alert("Fadlan geli lacagta la bixiyay");
-      return;
-    }
-
-    const fee = Number(student.monthlyFee || 0);
-    const remaining = fee - entered;
-    const status = remaining <= 0 ? "Paid" : "Not Paid";
-    const monthKey = currentMonthKey();
-
-    // Diiwaan gaar ah oo bishan iyo ardaygan u gaar ah — si aan
-    // boqol hore loo tirtirin marka mar kale la kaydiyo.
-    const paymentDocId = `${student.studentId}_${monthKey}`;
-
-    try {
-      setSavingId(student.id);
-
-      const paymentRecord = {
-        studentId: student.studentId,
-        studentName: student.fullName,
-        className: student.className || "",
-        schoolName: SCHOOL_NAME,
-        monthlyFee: fee,
-        paidAmount: entered,
-        remaining: remaining > 0 ? remaining : 0,
-        status,
-        monthKey,
-        monthLabel: monthLabel(monthKey),
-        studentPhone: student.studentPhone || "",
-        parentPhone: student.parentPhone || "",
-        createdAt: serverTimestamp(),
-      };
-
-      await setDoc(doc(db, "payments", paymentDocId), paymentRecord);
-
-      setPayments({
-        ...payments,
-        [student.studentId]: {
-          status,
-          monthKey,
-          monthLabel: monthLabel(monthKey),
-          paidAmount: entered,
-          remaining: remaining > 0 ? remaining : 0,
-          schoolName: SCHOOL_NAME,
-          studentName: student.fullName,
-        },
-      });
-
-      setAmounts({
-        ...amounts,
-        [student.id]: "",
-      });
-
-      // U dir rasiidka automatic — waxaa loo isticmaalayaa taariikhda
-      // dhabta ah ee hadda (serverTimestamp weli lama soo celin), si
-      // rasiidku u tuso wakhtiga saxda ah ee lacagta la bixiyay.
-      setReceiptPayment({
-        ...paymentRecord,
-        createdAt: { seconds: Math.floor(Date.now() / 1000) },
-      });
-    } catch (err) {
-      console.log(err);
-      alert(err.message);
-    } finally {
-      setSavingId(null);
-    }
-  };
+  const paidThisMonthCount = students.filter((s) => {
+    if (isFreeStudent(s)) return false;
+    const { fullyPaidSet } = getStudentMonthState(s.studentId);
+    return fullyPaidSet.has(currentMonthKey());
+  }).length;
 
   return (
     <div style={{ fontFamily: theme.font.body }}>
@@ -187,7 +126,7 @@ export default function Payments() {
         <div>
           <h1 style={styles.title}>Student Payments</h1>
           <p style={styles.subtitle}>
-            Diiwaan geli oo la soco lacagaha bilaha ee ardayda
+            Diiwaan geli oo la soco lacagaha bilaha ee ardayda (daawasho oo kaliya)
           </p>
         </div>
         <div style={styles.headerStats}>
@@ -196,25 +135,23 @@ export default function Payments() {
             <span style={styles.statLabel}>Students</span>
           </div>
           <div style={styles.statPill}>
-            <span style={styles.statNum}>
-              {
-                students.filter(
-                  (s) => !isFreeStudent(s) && isPaidThisMonth(s.studentId)
-                ).length
-              }
-            </span>
+            <span style={styles.statNum}>{paidThisMonthCount}</span>
             <span style={styles.statLabel}>Paid this month</span>
           </div>
         </div>
       </header>
 
-      <div style={styles.searchRow}>
+      <div style={styles.collectingForBar}>
+        📅 Collecting for: <strong>{monthLabel(currentMonthKey())}</strong>
+      </div>
+
+      <div style={{ ...styles.searchRow, width: "auto" }}>
         <span style={styles.searchIcon}>🔍</span>
         <input
-          placeholder="Search Student ID / Name / Class"
+          placeholder="Search ID / Name / Class / Category"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          style={styles.search}
+          style={{ ...styles.search, width: 360 }}
         />
       </div>
 
@@ -242,43 +179,43 @@ export default function Payments() {
                 <th style={styles.th}>ID</th>
                 <th style={styles.th}>Name</th>
                 <th style={styles.th}>Class</th>
-                <th style={styles.th}>Student Phone</th>
-                <th style={styles.th}>Parent Phone</th>
+                <th style={styles.th}>Fee Type</th>
+                <th style={styles.th}>Fee Category</th>
                 <th style={styles.th}>Monthly Fee</th>
                 <th style={styles.th}>Paid</th>
                 <th style={styles.th}>Remaining</th>
-                <th style={styles.th}>Enter Amount</th>
                 <th style={styles.th}>Status</th>
-                <th style={styles.th}>Save</th>
               </tr>
             </thead>
 
             <tbody>
               {filtered.map((student, i) => {
                 const free = isFreeStudent(student);
-                const paidThisMonth = !free && isPaidThisMonth(student.studentId);
-                const record = payments[student.studentId];
-
-                const entered = Number(amounts[student.id] || 0);
                 const fee = Number(student.monthlyFee || 0);
+                const { fullyPaidSet, partialMap, records } = getStudentMonthState(
+                  student.studentId
+                );
+                const paidThisMonth = !free && fullyPaidSet.has(currentMonthKey());
+                const thisMonthRecord = records.find(
+                  (r) => r.monthKey === currentMonthKey()
+                );
 
-                let displayPaid = paidThisMonth ? record.paidAmount : entered;
-                let displayRemaining = paidThisMonth
-                  ? record.remaining
-                  : Math.max(fee - entered, 0);
+                const nextUnpaid = findNextUnpaidMonth(
+                  fullyPaidSet,
+                  registrationMonthKey(student)
+                );
+                const displayRemaining = free
+                  ? 0
+                  : Math.max(fee - (partialMap[nextUnpaid] || 0), 0);
 
-                const status = free
-                  ? "Free"
+                const displayPaid = free
+                  ? 0
                   : paidThisMonth
-                  ? "Paid"
-                  : entered > 0
-                  ? entered >= fee
-                    ? "Paid"
-                    : "Not Paid"
-                  : "Not Paid";
+                  ? thisMonthRecord?.paidAmount ?? fee
+                  : partialMap[currentMonthKey()] || 0;
 
+                const status = free ? "Free" : paidThisMonth ? "Paid" : "Not Paid";
                 const isPaidStatus = status === "Paid";
-                const isSaving = savingId === student.id;
 
                 return (
                   <tr
@@ -294,42 +231,42 @@ export default function Payments() {
                       {student.fullName}
                     </td>
                     <td style={styles.td}>{student.className || "—"}</td>
-                    <td style={styles.td}>{student.studentPhone || "—"}</td>
-                    <td style={styles.td}>{student.parentPhone || "—"}</td>
+                    <td style={styles.td}>
+                      <span
+                        style={{
+                          fontWeight: 600,
+                          color: free
+                            ? theme.colors.brand
+                            : isPaidStatus
+                            ? theme.colors.mintDark
+                            : theme.colors.danger,
+                        }}
+                      >
+                        {status}
+                      </span>
+                    </td>
+                    <td style={styles.td}>
+                      {student.feeCategory || "Standard Fee"}
+                    </td>
                     <td style={{ ...styles.td, ...styles.money }}>
                       {free ? "—" : `$${fee}`}
                     </td>
                     <td style={{ ...styles.td, ...styles.money }}>
-                      {free ? "—" : `$${displayPaid}`}
+                      {free ? (
+                        "—"
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span>${displayPaid}</span>
+                          {paidThisMonth && thisMonthRecord?.createdAt && (
+                            <span style={styles.paidDate}>
+                              {formatPaidDate(thisMonthRecord.createdAt)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...styles.td, ...styles.money }}>
                       {free ? "—" : `$${displayRemaining}`}
-                    </td>
-                    <td style={styles.td}>
-                      {free ? (
-                        <span style={{ color: theme.colors.inkMuted, fontSize: 12.5 }}>
-                          —
-                        </span>
-                      ) : (
-                        <input
-                          type="number"
-                          disabled={paidThisMonth}
-                          value={amounts[student.id] || ""}
-                          onChange={(e) =>
-                            setAmounts({
-                              ...amounts,
-                              [student.id]: e.target.value,
-                            })
-                          }
-                          style={{
-                            ...styles.amountInput,
-                            background: paidThisMonth
-                              ? "#F0F3F2"
-                              : theme.colors.card,
-                            color: theme.colors.ink,
-                          }}
-                        />
-                      )}
                     </td>
                     <td style={styles.td}>
                       <span
@@ -360,34 +297,6 @@ export default function Payments() {
                         {status}
                       </span>
                     </td>
-                    <td style={styles.td}>
-                      {free ? (
-                        <span style={{ color: theme.colors.inkMuted, fontSize: 12.5 }}>
-                          —
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => savePayment(student)}
-                          disabled={paidThisMonth || isSaving}
-                          style={{
-                            ...styles.saveBtn,
-                            background: paidThisMonth
-                              ? "#DDE4E2"
-                              : theme.colors.mint,
-                            color: paidThisMonth
-                              ? theme.colors.inkMuted
-                              : "#FFFFFF",
-                            cursor:
-                              paidThisMonth || isSaving
-                                ? "not-allowed"
-                                : "pointer",
-                            opacity: isSaving ? 0.7 : 1,
-                          }}
-                        >
-                          {paidThisMonth ? "Paid" : isSaving ? "Saving…" : "Save"}
-                        </button>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -395,18 +304,22 @@ export default function Payments() {
           </table>
         )}
       </div>
-
-      {receiptPayment && (
-        <ReceiptModal
-          payment={receiptPayment}
-          onClose={() => setReceiptPayment(null)}
-        />
-      )}
     </div>
   );
 }
 
 const styles = {
+  collectingForBar: {
+    display: "inline-block",
+    background: `${theme.colors.brand}0D`,
+    border: `1px solid ${theme.colors.brand}33`,
+    color: theme.colors.brand,
+    fontWeight: 700,
+    fontSize: 13,
+    padding: "8px 16px",
+    borderRadius: theme.radius.sm,
+    marginBottom: 12,
+  },
   header: {
     display: "flex",
     alignItems: "flex-start",
@@ -457,7 +370,6 @@ const styles = {
   },
   searchRow: {
     position: "relative",
-    width: 360,
     marginBottom: 20,
   },
   searchIcon: {
@@ -469,7 +381,6 @@ const styles = {
     opacity: 0.5,
   },
   search: {
-    width: "100%",
     padding: "12px 16px 12px 38px",
     borderRadius: theme.radius.sm,
     border: `1px solid ${theme.colors.border}`,
@@ -536,13 +447,6 @@ const styles = {
     fontVariantNumeric: "tabular-nums",
     fontWeight: 600,
   },
-  amountInput: {
-    width: 90,
-    padding: "8px 10px",
-    borderRadius: theme.radius.sm,
-    border: `1px solid ${theme.colors.border}`,
-    fontSize: 13.5,
-  },
   badge: {
     display: "inline-flex",
     alignItems: "center",
@@ -557,11 +461,10 @@ const styles = {
     height: 6,
     borderRadius: "50%",
   },
-  saveBtn: {
-    border: "none",
-    padding: "9px 18px",
-    borderRadius: theme.radius.sm,
-    fontWeight: 700,
-    fontSize: 13,
+  paidDate: {
+    fontSize: 11,
+    color: theme.colors.inkMuted,
+    fontWeight: 400,
+    marginTop: 2,
   },
 };

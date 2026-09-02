@@ -1,98 +1,89 @@
+// src/pages/Parents.jsx
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
 import { Search, Users, User } from "lucide-react";
 
 export default function Parents() {
   const [parents, setParents] = useState([]);
-  const [payments, setPayments] = useState({});
+  const [cashierMap, setCashierMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    loadParents();
-    loadPayments();
+    setLoading(true);
+
+    // 1. Live Listener: Collection-ka "students"
+    const unsubStudents = onSnapshot(
+      collection(db, "students"),
+      (snap) => {
+        const data = snap.docs
+          .map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }))
+          .filter((s) => !s.pendingDeletion);
+        setParents(data);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Students Fetch Error:", err);
+        setLoading(false);
+      }
+    );
+
+    // 2. Live Listener: Collection-ka "cashier"
+    const unsubCashier = onSnapshot(
+      collection(db, "cashier"),
+      (snap) => {
+        const cMap = {};
+        snap.docs.forEach((doc) => {
+          const data = doc.data();
+          // Isticmaal studentId ama Document ID (e.g. "0005")
+          const sId = String(data.studentId || doc.id).trim();
+          cMap[sId] = data;
+        });
+        setCashierMap(cMap);
+      },
+      (err) => console.error("Cashier Fetch Error:", err)
+    );
+
+    return () => {
+      unsubStudents();
+      unsubCashier();
+    };
   }, []);
 
-  async function loadParents() {
-    try {
-      setLoading(true);
-      const snap = await getDocs(collection(db, "students"));
-      const data = snap.docs
-        .map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }))
-        // Ka reeb ardayda la calaamadeeyay pendingDeletion — isla markiiba
-        // ha ka baxeen liiska Parents, xitaa haddii backend-ku uusan weli
-        // si buuxda uga tirtirin Firestore.
-        .filter((s) => !s.pendingDeletion);
-      setParents(data);
-    } catch (err) {
-      console.log(err);
-    } finally {
-      setLoading(false);
-    }
-  }
+  // Akhrinta xogta lacagta ee Cashier-ka
+  function getPaymentInfo(student) {
+    const sId = String(student.studentId || student.id).trim();
+    const cashierData = cashierMap[sId] || {};
 
-  async function loadPayments() {
-    try {
-      const snap = await getDocs(collection(db, "payments"));
-      const map = {};
-      snap.docs.forEach((doc) => {
-        map[doc.id] = doc.data();
-      });
-      setPayments(map);
-    } catch (err) {
-      console.log(err);
-    }
-  }
-
-  // ---- Xisaabi inta la bixiyay iyo inta la rabo ee arday kasta ----
-  // U shaqeeya si dabacsan: haddii payments/{studentId} yahay hal document
-  // leh 'amountPaid', ama haddii uu leeyahay liis 'entries'/'history' oo
-  // dhammaantood la isku daro.
-  //
-  // Ardayda "Free" ah (monthlyFee === 0) marwalba waa "Full Paid" —
-  // wax lacag ah kama laha school-ka, sidaas darteed ma xiisayn karto
-  // in ay lahaadaan payments record, xitaa haddii aan mid la sameyn.
-  function getPaymentInfo(studentId, monthlyFee) {
-    const record = payments[studentId];
-    const fee = Number(monthlyFee) || 0;
-
-    if (fee === 0) {
-      return { paidTotal: 0, remaining: 0, status: "Full Paid" };
-    }
+    // 1. Fee status-ka iyo Monthly Fee-ga Cashier-ka
+    const status = cashierData.feeType || student.feeType || "Not Paid";
+    const monthlyFee = Number(cashierData.monthlyFee ?? student.monthlyFee) || 0;
 
     let paidTotal = 0;
+    let remaining = monthlyFee;
 
-    if (record) {
-      if (Array.isArray(record.entries)) {
-        paidTotal = record.entries.reduce(
-          (sum, e) => sum + (Number(e.amount) || 0),
-          0
-        );
-      } else if (Array.isArray(record.history)) {
-        paidTotal = record.history.reduce(
-          (sum, e) => sum + (Number(e.amount) || 0),
-          0
-        );
-      } else if (record.amountPaid !== undefined) {
-        paidTotal = Number(record.amountPaid) || 0;
-      } else if (record.paid !== undefined) {
-        paidTotal = Number(record.paid) || 0;
-      } else if (record.status === "Paid") {
-        paidTotal = fee;
-      }
+    // 2. Xisaabi sida ay tahay Status-ka Cashier-ka
+    if (status === "Free") {
+      return { monthlyFee: 0, paidTotal: 0, remaining: 0, status: "Free" };
     }
 
-    const remaining = Math.max(fee - paidTotal, 0);
+    if (status === "Paid") {
+      paidTotal = monthlyFee;
+      remaining = 0;
+    } else if (status === "Partial") {
+      paidTotal = Number(cashierData.paidAmount) || Math.round(monthlyFee / 2);
+      remaining = Math.max(monthlyFee - paidTotal, 0);
+    } else {
+      // Not Paid ama Unpaid
+      paidTotal = 0;
+      remaining = monthlyFee;
+    }
 
-    let status = "Unpaid";
-    if (paidTotal >= fee) status = "Full Paid";
-    else if (paidTotal > 0 && paidTotal < fee) status = "Partial";
-
-    return { paidTotal, remaining, status };
+    return { monthlyFee, paidTotal, remaining, status };
   }
 
   const filtered = useMemo(() => {
@@ -108,8 +99,10 @@ export default function Parents() {
   }, [parents, search]);
 
   const statusStyle = (status) => {
-    if (status === "Full Paid")
+    if (status === "Paid" || status === "Full Paid")
       return { color: "#4ade80", background: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.35)" };
+    if (status === "Free")
+      return { color: "#60a5fa", background: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.35)" };
     if (status === "Partial")
       return { color: "#f59e0b", background: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.35)" };
     return { color: "#f87171", background: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.35)" };
@@ -165,10 +158,7 @@ export default function Parents() {
               </tr>
             ) : (
               filtered.map((item) => {
-                const { paidTotal, remaining, status } = getPaymentInfo(
-                  item.studentId,
-                  item.monthlyFee
-                );
+                const { monthlyFee, paidTotal, remaining, status } = getPaymentInfo(item);
                 const st = statusStyle(status);
 
                 return (
@@ -205,11 +195,11 @@ export default function Parents() {
                     </td>
                     <td style={td}>{item.studentId}</td>
                     <td style={{ ...td, color: "#fff", fontWeight: 600 }}>{item.fullName}</td>
-                    <td style={td}>{item.className}</td>
-                    <td style={td}>${item.monthlyFee || 0}</td>
-                    <td style={td}>{item.parentPhone}</td>
-                    <td style={td}>{item.studentPhone}</td>
-                    <td style={td}>{item.parentPassword}</td>
+                    <td style={td}>{item.className || "—"}</td>
+                    <td style={td}>${monthlyFee}</td>
+                    <td style={td}>{item.parentPhone || "—"}</td>
+                    <td style={td}>{item.studentPhone || "—"}</td>
+                    <td style={td}>{item.parentPassword || "—"}</td>
                     <td style={{ ...td, color: "#4ade80" }}>${paidTotal}</td>
                     <td style={{ ...td, color: remaining > 0 ? "#f87171" : "#8b87ad" }}>
                       ${remaining}

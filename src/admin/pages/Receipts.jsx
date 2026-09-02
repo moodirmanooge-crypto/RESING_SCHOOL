@@ -1,4 +1,3 @@
-// src/admin/pages/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
@@ -6,7 +5,20 @@ import { Search, Printer, X, Receipt as ReceiptIcon, Trash2 } from "lucide-react
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
-const SCHOOL_NAME = "RISING STAR PRIMARY & SECONDARY SCHOOL";
+import schoolLogo from "../../assets/logo.png";
+import principalSignature from "../assets/signature-principal.png";
+
+const SCHOOL_NAME_LINE1 = "DUGSIGA HOOSE / DHEXE &";
+const SCHOOL_NAME_LINE2 = "SARE RISING STAR SCHOOL";
+const ARABIC_NAME_LINE1 = "مدرسة ريسن استار";
+const ARABIC_NAME_LINE2 = "الأساسية والثانوية";
+
+const SCHOOL_LOCATION = "Muqdisho - Soomaaliya";
+const ARABIC_LOCATION = "مقديشو - الصومال";
+const SCHOOL_PHONES = "858516 / 0615860629 / 0617636461 / 0617536461";
+const SCHOOL_EMAIL = "israpp@hotmail.com";
+
+const USD_TO_SOS_RATE = 28;
 
 function formatDate(value) {
   if (!value) return "—";
@@ -17,6 +29,58 @@ function formatDate(value) {
     month: "short",
     year: "numeric",
   });
+}
+
+// ---- Amount -> Words (English) ----
+const ONES = [
+  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+  "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+  "Seventeen", "Eighteen", "Nineteen",
+];
+const TENS = [
+  "", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety",
+];
+
+function threeDigitsToWords(n) {
+  let str = "";
+  if (n >= 100) {
+    str += ONES[Math.floor(n / 100)] + " Hundred ";
+    n %= 100;
+  }
+  if (n >= 20) {
+    str += TENS[Math.floor(n / 10)] + " ";
+    n %= 10;
+  }
+  if (n > 0) {
+    str += ONES[n] + " ";
+  }
+  return str.trim();
+}
+
+function integerToWords(num) {
+  if (num === 0) return "Zero";
+  const parts = [];
+  const million = Math.floor(num / 1000000);
+  const thousand = Math.floor((num % 1000000) / 1000);
+  const rest = num % 1000;
+
+  if (million) parts.push(`${threeDigitsToWords(million)} Million`);
+  if (thousand) parts.push(`${threeDigitsToWords(thousand)} Thousand`);
+  if (rest) parts.push(threeDigitsToWords(rest));
+
+  return parts.join(" ").trim();
+}
+
+function amountToWords(amount) {
+  const num = Number(amount) || 0;
+  const dollars = Math.floor(num);
+  const cents = Math.round((num - dollars) * 100);
+
+  let words = `${integerToWords(dollars)} Dollar${dollars === 1 ? "" : "s"}`;
+  if (cents > 0) {
+    words += ` and ${integerToWords(cents)} Cent${cents === 1 ? "" : "s"}`;
+  }
+  return words;
 }
 
 const cardStyle = {
@@ -32,7 +96,7 @@ export default function Receipts() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [confirmTarget, setConfirmTarget] = useState(null); // { type: "one"|"all", receipt? }
+  const [confirmTarget, setConfirmTarget] = useState(null);
   const [deletingAll, setDeletingAll] = useState(false);
 
   useEffect(() => {
@@ -136,7 +200,6 @@ export default function Receipts() {
         </div>
 
         <div style={{ padding: "26px 30px" }}>
-          {/* Header */}
           <div
             style={{
               display: "flex",
@@ -152,7 +215,7 @@ export default function Receipts() {
                 Receipts
               </h1>
               <p style={{ margin: "4px 0 0", fontSize: 13.5, color: "#6B7280" }}>
-                Dhammaan rasiidhada lacagaha ee laga bixiyay {SCHOOL_NAME}
+                Dhammaan rasiidhada lacagaha ee laga bixiyay {SCHOOL_NAME_LINE2}
               </p>
             </div>
 
@@ -196,7 +259,6 @@ export default function Receipts() {
             </div>
           </div>
 
-          {/* Search */}
           <div
             style={{
               ...cardStyle,
@@ -271,7 +333,6 @@ export default function Receipts() {
             )}
           </div>
 
-          {/* Table */}
           <div style={{ ...cardStyle, padding: "20px 22px", overflowX: "auto" }}>
             {loading && (
               <p style={{ fontSize: 13, color: "#9CA3AF", padding: "20px 0", textAlign: "center" }}>
@@ -453,15 +514,16 @@ export default function Receipts() {
   );
 }
 
-// Modal-ka daawashada rasiidka — waa isla design-ka warqadda cusub
-// (ReceiptModal.jsx), laakiin ka soo akhriya xog rasiid oo hore loo
-// kaydiyay (halkii uu ka kordhin lahaa lambar cusub).
 function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
   const paidDate = receipt.paidAt?.seconds
     ? new Date(receipt.paidAt.seconds * 1000)
     : receipt.createdAt?.seconds
     ? new Date(receipt.createdAt.seconds * 1000)
     : new Date();
+
+  const totalPaidAmount = Number(receipt.paidAmount) || 0;
+  const sosAmount = Math.round(totalPaidAmount * USD_TO_SOS_RATE);
+  const amountWords = amountToWords(totalPaidAmount);
 
   return (
     <>
@@ -481,49 +543,120 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
         </div>
 
         <div className="rv-paper">
-          <div className="rv-header">
-            <div className="rv-school">{SCHOOL_NAME}</div>
-            <div className="rv-sub">SCHOOL FEES RECEIPT</div>
-            <div className="rv-no">No. {receipt.receiptNo}</div>
-          </div>
+          <div className="rc-frame">
+            <div className="rc-outer">
+              <div className="rc-top">
+                <div className="rc-school-left">
+                  <div className="rc-school-line1">{SCHOOL_NAME_LINE1}</div>
+                  <div className="rc-school-line2">{SCHOOL_NAME_LINE2}</div>
+                  <div className="rc-school-location">{SCHOOL_LOCATION}</div>
+                </div>
 
-          <div className="rv-line" />
+                <img src={schoolLogo} alt="Logo" className="rc-logo" />
 
-          <div className="rv-field">
-            <span className="rv-label">Received from</span>
-            <span className="rv-value">{receipt.studentName || "—"}</span>
-          </div>
-          <div className="rv-field">
-            <span className="rv-label">Class</span>
-            <span className="rv-value">{receipt.className || "—"}</span>
-          </div>
-          <div className="rv-field">
-            <span className="rv-label">Month</span>
-            <span className="rv-value">{receipt.monthLabel || "—"}</span>
-          </div>
-          <div className="rv-field">
-            <span className="rv-label">Academic Year</span>
-            <span className="rv-value">{receipt.academicYear || "—"}</span>
-          </div>
-          <div className="rv-field">
-            <span className="rv-label">Date</span>
-            <span className="rv-value">{formatDate(paidDate)}</span>
-          </div>
-          <div className="rv-field">
-            <span className="rv-label">Amount</span>
-            <span className="rv-value rv-blank" />
-          </div>
+                <div className="rc-school-right" dir="rtl">
+                  <div className="rc-arabic-line1">{ARABIC_NAME_LINE1}</div>
+                  <div className="rc-arabic-line2">{ARABIC_NAME_LINE2}</div>
+                  <div className="rc-arabic-location">{ARABIC_LOCATION}</div>
+                </div>
+              </div>
 
-          <div className="rv-line" />
+              <div className="rc-header-details">
+                <div>{SCHOOL_NAME_LINE1} {SCHOOL_NAME_LINE2}</div>
+                <div>Tel. {SCHOOL_PHONES} E-mail: {SCHOOL_EMAIL}</div>
+              </div>
 
-          {/* Received by / Signature: waa banaan si loogu saxiixdo
-              gacanta warqadda daabacan — marna kama imaanayo Firestore. */}
-          <div className="rv-signature-block">
-            <span className="rv-label">Received by</span>
-            <span className="rv-signature-line" />
+              <div className="rc-divider" />
+
+              <div className="rc-body">
+                <div className="rc-voucher-row">
+                  <div className="rc-voucher-title">
+                    RECEIPT VOUCHER
+                    <div className="rc-voucher-sub">(Warqadda Lacag Qaabashada)</div>
+                  </div>
+                  <div className="rc-no">
+                    N° <span className="rc-no-value">{receipt.receiptNo}</span>
+                  </div>
+                </div>
+
+                <div className="rc-field">
+                  <span className="rc-label">Date:</span>
+                  <span className="rc-value">{formatDate(paidDate)}</span>
+                </div>
+
+                <div className="rc-field">
+                  <span className="rc-label">Student ID:</span>
+                  <span className="rc-value rc-id-val">{receipt.studentId || ""}</span>
+                </div>
+
+                <div className="rc-field-block">
+                  <div className="rc-field-top">
+                    <span className="rc-label">Received from:</span>
+                    <span className="rc-value rc-value-strong">{receipt.studentName || "—"}</span>
+                  </div>
+                  <div className="rc-field-caption">(Laga qaday)</div>
+                </div>
+
+                <div className="rc-amount-block">
+                  <div className="rc-amount-top">
+                    <span className="rc-label">Amount of So Sh.</span>
+                    <span className="rc-amount-box-sos">{sosAmount ? sosAmount.toLocaleString() : ""}</span>
+                    <span className="rc-usd-group">
+                      <span className="rc-usd-tag">US$</span>
+                      <span className="rc-amount-box-usd">{totalPaidAmount}</span>
+                    </span>
+                  </div>
+                  <div className="rc-field-caption">(Lacag dhan)</div>
+                </div>
+
+                <div className="rc-field">
+                  <span className="rc-label">
+                    In words <em>(Eray ahaan)</em>:
+                  </span>
+                  <span className="rc-value">{amountWords} Only</span>
+                </div>
+
+                <div className="rc-being-row">
+                  <div className="rc-being-of">
+                    <span className="rc-label">
+                      Being of: <em>(Taasoo ah)</em>:
+                    </span>
+                    <span className="rc-value">{receipt.monthLabel || "Monthly Fee"}</span>
+                  </div>
+                  <div className="rc-side-fields">
+                    <div className="rc-field-inline">
+                      <span className="rc-label">Class:</span>
+                      <span className="rc-value">{receipt.className || "—"}</span>
+                    </div>
+                    <div className="rc-field-inline">
+                      <span className="rc-label">Tel.</span>
+                      <span className="rc-value">{receipt.studentPhone || "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rc-bottom-row">
+                  <div className="rc-payment-method">
+                    <span className="rc-method-tag">PAYMENT METHOD</span>
+                    <span className="rc-evc-label">EVC</span>
+                    <span className="rc-evc-box rc-evc-checked">✓</span>
+                  </div>
+
+                  <img src={schoolLogo} alt="Stamp" className="rc-stamp" />
+
+                  <div className="rc-signature">
+                    <div className="rc-sig-title">PRINCIPAL SIGNATURE</div>
+                    <img src={principalSignature} alt="Principal Signature" className="rc-sig-img" />
+                    <div className="rc-sig-line" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="rc-footer-note">
+                <span className="rc-footer-icon">!</span> N.B. NOT REFUNDABLE.
+              </div>
+            </div>
           </div>
-
-          <div className="rv-footer">Mahadsanid!</div>
         </div>
       </div>
 
@@ -548,79 +681,149 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
           font-size: 13px;
           cursor: pointer;
         }
-        .rv-close-btn {
-          background: #ffffff;
-          color: #6B7280;
-          border: 1px solid #E5E7EB;
-        }
-        .rv-delete-btn {
-          background: #DC2626;
-          color: #ffffff;
-        }
-        .rv-print-btn {
-          background: #16a34a;
-          color: #ffffff;
-        }
-        .rv-paper {
-          width: 340px;
-          background: #FBF6E9;
-          padding: 22px 20px;
-          font-family: 'Georgia', 'Times New Roman', serif;
-          color: #111827;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-          border: 3px double #7a1f1f;
-        }
-        .rv-header { text-align: center; margin-bottom: 12px; }
-        .rv-school {
-          font-weight: 800;
-          font-size: 15px;
-          letter-spacing: 0.3px;
-          color: #14532d;
-          text-transform: uppercase;
-        }
-        .rv-sub { font-size: 13px; font-weight: 700; color: #111827; margin-top: 4px; }
-        .rv-no { font-size: 11.5px; color: #111827; margin-top: 4px; font-weight: 700; }
-        .rv-line { border-top: 1px dashed #9CA3AF; margin: 10px 0; }
-        .rv-field {
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-          font-size: 12.5px;
-          margin-bottom: 8px;
-        }
-        .rv-label { color: #374151; white-space: nowrap; }
-        .rv-value {
-          flex: 1;
-          border-bottom: 1px solid #9CA3AF;
-          padding-bottom: 1px;
-          font-weight: 600;
-          min-height: 14px;
-        }
-        .rv-strong { font-weight: 800; }
-        .rv-blank { min-height: 14px; }
-        .rv-signature-block {
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-          margin-top: 20px;
-          font-size: 12.5px;
-        }
-        .rv-signature-line {
-          flex: 1;
-          border-bottom: 1px solid #9CA3AF;
-          min-height: 18px;
-        }
-        .rv-footer { text-align: center; font-size: 12px; margin-top: 14px; font-weight: 700; }
+        .rv-close-btn { background: #ffffff; color: #6B7280; border: 1px solid #E5E7EB; }
+        .rv-delete-btn { background: #DC2626; color: #ffffff; }
+        .rv-print-btn { background: #16a34a; color: #ffffff; }
 
+        .rv-paper {
+          width: 650px;
+          max-width: 95vw;
+          background: #ffffff;
+          padding: 0;
+          font-family: 'Poppins', 'Segoe UI', Arial, sans-serif;
+          color: #0b1f4d;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+          box-sizing: border-box;
+        }
+
+        .rc-frame { border: 2px solid #0b1f4d; padding: 3px; box-sizing: border-box; }
+        .rc-outer { border: 2px solid #0b1f4d; padding: 10px 14px; box-sizing: border-box; }
+
+        .rc-top {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .rc-school-left { text-align: left; flex: 1; }
+        .rc-school-right { text-align: right; flex: 1; }
+        .rc-school-line1, .rc-arabic-line1 { font-weight: 800; font-size: 12px; color: #0b1f4d; }
+        .rc-school-line2, .rc-arabic-line2 { font-weight: 800; font-size: 12px; color: #0b1f4d; }
+        .rc-school-location, .rc-arabic-location { font-size: 9.5px; color: #475569; margin-top: 1px; }
+
+        .rc-logo { width: 55px; height: 55px; object-fit: contain; flex-shrink: 0; }
+        .rc-header-details { text-align: center; font-size: 9.5px; font-weight: 700; color: #0b1f4d; margin-top: 4px; }
+        .rc-divider { border-top: 1.5px solid #0b1f4d; margin: 6px 0; }
+
+        .rc-body { display: flex; flex-direction: column; gap: 6px; }
+        .rc-voucher-row { display: flex; align-items: center; justify-content: space-between; }
+        .rc-voucher-title { font-weight: 900; font-size: 15px; letter-spacing: 0.5px; color: #0b1f4d; text-align: center; flex: 1; }
+        .rc-voucher-sub { font-size: 9px; font-style: italic; font-weight: 500; color: #475569; }
+
+        .rc-no { font-size: 12px; font-weight: 700; color: #0b1f4d; white-space: nowrap; }
+        .rc-no-value { color: #dc2626; font-weight: 900; font-size: 15px; }
+
+        .rc-field { display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
+        .rc-field em { font-size: 9px; font-style: italic; color: #475569; font-weight: 400; }
+        .rc-label { font-weight: 700; white-space: nowrap; color: #0b1f4d; }
+        .rc-value { flex: 1; border-bottom: 1px solid #64748b; padding-bottom: 1px; font-weight: 600; min-height: 14px; }
+        .rc-id-val { max-width: 120px; font-weight: 800; }
+        .rc-value-strong { font-weight: 800; font-size: 12px; }
+
+        .rc-field-block, .rc-amount-block { padding: 1px 0; }
+        .rc-field-top { display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
+        .rc-field-caption { font-style: italic; font-size: 8.5px; color: #475569; margin-top: 1px; }
+
+        .rc-amount-top { display: flex; align-items: stretch; gap: 6px; }
+        .rc-amount-top .rc-label { align-self: center; }
+        .rc-amount-box-sos { flex: 1; border: 1.5px solid #0b1f4d; border-radius: 4px; padding: 3px 6px; font-weight: 800; font-size: 11.5px; text-align: right; display: flex; align-items: center; justify-content: flex-end; }
+        .rc-usd-group { display: flex; align-items: stretch; border: 1.5px solid #0b1f4d; border-radius: 4px; overflow: hidden; flex-shrink: 0; }
+        .rc-usd-tag { background: #0b1f4d; color: #fff; font-weight: 800; font-size: 10.5px; padding: 3px 6px; display: flex; align-items: center; }
+        .rc-amount-box-usd { padding: 3px 8px; font-weight: 800; font-size: 11.5px; min-width: 35px; text-align: right; display: flex; align-items: center; justify-content: flex-end; }
+
+        .rc-being-row { display: flex; gap: 10px; }
+        .rc-being-of { flex: 1; display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
+        .rc-side-fields { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
+        .rc-field-inline { display: flex; align-items: baseline; gap: 6px; font-size: 10.5px; }
+
+        .rc-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
+        .rc-payment-method { display: flex; align-items: center; gap: 5px; }
+        .rc-method-tag { background: #0b1f4d; color: #fff; font-size: 9px; font-weight: 800; padding: 3px 6px; border-radius: 4px; white-space: nowrap; }
+        .rc-evc-label { font-weight: 700; font-size: 10.5px; color: #0b1f4d; }
+        .rc-evc-box { width: 16px; height: 16px; border: 1.5px solid #0b1f4d; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 11px; color: #16a34a; }
+
+        .rc-stamp { width: 45px; height: 45px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
+        .rc-signature { text-align: center; min-width: 120px; }
+        .rc-sig-title { font-size: 8.5px; font-weight: 800; color: #0b1f4d; letter-spacing: 0.3px; }
+        .rc-sig-img { height: 24px; object-fit: contain; margin-top: 1px; }
+        .rc-sig-line { border-bottom: 1px solid #64748b; height: 2px; }
+
+        .rc-footer-note { display: flex; align-items: center; gap: 6px; background: #0b1f4d; color: #fff; font-size: 9.5px; font-style: italic; font-weight: 700; padding: 4px 10px; margin: 8px -14px -10px; }
+        .rc-footer-icon { width: 12px; height: 12px; border-radius: 50%; background: #fff; color: #0b1f4d; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 8.5px; }
+
+        /* PRINT CONFIGURATION FOR EXACT A5 LANDSCAPE FIT */
         @media print {
-          body * { visibility: hidden; }
-          .rv-paper, .rv-paper * { visibility: visible; }
-          .rv-paper {
-            position: absolute; top: 0; left: 0;
-            box-shadow: none; width: 80mm;
+          @page {
+            size: A5 landscape !important;
+            margin: 0 !important;
           }
-          .no-print { display: none !important; }
-          @page { size: 80mm auto; margin: 0; }
+
+          html, body {
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            background: #ffffff !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          body * {
+            visibility: hidden;
+          }
+
+          .rv-overlay, .rv-overlay * {
+            visibility: visible;
+          }
+
+          .rv-overlay {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: #ffffff !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          .rv-paper {
+            width: 210mm !important;
+            height: 148mm !important;
+            max-width: 100% !important;
+            max-height: 100% !important;
+            box-shadow: none !important;
+            padding: 8mm !important;
+            margin: 0 auto !important;
+            box-sizing: border-box !important;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          .rc-frame {
+            width: 100% !important;
+            height: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          .no-print {
+            display: none !important;
+          }
         }
       `}</style>
     </>

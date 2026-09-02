@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { db, storage } from "../../firebase/firebase";
 
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, getDocs, collection, query, where, writeBatch, serverTimestamp } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   GraduationCap,
@@ -32,7 +32,6 @@ const weekDays = [
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 
-// Xiisad (session) shaqo maalinlaha ah -- waqtiga bilowga iyo dhamaadka
 const emptySession = () => ({
   startTime: "",
   endTime: "",
@@ -42,11 +41,19 @@ const emptyClassBlock = () => ({
   className: "",
   subject: "",
   shift: "",
-  // days hadda waa object: { Monday: [session1, session2, ...], ... }
   days: [],
-  // daySessions: { [dayName]: [ {startTime, endTime}, ... ] }
   daySessions: {},
 });
+
+function sortedBySessionTime(sessions) {
+  return [...sessions].sort((a, b) =>
+    (a.startTime || "").localeCompare(b.startTime || "")
+  );
+}
+
+function withSessionNumbers(sessions) {
+  return sessions.map((s, i) => ({ ...s, sessionNumber: i + 1 }));
+}
 
 export default function AddTeacher() {
   const navigate = useNavigate();
@@ -57,18 +64,20 @@ export default function AddTeacher() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [parentName, setParentName] = useState("");
   const [parentPhoneNumber, setParentPhoneNumber] = useState("");
-  // Nooca shaqada macalinka -- Full Time ama Part Time
-  const [employmentType, setEmploymentType] = useState("");
+  const [employmentTypes, setEmploymentTypes] = useState([]);
 
-  // Sawirka macalinka -- file-ka la doortay + preview-ga muuqda ka hor
-  // inta aan la kaydin, waxaana la soo geliyaa Firebase Storage marka
-  // "Abuur Macalin" la riixo.
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   const [classBlocks, setClassBlocks] = useState([emptyClassBlock()]);
   const [saving, setSaving] = useState(false);
+
+  const toggleEmploymentType = (type) => {
+    setEmploymentTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  };
 
   const handlePhotoChange = (e) => {
     const file = e.target.files?.[0];
@@ -104,13 +113,11 @@ export default function AddTeacher() {
 
     if (days.includes(day)) {
       updated[index].days = days.filter((d) => d !== day);
-      // Marka maalinta la ka saarayo, xiisadaheeda sidoo kale ha la tirtiro
       const remainingSessions = { ...updated[index].daySessions };
       delete remainingSessions[day];
       updated[index].daySessions = remainingSessions;
     } else {
       updated[index].days = [...days, day];
-      // Maalin cusub oo la doortay -- ku bilow hal xiisad madhan
       updated[index].daySessions = {
         ...updated[index].daySessions,
         [day]: [emptySession()],
@@ -120,7 +127,6 @@ export default function AddTeacher() {
     setClassBlocks(updated);
   };
 
-  // Ku dar xiisad labaad (ama saddexaad, iwm) maalintaas
   const addSessionToDay = (index, day) => {
     const updated = [...classBlocks];
     const existing = updated[index].daySessions[day] || [];
@@ -134,7 +140,7 @@ export default function AddTeacher() {
   const removeSessionFromDay = (index, day, sessionIdx) => {
     const updated = [...classBlocks];
     const existing = updated[index].daySessions[day] || [];
-    if (existing.length === 1) return; // ugu yaraan hal xiisad ha haysto
+    if (existing.length === 1) return;
     updated[index].daySessions = {
       ...updated[index].daySessions,
       [day]: existing.filter((_, i) => i !== sessionIdx),
@@ -162,7 +168,6 @@ export default function AddTeacher() {
     setClassBlocks(classBlocks.filter((_, i) => i !== index));
   };
 
-  // Hubi in xiisadaha maalin kastaba aysan iskaga soo horjeedin (overlap)
   const validateSessions = () => {
     for (const block of classBlocks) {
       for (const day of block.days) {
@@ -183,8 +188,6 @@ export default function AddTeacher() {
           }
         }
 
-        // Haddii laba ama in ka badan xiisadood maalintaas jiraan, hubi
-        // inaysan isku dhicin (overlap) waqtigooda
         const sorted = [...sessions].sort((a, b) =>
           a.startTime.localeCompare(b.startTime)
         );
@@ -199,6 +202,103 @@ export default function AddTeacher() {
       }
     }
     return true;
+  };
+
+  // SOO AKHRISKA TIMETABLE-KA IYO KU SHUBAALADA MAADOOBYINKA CUSUB
+  const syncTeacherTimetableToClasses = async (teacherUsername, teacherFullName) => {
+    const modifiedClasses = new Set();
+
+    for (const block of classBlocks) {
+      const className = block.className;
+      const subject = block.subject;
+
+      if (!className) continue;
+      modifiedClasses.add(className);
+
+      for (const day of block.days) {
+        const daySessions = block.daySessions[day] || [];
+        if (daySessions.length === 0) continue;
+
+        const ttDocKey = `${className}__${day}`;
+        const ttRef = doc(db, "timetable", ttDocKey);
+
+        // 1. SOO AKHRINAYA TIMETABLE-KA HORAY U JIRAY
+        const ttSnap = await getDoc(ttRef);
+
+        let existingSessions = [];
+        if (ttSnap.exists()) {
+          existingSessions = ttSnap.data().sessions || [];
+        }
+
+        // 2. Ka saar xiisaddii hore oo keliya ee Macalinkani lahaa (si aan loo tirtirin macalimiinta kale)
+        let otherTeachersSessions = existingSessions.filter((s) => s.teacherId !== teacherUsername);
+
+        // 3. Ku dar xiisadaha iyo maadooyinka cusub ee macalinkan
+        const newTeacherSessions = daySessions.map((s) => ({
+          id: `s_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+          startTime: s.startTime,
+          endTime: s.endTime,
+          teacherId: teacherUsername,
+          teacherName: teacherFullName,
+          subject: subject,
+        }));
+
+        // 4. Isku darka jadwalka
+        const allSessionsCombined = sortedBySessionTime([...otherTeachersSessions, ...newTeacherSessions]);
+        const finalSessions = withSessionNumbers(allSessionsCombined);
+
+        // 5. Ku dib-u-kaydinta Timetable-ka
+        await setDoc(ttRef, {
+          className,
+          day,
+          sessions: finalSessions,
+          updatedAt: new Date(),
+        }, { merge: true });
+      }
+    }
+
+    // 6. SOO AKHRINAYA TIMETABLE-KA OO DHAN SI LOO CUSBOONEYSIIYO ARDAYDA FASALKAAS
+    for (const className of modifiedClasses) {
+      try {
+        const studentsSnap = await getDocs(
+          query(collection(db, "students"), where("className", "==", className))
+        );
+        if (studentsSnap.empty) continue;
+
+        const fullWeekSchedule = [];
+        for (const d of weekDays) {
+          const key = `${className}__${d}`;
+          const ttSnap = await getDoc(doc(db, "timetable", key));
+          const sessionsData = ttSnap.exists() ? ttSnap.data().sessions || [] : [];
+
+          const sortedSessions = sortedBySessionTime(sessionsData).map((s) => ({
+            sessionNumber: s.sessionNumber,
+            startTime: s.startTime,
+            endTime: s.endTime,
+            teacherId: s.teacherId,
+            teacherName: s.teacherName || s.teacherId,
+            subject: s.subject || "",
+          }));
+
+          fullWeekSchedule.push({
+            day: d,
+            dayLabel: d,
+            sessions: sortedSessions,
+          });
+        }
+
+        const batch = writeBatch(db);
+        studentsSnap.docs.forEach((studentDoc) => {
+          batch.update(doc(db, "students", studentDoc.id), {
+            timetable: fullWeekSchedule,
+            timetableUpdatedAt: new Date(),
+          });
+        });
+        await batch.commit();
+      } catch (err) {
+        console.log("Error updating student schedules:", err);
+      }
+    }
   };
 
   const saveTeacher = async (e) => {
@@ -229,8 +329,8 @@ export default function AddTeacher() {
       return;
     }
 
-    if (employmentType === "") {
-      alert("Fadlan dooro nooca shaqada macalinka (Full Time / Part Time)");
+    if (employmentTypes.length === 0) {
+      alert("Fadlan dooro nooca shaqada macalinka (Full Time / Part Time) - waad dooran kartaa labadaba");
       return;
     }
 
@@ -241,9 +341,6 @@ export default function AddTeacher() {
     try {
       setSaving(true);
 
-      // Haddii sawir la doortay, marka hore u soo geli Firebase Storage,
-      // kadibna soo qaado URL-ka uu ku kaydsan yahay -- kani ayaa loo
-      // kaydiyaa sida `teacherPhoto` (field-ka uu TeacherIdCard.jsx filayo).
       let teacherPhotoUrl = "";
       if (photoFile) {
         setUploadingPhoto(true);
@@ -257,8 +354,6 @@ export default function AddTeacher() {
         setUploadingPhoto(false);
       }
 
-      // Dhammaan maadooyinka la doortay ee fasalada oo dhan, oo mid-mid
-      // (unique), si card-ka Teacher ID uu u tuso "SUBJECT" oo sax ah.
       const uniqueSubjects = [
         ...new Set(
           classBlocks
@@ -272,31 +367,29 @@ export default function AddTeacher() {
         username,
         password,
         phoneNumber,
-        phone: phoneNumber, // TeacherIdCard.jsx expects `phone`
+        phone: phoneNumber,
         parentName,
-        matherName: parentName, // TeacherIdCard.jsx expects `matherName`
+        matherName: parentName,
         parentPhoneNumber,
-        employmentType, // "Full Time" ama "Part Time"
-        subjects: uniqueSubjects, // TeacherIdCard.jsx expects `subjects`
-        teacherPhoto: teacherPhotoUrl, // TeacherIdCard.jsx expects `teacherPhoto`
+        employmentType: employmentTypes,
+        subjects: uniqueSubjects,
+        teacherPhoto: teacherPhotoUrl,
         classes: classBlocks,
         createdAt: serverTimestamp(),
       };
 
       await setDoc(doc(db, "teachers", username), teacherData);
 
-      // Isla markiiba abuur diiwaanka teacher_id/{username} -- kani waa
-      // isla snapshot-ka uu QR code-ka ID card-ka ku jira (front + back)
-      // uu wajahayo TeacherVerify.jsx. Lama sugayo inuu macalinku booqdo
-      // Profile-kiisa marka hore -- haddii kale QR-ka macallimiinta
-      // cusub ma shaqayn doono ilaa ay booqdaan bogga profile-ka.
       await setDoc(doc(db, "teacher_id", username), {
         ...teacherData,
         teacherUsername: username,
         issuedAt: serverTimestamp(),
       });
 
-      alert("Teacher Saved");
+      // ---- DISPATCH TIMETABLE READ & UPDATE ----
+      await syncTeacherTimetableToClasses(username, fullName);
+
+      alert("Macalinka waa la kaydiyay, jadwalka oo dhamina si sax ah ayaa loo akhrriyay oo loo cusbooneysiiyay!");
       navigate("/admin/teachers");
     } catch (err) {
       console.log(err);
@@ -319,7 +412,6 @@ export default function AddTeacher() {
           margin: "0 auto",
         }}
       >
-        {/* ---- Header ---- */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 32 }}>
           <div
             style={{
@@ -347,7 +439,6 @@ export default function AddTeacher() {
         </div>
 
         <form onSubmit={saveTeacher}>
-          {/* ---- Sawirka Macalinka ---- */}
           <div style={{ marginBottom: 26 }}>
             <label style={label}>
               <Camera size={15} color="#8b6cf5" />
@@ -450,15 +541,52 @@ export default function AddTeacher() {
             </Field>
 
             <Field icon={Clock} label="Nooca Shaqada">
-              <select
-                style={input}
-                value={employmentType}
-                onChange={(e) => setEmploymentType(e.target.value)}
-              >
-                <option value="">-- Dooro Nooca Shaqada --</option>
-                <option value="Full Time">🕐 Full Time</option>
-                <option value="Part Time">⏳ Part Time</option>
-              </select>
+              <div style={employmentCheckRow}>
+                <label
+                  style={{
+                    ...employmentCheckPill,
+                    background: employmentTypes.includes("Full Time")
+                      ? "linear-gradient(90deg,#6d5df0,#8b6cf5)"
+                      : "rgba(255,255,255,0.03)",
+                    color: employmentTypes.includes("Full Time") ? "#fff" : "#a9a6c4",
+                    borderColor: employmentTypes.includes("Full Time")
+                      ? "transparent"
+                      : "rgba(139,108,245,0.3)",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={employmentTypes.includes("Full Time")}
+                    onChange={() => toggleEmploymentType("Full Time")}
+                    style={{ display: "none" }}
+                  />
+                  Full Time
+                </label>
+
+                <label
+                  style={{
+                    ...employmentCheckPill,
+                    background: employmentTypes.includes("Part Time")
+                      ? "linear-gradient(90deg,#6d5df0,#8b6cf5)"
+                      : "rgba(255,255,255,0.03)",
+                    color: employmentTypes.includes("Part Time") ? "#fff" : "#a9a6c4",
+                    borderColor: employmentTypes.includes("Part Time")
+                      ? "transparent"
+                      : "rgba(139,108,245,0.3)",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={employmentTypes.includes("Part Time")}
+                    onChange={() => toggleEmploymentType("Part Time")}
+                    style={{ display: "none" }}
+                  />
+                  Part Time
+                </label>
+              </div>
+              <span style={{ fontSize: 11.5, color: "#6b6890", display: "block", marginTop: 8 }}>
+                Waad dooran kartaa mid ama labadaba
+              </span>
             </Field>
           </div>
 
@@ -519,8 +647,8 @@ export default function AddTeacher() {
                     }
                   >
                     <option value="">-- Dooro Shift --</option>
-                    <option value="Morning">🌅 Morning</option>
-                    <option value="Afternoon">🌇 Afternoon</option>
+                    <option value="Morning">Morning</option>
+                    <option value="Afternoon">Afternoon</option>
                   </select>
                 </Field>
               </div>
@@ -553,7 +681,6 @@ export default function AddTeacher() {
                 </div>
               </div>
 
-              {/* Waqtiga xiisadaha maalin kasta oo la doortay */}
               {block.days.length > 0 && (
                 <div style={{ marginTop: 22 }}>
                   <label style={label}>Saacadaha Xiisadaha</label>
@@ -647,12 +774,12 @@ export default function AddTeacher() {
             {saving ? (
               <>
                 <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} />
-                {uploadingPhoto ? "Sawirka waa la soo gelinayaa..." : "Kaydinaya..."}
+                {uploadingPhoto ? "Sawirka waa la soo gelinayaa..." : "Akrinaaya Timetable-ka & Kaydinaya..."}
               </>
             ) : (
               <>
                 <GraduationCap size={18} />
-                Abuur Macalin + Fasalada
+                Abuur Macalin + Akhri Timetable & Kaydi
               </>
             )}
           </button>
@@ -680,7 +807,6 @@ export default function AddTeacher() {
   );
 }
 
-// ---- Qaab-dhismeedka field kasta (icon + label + input) ----
 function Field({ icon: Icon, label: labelText, children }) {
   return (
     <div>
@@ -938,4 +1064,21 @@ const removePhotoBtn = {
   borderRadius: 8,
   padding: "6px 10px",
   width: "fit-content",
+};
+
+const employmentCheckRow = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const employmentCheckPill = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "12px 18px",
+  borderRadius: 10,
+  border: "1.5px solid",
+  cursor: "pointer",
+  fontSize: 14,
+  fontWeight: 600,
 };

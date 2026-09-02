@@ -30,9 +30,9 @@ const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", 
 export default function AddStudent() {
   const [student, setStudent] = useState({
     fullName: "",
-    motherName: "", // ✅ Magaca Hooyada - field cusub
+    motherName: "",
     className: "",
-    shift: "",
+    studentType: "",
     feeType: "Free",
     monthlyFee: "",
     parentPhone: "",
@@ -74,7 +74,6 @@ export default function AddStudent() {
     }
   };
 
-  // ✅ Waxaan halkan ku ogolaynaa kaliya lambar (0-9) — xarfo iyo calaamado lama ogola
   const handlePhoneChange = (e) => {
     const { name, value } = e.target;
     const digitsOnly = value.replace(/[^0-9]/g, "");
@@ -84,19 +83,19 @@ export default function AddStudent() {
     });
   };
 
-  // ✅ Hubi in aan horey loo diiwaan gelin arday isla Full Name ah. Isku
-  // dar (normalize) magaca — trim + hal space u dhexeeya erayada + lower
-  // case — si "Aamina Abdulkadir Mohamed" iyo "aamina  abdulkadir
-  // mohamed " ay isku noqdaan, kadibna isbarbardhig magacyada ardayda
-  // horey loogu diiwaan geliyay collection-ka `students`.
   const normalizeName = (name) =>
     name.trim().replace(/\s+/g, " ").toLowerCase();
 
   const isDuplicateFullName = async (fullName) => {
     const target = normalizeName(fullName);
     if (!target) return false;
-    const existingSnap = await getDocs(collection(db, "students"));
-    return existingSnap.docs.some((docSnap) => {
+
+    const [fullTimeSnap, partTimeSnap] = await Promise.all([
+      getDocs(collection(db, "students")),
+      getDocs(collection(db, "partTimeStudents")),
+    ]);
+    const allDocs = [...fullTimeSnap.docs, ...partTimeSnap.docs];
+    return allDocs.some((docSnap) => {
       const existingName = docSnap.data().fullName || "";
       return normalizeName(existingName) === target;
     });
@@ -128,7 +127,6 @@ export default function AddStudent() {
         return;
       }
 
-      // ✅ Hubinta Magaca Hooyada - waajib
       if (!student.motherName.trim()) {
         alert("Fadlan geli Magaca Hooyada");
         return;
@@ -139,12 +137,16 @@ export default function AddStudent() {
         return;
       }
 
+      if (!student.studentType) {
+        alert("Fadlan dooro Full Time ama Part Time");
+        return;
+      }
+
       if (student.feeType === "Paid" && !String(student.monthlyFee).trim()) {
         alert("Fadlan geli Qiimaha Fee-ga bishii (Paid)");
         return;
       }
 
-      // ✅ Hubinta in Parent Phone iyo Student Phone ay yihiin lambar keliya
       if (student.parentPhone && !/^\d+$/.test(student.parentPhone)) {
         alert("Parent Phone waa inuu ahaadaa lambar keliya (numbers only)");
         return;
@@ -155,7 +157,6 @@ export default function AddStudent() {
         return;
       }
 
-      // ✅ Sawirka ardayga waa waajib — marnaba lama tagi karo
       if (!student.studentPhoto) {
         alert("Fadlan soo dooro Sawirka Ardayga — waa waajib");
         return;
@@ -163,8 +164,6 @@ export default function AddStudent() {
 
       setSaving(true);
 
-      // ✅ Hubi in Full Name-kan horey loo isticmaalin — haddii uu jiro,
-      // jooji diiwaan gelinta gabi ahaanba, wax lagama kaydiyo.
       const duplicate = await isDuplicateFullName(student.fullName);
       if (duplicate) {
         alert(
@@ -174,13 +173,18 @@ export default function AddStudent() {
         return;
       }
 
-      const existingSnap = await getDocs(collection(db, "students"));
-      const studentId = String(existingSnap.size + 1).padStart(4, "0");
+      const isPartTime = student.studentType === "Part Time";
+      const targetCollection = isPartTime ? "partTimeStudents" : "students";
+
+      const existingSnap = await getDocs(collection(db, targetCollection));
+      const studentId = isPartTime
+        ? "R" + String(existingSnap.size + 1).padStart(3, "0")
+        : String(existingSnap.size + 1).padStart(4, "0");
 
       let photoURL = "";
       const photoRef = ref(
         storage,
-        `students/${studentId}/${Date.now()}_${student.studentPhoto.name}`
+        `${targetCollection}/${studentId}/${Date.now()}_${student.studentPhoto.name}`
       );
 
       await uploadBytes(photoRef, student.studentPhoto);
@@ -189,12 +193,12 @@ export default function AddStudent() {
 
       const finalMonthlyFee = student.feeType === "Free" ? "0" : student.monthlyFee;
 
-      await setDoc(doc(db, "students", studentId), {
+      await setDoc(doc(db, targetCollection, studentId), {
         studentId,
         fullName: student.fullName,
-        motherName: student.motherName, // ✅ Magaca Hooyada oo lagu kaydiyo students
+        motherName: student.motherName,
         className: student.className,
-        shift: student.shift,
+        studentType: student.studentType,
         feeType: student.feeType,
         monthlyFee: finalMonthlyFee,
         parentPhone: student.parentPhone,
@@ -221,14 +225,12 @@ export default function AddStudent() {
         monthlyFee: finalMonthlyFee,
       });
 
-      // ✅ Isla marka ardayga la kaydiyo, si toos ah u samee ID Card-kiisa.
-      // Waxaan halkan ku kaydinaynaa xogta ID card-ka u baahan oo kaliya.
       await setDoc(doc(db, "studentIdCards", studentId), {
         studentId,
         fullName: student.fullName,
-        motherName: student.motherName, // ✅ Magaca Hooyada oo lagu daro ID Card-ka
+        motherName: student.motherName,
         className: student.className,
-        shift: student.shift,
+        studentType: student.studentType,
         studentPhoto: photoURL,
         district: student.district,
         parentPhone: student.parentPhone,
@@ -238,11 +240,13 @@ export default function AddStudent() {
         createdAt: new Date(),
       });
 
-      await attachStudentToClassTeachers(
-        student.className,
-        studentId,
-        student.fullName
-      );
+      if (!isPartTime) {
+        await attachStudentToClassTeachers(
+          student.className,
+          studentId,
+          student.fullName
+        );
+      }
 
       alert("Student Saved Successfully: " + student.fullName + "\nStudent ID: " + studentId);
 
@@ -250,7 +254,7 @@ export default function AddStudent() {
         fullName: "",
         motherName: "",
         className: "",
-        shift: "",
+        studentType: "",
         feeType: "Free",
         monthlyFee: "",
         parentPhone: "",
@@ -318,7 +322,6 @@ export default function AddStudent() {
               Sawirka Ardayga <span style={{ color: "#ff6b6b" }}>*</span>
             </div>
             <div style={{ color: "#8b87ad", fontSize: 14, marginTop: 6 }}>
-              {/* ✅ Sawirku hadda waa waajib, ma aha ikhtiyaari */}
               Riix goobta si aad sawir uga soo dooratid — waa waajib
             </div>
           </div>
@@ -335,7 +338,6 @@ export default function AddStudent() {
             />
           </Field>
 
-          {/* ✅ Field cusub: Magaca Hooyada */}
           <Field icon={User} label="Mother Name">
             <input
               style={input}
@@ -362,16 +364,16 @@ export default function AddStudent() {
             </select>
           </Field>
 
-          <Field icon={Clock} label="Shift">
+          <Field icon={Clock} label="Student Type">
             <select
               style={input}
-              name="shift"
-              value={student.shift}
+              name="studentType"
+              value={student.studentType}
               onChange={handleChange}
             >
-              <option value="">Select Shift</option>
-              <option value="Morning">🌅 Morning</option>
-              <option value="Afternoon">🌇 Afternoon</option>
+              <option value="">Select Type</option>
+              <option value="Full Time">🕒 Full Time</option>
+              <option value="Part Time">⏱️ Part Time</option>
             </select>
           </Field>
 
@@ -400,7 +402,6 @@ export default function AddStudent() {
             </Field>
           )}
 
-          {/* ✅ Parent Phone — lambar keliya ayaa la ogolaanayaa */}
           <Field icon={Phone} label="Parent Phone">
             <input
               style={input}
@@ -414,7 +415,6 @@ export default function AddStudent() {
             />
           </Field>
 
-          {/* ✅ Student Phone — lambar keliya ayaa la ogolaanayaa */}
           <Field icon={Smartphone} label="Student Phone">
             <input
               style={input}

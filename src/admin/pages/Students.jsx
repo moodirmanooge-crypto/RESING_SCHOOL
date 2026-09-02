@@ -62,11 +62,33 @@ export default function Students() {
     fetchStudents();
   }, []);
 
+  // ✅ Waxaan halkan ka soo aqrinaynaa labada collection - "students"
+  // (Full Time) iyo "partTimeStudents" (Part Time) - si labadaba ay
+  // ugu soo muuqdaan liiska hal mar, iyagoo la calaamadeeyay studentType
+  // haddii uusan horey u jirin (records-ka hore ee Full Time).
   async function fetchStudents() {
     try {
       setLoading(true);
-      const snap = await getDocs(collection(db, "students"));
-      setStudents(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const [fullTimeSnap, partTimeSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "partTimeStudents")),
+      ]);
+
+      const fullTimeStudents = fullTimeSnap.docs.map((d) => ({
+        id: d.id,
+        collection: "students",
+        studentType: d.data().studentType || "Full Time",
+        ...d.data(),
+      }));
+
+      const partTimeStudents = partTimeSnap.docs.map((d) => ({
+        id: d.id,
+        collection: "partTimeStudents",
+        studentType: d.data().studentType || "Part Time",
+        ...d.data(),
+      }));
+
+      setStudents([...fullTimeStudents, ...partTimeStudents]);
     } catch (err) {
       console.log(err);
     } finally {
@@ -149,7 +171,7 @@ export default function Students() {
       if (photoFile) {
         const photoRef = ref(
           storage,
-          `students/${selectedStudent.studentId}/${Date.now()}_${photoFile.name}`
+          `${selectedStudent.collection}/${selectedStudent.studentId}/${Date.now()}_${photoFile.name}`
         );
         await uploadBytes(photoRef, photoFile);
         photoUrl = (await getDownloadURL(photoRef)).trim();
@@ -168,11 +190,18 @@ export default function Students() {
         studentPhoto: photoUrl,
       };
 
-      await updateDoc(doc(db, "students", selectedStudent.id), updatedFields);
+      // ✅ Waxaan wax ka bedelnaa collection-ka saxda ah ee ardaygan uu
+      // kaga jiro - "students" (Full Time) ama "partTimeStudents" (Part Time).
+      await updateDoc(
+        doc(db, selectedStudent.collection, selectedStudent.id),
+        updatedFields
+      );
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === selectedStudent.id ? { ...s, ...updatedFields } : s
+          s.id === selectedStudent.id && s.collection === selectedStudent.collection
+            ? { ...s, ...updatedFields }
+            : s
         )
       );
 
@@ -194,14 +223,16 @@ export default function Students() {
   async function deleteStudent(student) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${student.fullName}?`)) return;
     try {
-      await updateDoc(doc(db, "students", student.id), {
+      // ✅ Waxaan calaamadeynaa collection-ka saxda ah ee ardaygan uu
+      // kaga jiro - "students" (Full Time) ama "partTimeStudents" (Part Time).
+      await updateDoc(doc(db, student.collection, student.id), {
         pendingDeletion: true,
         deletionRequestedAt: new Date().toISOString(),
       });
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === student.id
+          s.id === student.id && s.collection === student.collection
             ? { ...s, pendingDeletion: true, deletionRequestedAt: new Date().toISOString() }
             : s
         )
@@ -271,7 +302,7 @@ export default function Students() {
                 {filteredStudents.map((student) => {
                   const photoUrl = getStudentPhotoUrl(student);
                   return (
-                    <div key={student.id} style={studentRow}>
+                    <div key={`${student.collection}_${student.id}`} style={studentRow}>
                       {photoUrl ? (
                         <img
                           src={photoUrl}
@@ -322,6 +353,23 @@ export default function Students() {
                       </div>
 
                       <span style={tag}>Class {student.className || "—"}</span>
+                      {/* ✅ Calaamadda nooca ardayga - Full Time / Part Time */}
+                      <span
+                        style={{
+                          ...tag,
+                          color: student.studentType === "Part Time" ? "#fbbf24" : "#c4b5fd",
+                          borderColor:
+                            student.studentType === "Part Time"
+                              ? "rgba(251,191,36,0.35)"
+                              : "rgba(139,108,245,0.25)",
+                          background:
+                            student.studentType === "Part Time"
+                              ? "rgba(251,191,36,0.12)"
+                              : "rgba(139,108,245,0.12)",
+                        }}
+                      >
+                        {student.studentType || "Full Time"}
+                      </span>
                       <span style={tag}>{student.studentPhone || "—"}</span>
                       <span style={tag}>${student.monthlyFee || "0"}/bishii</span>
 
