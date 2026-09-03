@@ -6,9 +6,10 @@ import {
   getDocs,
   doc,
   updateDoc,
-  deleteDoc,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import {
@@ -32,40 +33,64 @@ import {
   Lock,
   Camera,
   Hash,
+  FileDown,
+  Filter,
+  UserCheck,
 } from "lucide-react";
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 
-// Different registration flows over time have saved the photo URL under
-// slightly different field names (studentPhoto is current, but photoUrl
-// / photo show up on some older records) — check all of them, and trim
-// stray whitespace some records picked up (e.g. a trailing space after
-// the URL), which otherwise breaks the browser's ability to load it.
 function getStudentPhotoUrl(student) {
-  const raw =
-    student.studentPhoto || student.photoUrl || student.photo || "";
+  const raw = student?.studentPhoto || student?.photoUrl || student?.photo || "";
   return typeof raw === "string" ? raw.trim() : "";
+}
+
+function loadImageAsDataUrl(url) {
+  return new Promise((resolve) => {
+    if (!url) {
+      resolve(null);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth || 100;
+        canvas.height = img.naturalHeight || 100;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
 }
 
 export default function Students() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  
+  // Doorashooyinka Class-ka iyo Type-ka
+  const [selectedClass, setSelectedClass] = useState("ALL");
+  const [selectedType, setSelectedType] = useState("ALL");
 
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editData, setEditData] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
   const [photoFile, setPhotoFile] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
 
   useEffect(() => {
     fetchStudents();
   }, []);
 
-  // ✅ Waxaan halkan ka soo aqrinaynaa labada collection - "students"
-  // (Full Time) iyo "partTimeStudents" (Part Time) - si labadaba ay
-  // ugu soo muuqdaan liiska hal mar, iyagoo la calaamadeeyay studentType
-  // haddii uusan horey u jirin (records-ka hore ee Full Time).
   async function fetchStudents() {
     try {
       setLoading(true);
@@ -96,22 +121,26 @@ export default function Students() {
     }
   }
 
-  // ---- Raadinta arday: ID-giisa ama Password-kiisa ----
-  // NOTE: ardayda la calaamadeeyay in la tirtirayo (pendingDeletion)
-  // waxaa laga qariyaa liiska front-end-ka ilaa backend-ku uu approve gareeyo.
+  // Filter-ka Isku dhafka ah (Class + Type + Search)
   const filteredStudents = students.filter((s) => {
     if (s.pendingDeletion) return false;
 
+    const matchesClass =
+      selectedClass === "ALL" || String(s.className) === String(selectedClass);
+
+    const matchesType =
+      selectedType === "ALL" || String(s.studentType) === String(selectedType);
+
     const q = search.toLowerCase().trim();
-    if (!q) return true;
-    return (
+    const matchesSearch =
+      !q ||
       (s.studentId || "").toLowerCase().includes(q) ||
       (s.parentPassword || "").toLowerCase().includes(q) ||
-      (s.fullName || "").toLowerCase().includes(q)
-    );
+      (s.fullName || "").toLowerCase().includes(q);
+
+    return matchesClass && matchesType && matchesSearch;
   });
 
-  // ---- Fur modal-ka wax-ka-bedelka ardayga ----
   function openEdit(student) {
     setSelectedStudent(student);
     setEditData({
@@ -141,9 +170,6 @@ export default function Students() {
     setEditData({ ...editData, [field]: value });
   }
 
-  // ---- Sawirka cusub: kaydi file-ka gudaha state-ka si aan u soo
-  // shubno Firebase Storage marka la kaydinayo (saveEdit), preview-ga
-  // oo kaliya ayaa local ah ilaa saveEdit la riixo. ----
   function handlePhotoChange(e) {
     const file = e.target.files[0];
     if (!file) return;
@@ -163,10 +189,6 @@ export default function Students() {
 
     try {
       setSaving(true);
-
-      // Haddii sawir cusub la doortay, kor u soo shub Firebase Storage
-      // ka hor inta aan Firestore la kaydin, si photoUrl-ku uu noqdo
-      // link toos ah oo cusub — isla habka AddStudent.jsx u shaqeeyo.
       let photoUrl = editData.studentPhoto || "";
       if (photoFile) {
         const photoRef = ref(
@@ -190,8 +212,6 @@ export default function Students() {
         studentPhoto: photoUrl,
       };
 
-      // ✅ Waxaan wax ka bedelnaa collection-ka saxda ah ee ardaygan uu
-      // kaga jiro - "students" (Full Time) ama "partTimeStudents" (Part Time).
       await updateDoc(
         doc(db, selectedStudent.collection, selectedStudent.id),
         updatedFields
@@ -215,16 +235,152 @@ export default function Students() {
     }
   }
 
-  // ---- Tirtirka ardayga ----
-  // MUHIIM: Xogta Firestore laftigeeda LAGAMA TIRTIRO halkan. Waxaa kaliya
-  // la calaamadeeyaa "pendingDeletion: true" (iyo waqtiga codsiga) si arday-gu
-  // uu si toos ah uga qarsoomo liiska front-end-ka. Tirtirka dhabta ah ee
-  // Firestore waxaa kaliya sameeya backend-ka marka la ansixiyo (approve).
+  // ----------------------------------------------------
+  // EXPORT PDF: EXCEL TABLE FORMAT WITH SAFE INDEXING
+  // ----------------------------------------------------
+  async function exportStudentsToPdf(targetStudents = filteredStudents, titleSuffix = "") {
+    if (!targetStudents || targetStudents.length === 0) {
+      alert("Ma jiraan arday la daabaco.");
+      return;
+    }
+
+    try {
+      setExportingPdf(true);
+      setExportProgress({ done: 0, total: targetStudents.length });
+
+      const pdf = new jsPDF({
+        orientation: "landscape",
+        unit: "mm",
+        format: "a4",
+      });
+
+      const pageW = 297;
+      const margin = 10;
+
+      // Top Header Box
+      pdf.setFillColor(20, 16, 51);
+      pdf.rect(0, 0, pageW, 20, "F");
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(13);
+      pdf.text(`Rising Star School — Xogta Ardayda ${titleSuffix}`, margin, 13);
+
+      pdf.setFontSize(9);
+      pdf.setFont("helvetica", "normal");
+      pdf.text(`Taariikhda: ${new Date().toLocaleDateString("so-SO")}`, pageW - margin, 13, { align: "right" });
+
+      // Pre-load All Photos safely into an array matched by index
+      const photoDataList = [];
+      for (let i = 0; i < targetStudents.length; i++) {
+        const s = targetStudents[i];
+        const pUrl = getStudentPhotoUrl(s);
+        let imgData = null;
+        if (pUrl) {
+          imgData = await loadImageAsDataUrl(pUrl);
+        }
+        photoDataList.push(imgData);
+        setExportProgress({ done: i + 1, total: targetStudents.length });
+      }
+
+      // Columns Config
+      const tableColumns = [
+        { header: "Sawir", dataKey: "photo" },
+        { header: "ID", dataKey: "studentId" },
+        { header: "Magaca Buuxa", dataKey: "fullName" },
+        { header: "Fasalka", dataKey: "className" },
+        { header: "Nooca", dataKey: "studentType" },
+        { header: "Shift", dataKey: "shift" },
+        { header: "Tel Waalidka", dataKey: "parentPhone" },
+        { header: "Tel Ardayga", dataKey: "studentPhone" },
+        { header: "Lacagta ($)", dataKey: "monthlyFee" },
+        { header: "Degmada", dataKey: "district" },
+        { header: "Pass Waalidka", dataKey: "parentPassword" },
+      ];
+
+      const tableRows = targetStudents.map((s) => ({
+        studentId: s.studentId || "—",
+        fullName: s.fullName || "—",
+        className: s.className || "—",
+        studentType: s.studentType || "Full Time",
+        shift: s.shift || "—",
+        parentPhone: s.parentPhone || "—",
+        studentPhone: s.studentPhone || "—",
+        monthlyFee: s.monthlyFee ? `$${s.monthlyFee}` : "—",
+        district: s.district || "—",
+        parentPassword: s.parentPassword || "—",
+      }));
+
+      autoTable(pdf, {
+        startY: 24,
+        columns: tableColumns,
+        body: tableRows,
+        theme: "grid",
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          valign: "middle",
+          halign: "center",
+          overflow: "linebreak",
+        },
+        headStyles: {
+          fillColor: [109, 93, 240],
+          textColor: [255, 255, 255],
+          fontStyle: "bold",
+          halign: "center",
+        },
+        alternateRowStyles: {
+          fillColor: [248, 247, 255],
+        },
+        columnStyles: {
+          photo: { cellWidth: 14 },
+          studentId: { cellWidth: 20 },
+          fullName: { cellWidth: 45, halign: "left" },
+          className: { cellWidth: 16 },
+          studentType: { cellWidth: 22 },
+          shift: { cellWidth: 18 },
+          parentPhone: { cellWidth: 26 },
+          studentPhone: { cellWidth: 26 },
+          monthlyFee: { cellWidth: 22 },
+          district: { cellWidth: 25 },
+          parentPassword: { cellWidth: 25 },
+        },
+        bodyStyles: {
+          minCellHeight: 12,
+        },
+        didDrawCell: (data) => {
+          // Safe Image Drawing using data.row.index
+          if (data.section === "body" && data.column.dataKey === "photo") {
+            const rowIndex = data.row.index;
+            if (rowIndex >= 0 && rowIndex < photoDataList.length) {
+              const imgData = photoDataList[rowIndex];
+              if (imgData) {
+                const imgSize = 9;
+                const x = data.cell.x + (data.cell.width - imgSize) / 2;
+                const y = data.cell.y + (data.cell.height - imgSize) / 2;
+                try {
+                  pdf.addImage(imgData, "JPEG", x, y, imgSize, imgSize);
+                } catch (e) {
+                  // Fallback if image fails to render
+                }
+              }
+            }
+          }
+        },
+      });
+
+      pdf.save(`Ardayda_Excel_Format_${selectedClass}_${selectedType}_${Date.now()}.pdf`);
+    } catch (err) {
+      console.log(err);
+      alert("Khalad ayaa dhacay markii PDF-ka la samaynayay: " + err.message);
+    } finally {
+      setExportingPdf(false);
+      setExportProgress({ done: 0, total: 0 });
+    }
+  }
+
   async function deleteStudent(student) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${student.fullName}?`)) return;
     try {
-      // ✅ Waxaan calaamadeynaa collection-ka saxda ah ee ardaygan uu
-      // kaga jiro - "students" (Full Time) ama "partTimeStudents" (Part Time).
       await updateDoc(doc(db, student.collection, student.id), {
         pendingDeletion: true,
         deletionRequestedAt: new Date().toISOString(),
@@ -256,10 +412,10 @@ export default function Students() {
 
         <div style={{ padding: "26px 30px" }}>
           <h1 style={{ color: "#fff", marginBottom: 22, fontSize: 26, fontWeight: 800 }}>
-            Students
+            Students Management
           </h1>
 
-          <div style={{ display: "flex", gap: 15, marginBottom: 25, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 12, marginBottom: 25, flexWrap: "wrap", alignItems: "center" }}>
             <Link to="/admin/add-student">
               <button style={purpleBtn}>
                 <Plus size={17} />
@@ -270,14 +426,76 @@ export default function Students() {
             <Link to="/admin/bulk-registration">
               <button style={ghostBtn}>
                 <Upload size={17} />
-                Bulk Registration
+                Bulk
               </button>
             </Link>
+
+            {/* Filter Fasalka */}
+            <div style={filterDropdownWrap}>
+              <Filter size={15} color="#8b6cf5" />
+              <select
+                value={selectedClass}
+                onChange={(e) => setSelectedClass(e.target.value)}
+                style={filterSelect}
+              >
+                <option value="ALL">Dhamaan Fasallada</option>
+                {classOptions.map((c) => (
+                  <option key={c} value={c}>
+                    Class {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filter Nooca Ardayga (Full Time / Part Time) */}
+            <div style={filterDropdownWrap}>
+              <UserCheck size={15} color="#8b6cf5" />
+              <select
+                value={selectedType}
+                onChange={(e) => setSelectedType(e.target.value)}
+                style={filterSelect}
+              >
+                <option value="ALL">Dhamaan (Full & Part Time)</option>
+                <option value="Full Time">Full Time</option>
+                <option value="Part Time">Part Time</option>
+              </select>
+            </div>
+
+            {/* Export PDF Button */}
+            <button
+              onClick={() =>
+                exportStudentsToPdf(
+                  filteredStudents,
+                  `(${selectedClass === "ALL" ? "Dhamaan Class-yada" : "Class " + selectedClass} - ${selectedType === "ALL" ? "Dhamaan Types" : selectedType})`
+                )
+              }
+              disabled={exportingPdf || loading}
+              style={{
+                ...ghostBtn,
+                opacity: exportingPdf || loading ? 0.6 : 1,
+                cursor: exportingPdf || loading ? "not-allowed" : "pointer",
+              }}
+            >
+              {exportingPdf ? (
+                <>
+                  <Loader2
+                    size={17}
+                    style={{ animation: "spin 1s linear infinite" }}
+                  />
+                  PDF ({exportProgress.done}/{exportProgress.total})...
+                </>
+              ) : (
+                <>
+                  <FileDown size={17} />
+                  Export PDF
+                </>
+              )}
+            </button>
 
             <div style={searchWrap}>
               <Search size={16} color="#8b87ad" />
               <input
-                placeholder="Raadi ID-ga ama Password-ka ardayga..."
+                placeholder="Raadi Magac, ID, ama Password..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 style={searchInput}
@@ -316,12 +534,8 @@ export default function Students() {
                             display: "block",
                           }}
                           onError={(e) => {
-                            // If the stored URL is broken/unreachable,
-                            // fall back to the initials avatar instead
-                            // of a permanently broken image icon.
                             e.currentTarget.style.display = "none";
-                            e.currentTarget.nextSibling.style.display =
-                              "flex";
+                            e.currentTarget.nextSibling.style.display = "flex";
                           }}
                         />
                       ) : null}
@@ -353,7 +567,6 @@ export default function Students() {
                       </div>
 
                       <span style={tag}>Class {student.className || "—"}</span>
-                      {/* ✅ Calaamadda nooca ardayga - Full Time / Part Time */}
                       <span
                         style={{
                           ...tag,
@@ -373,6 +586,15 @@ export default function Students() {
                       <span style={tag}>{student.studentPhone || "—"}</span>
                       <span style={tag}>${student.monthlyFee || "0"}/bishii</span>
 
+                      {/* Export Hal Arday PDF */}
+                      <button
+                        onClick={() => exportStudentsToPdf([student], `(${student.fullName})`)}
+                        title="Export Hal Arday PDF"
+                        style={iconBtnExport}
+                      >
+                        <FileDown size={15} />
+                      </button>
+
                       <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => openEdit(student)} style={iconBtnEdit}>
                           <Pencil size={15} />
@@ -390,7 +612,7 @@ export default function Students() {
         </div>
       </div>
 
-      {/* ---- Modal-ka wax-ka-bedelka ardayga ---- */}
+      {/* Modal Edit Student */}
       {editData && (
         <div style={overlay}>
           <div style={modal}>
@@ -407,7 +629,6 @@ export default function Students() {
             </div>
 
             <div style={modalBody}>
-              {/* ---- Sawirka ardayga ---- */}
               <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 26 }}>
                 <label
                   htmlFor="editPhoto"
@@ -585,6 +806,27 @@ function Field({ icon: Icon, label: labelText, children }) {
   );
 }
 
+const filterDropdownWrap = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  background: "rgba(255,255,255,0.03)",
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1.5px solid rgba(139,108,245,0.35)",
+};
+
+const filterSelect = {
+  background: "transparent",
+  color: "#fff",
+  border: "none",
+  padding: "12px 0",
+  outline: "none",
+  fontSize: 13.5,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
 const purpleBtn = {
   display: "inline-flex",
   alignItems: "center",
@@ -592,7 +834,7 @@ const purpleBtn = {
   background: "linear-gradient(90deg,#6d5df0,#8b6cf5)",
   color: "#fff",
   border: "none",
-  padding: "12px 20px",
+  padding: "12px 18px",
   borderRadius: 10,
   cursor: "pointer",
   fontWeight: 700,
@@ -607,7 +849,7 @@ const ghostBtn = {
   background: "rgba(255,255,255,0.03)",
   color: "#fff",
   border: "1.5px solid rgba(139,108,245,0.35)",
-  padding: "12px 20px",
+  padding: "12px 18px",
   borderRadius: 10,
   cursor: "pointer",
   fontWeight: 700,
@@ -618,7 +860,7 @@ const searchWrap = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  width: 340,
+  width: 260,
   padding: "0 14px",
   borderRadius: 10,
   border: "1.5px solid rgba(139,108,245,0.3)",
@@ -632,7 +874,7 @@ const searchInput = {
   outline: "none",
   background: "transparent",
   color: "#e5e3f7",
-  fontSize: 14,
+  fontSize: 13.5,
 };
 
 const listCard = {
@@ -662,6 +904,19 @@ const tag = {
   borderRadius: 20,
   border: "1px solid rgba(139,108,245,0.25)",
   whiteSpace: "nowrap",
+};
+
+const iconBtnExport = {
+  background: "rgba(16,185,129,0.12)",
+  border: "1px solid rgba(16,185,129,0.3)",
+  color: "#10b981",
+  width: 32,
+  height: 32,
+  borderRadius: 8,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
 };
 
 const iconBtnEdit = {

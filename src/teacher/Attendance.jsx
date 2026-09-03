@@ -1,4 +1,3 @@
-// src/teacher/Attendance.jsx
 import { useEffect, useState } from "react";
 import { db } from "../firebase/firebase";
 import {
@@ -9,8 +8,9 @@ import {
   setDoc,
   doc,
   getDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import { Users, UserCheck, UserX, Clock } from "lucide-react";
+import { Users, UserCheck, UserX, Clock, Lock, Play } from "lucide-react";
 
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
@@ -49,26 +49,19 @@ function AttendanceStyles() {
   );
 }
 
-// Helper: turn a "YYYY-MM-DD" date string into the weekday name used in
-// the `timetable` collection (e.g. "Monday", "Tuesday", ...).
-function getWeekdayName(dateStr) {
-  const days = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-  ];
-  // Parse as a local date (avoid timezone shifting the day back by one).
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return days[dt.getDay()];
-}
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
 
 export default function Attendance() {
   const [classes, setClasses] = useState([]);
+  const [teacherClassEntries, setTeacherClassEntries] = useState([]);
   const [selectedClass, setSelectedClass] = useState("");
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
@@ -77,19 +70,19 @@ export default function Attendance() {
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
+  const [classSubjects, setClassSubjects] = useState([]);
+  const [selectedSubject, setSelectedSubject] = useState("");
+
   const [existingSessions, setExistingSessions] = useState([]);
+  const [selectedSessionNumber, setSelectedSessionNumber] = useState(null);
   const [sessionSaved, setSessionSaved] = useState(false);
 
-  // Whether the selected class actually has a lesson scheduled today
-  // (checked against the `timetable` collection, doc id `${className}__${weekday}`).
-  const [isScheduledToday, setIsScheduledToday] = useState(true);
-  const [checkingSchedule, setCheckingSchedule] = useState(false);
-
-  // Whether today falls inside an active school holiday range. While a
-  // holiday is active, teachers cannot take/save attendance at all,
-  // regardless of the selected class or its timetable schedule.
   const [activeHoliday, setActiveHoliday] = useState(null);
   const [checkingHoliday, setCheckingHoliday] = useState(true);
+
+  // Status for validation of day schedule
+  const [isDayAllowed, setIsDayAllowed] = useState(true);
+  const [dayErrorMsg, setDayErrorMsg] = useState("");
 
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
@@ -97,21 +90,44 @@ export default function Attendance() {
   useEffect(() => {
     loadClasses();
     checkHoliday();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (selectedClass) {
-      checkScheduleThenLoadStudents(selectedClass, date);
+      loadSubjectsForClass(selectedClass);
+    } else {
+      setClassSubjects([]);
+    }
+    setSelectedSubject("");
+  }, [selectedClass]);
+
+  // Validate day schedule whenever class, subject, or date changes
+  useEffect(() => {
+    validateTeacherDaySchedule();
+  }, [selectedClass, selectedSubject, date, teacherClassEntries]);
+
+  useEffect(() => {
+    if (selectedClass && isDayAllowed) {
+      loadStudents(selectedClass, date, selectedSubject);
     } else {
       setStudents([]);
       setAttendance({});
       setExistingSessions([]);
+      setSelectedSessionNumber(null);
       setSessionSaved(false);
-      setIsScheduledToday(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClass, date]);
+  }, [selectedClass, date, selectedSubject, isDayAllowed]);
+
+  useEffect(() => {
+    if (selectedClass && selectedSessionNumber !== null && isDayAllowed) {
+      loadAttendanceForSession(
+        selectedClass,
+        date,
+        selectedSubject,
+        selectedSessionNumber
+      );
+    }
+  }, [selectedSessionNumber]);
 
   const checkHoliday = async () => {
     try {
@@ -125,12 +141,6 @@ export default function Attendance() {
     }
   };
 
-  // ---- Kaliya fasallada macallinkan gaarkiisa ah ayaa la soo aqrinayaa ----
-  // Waxaa laga soo aqriyaa document-ka teachers/{teacherId} ee macallinku
-  // ku diiwaan gashan yahay, oo leh field-ka `classes` (array ah). Marnaba
-  // lama scan gareeyo dhammaan collection-ka teachers, si aan macallin
-  // kastaa u arag KALIYA fasallada uu isaga leeyahay — fasallada
-  // macalimiinta kale ha soo bixin gabi ahaanba.
   const loadClasses = async () => {
     try {
       if (!teacherId) {
@@ -147,6 +157,8 @@ export default function Attendance() {
 
       const data = teacherSnap.data();
       const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
+
+      setTeacherClassEntries(teacherClasses);
 
       const uniqueClassNames = Array.from(
         new Set(
@@ -167,68 +179,82 @@ export default function Attendance() {
     }
   };
 
-  // Checks the `timetable` collection for a document `${className}__${weekday}`
-  // ONLY to decide whether the teacher is allowed to SAVE attendance today
-  // (isScheduledToday controls the save-lock banner/button). The student
-  // list itself is ALWAYS loaded once a class is selected — every student
-  // registered in that class must show up (with photo, name, class), even
-  // if the class has no lesson scheduled for today's weekday and even if
-  // they have no attendance record yet for this date.
-  const checkScheduleThenLoadStudents = async (className, dateStr) => {
-    try {
-      setCheckingSchedule(true);
-      const weekday = getWeekdayName(dateStr);
+  const loadSubjectsForClass = (className) => {
+    const subjects = Array.from(
+      new Set(
+        teacherClassEntries
+          .filter((c) => c.className === className)
+          .map((c) => c.subject)
+          .filter((subj) => subj && String(subj).trim() !== "")
+      )
+    ).sort();
+    setClassSubjects(subjects);
+  };
 
-      const timetableSnap = await getDocs(
-        query(
-          collection(db, "timetable"),
-          where("className", "==", className),
-          where("day", "==", weekday)
-        )
+  // Check if current date's day of week matches teacher's assigned days
+  const validateTeacherDaySchedule = () => {
+    if (!selectedClass) {
+      setIsDayAllowed(true);
+      setDayErrorMsg("");
+      return;
+    }
+
+    const selectedDateObj = new Date(date);
+    const dayName = WEEKDAYS[selectedDateObj.getDay()];
+
+    const matchedEntries = teacherClassEntries.filter((c) => {
+      if (c.className !== selectedClass) return false;
+      if (selectedSubject && c.subject !== selectedSubject) return false;
+      return true;
+    });
+
+    if (matchedEntries.length === 0) {
+      setIsDayAllowed(true);
+      setDayErrorMsg("");
+      return;
+    }
+
+    const isAssignedToday = matchedEntries.some((entry) => {
+      if (Array.isArray(entry.days)) {
+        return entry.days.includes(dayName);
+      }
+      return true;
+    });
+
+    if (!isAssignedToday) {
+      setIsDayAllowed(false);
+      setDayErrorMsg(
+        `Maanta oo ah ${dayName} Kuma samaysna jadwalkaaga fasalka ${selectedClass}. Kaliya maalmaha laguugusoo qoray ayaad xaadirin kartaa.`
       );
-
-      const scheduledToday = !timetableSnap.empty;
-      setIsScheduledToday(scheduledToday);
-
-      // Always load the class roster, regardless of whether today has a
-      // scheduled lesson. The lock (isScheduledToday) only disables the
-      // Save button / mark buttons further down, it no longer hides students.
-      await loadStudents(className, dateStr);
-    } catch (err) {
-      console.log(err);
-    } finally {
-      setCheckingSchedule(false);
+    } else {
+      setIsDayAllowed(true);
+      setDayErrorMsg("");
     }
   };
 
-  const loadStudents = async (className, dateStr) => {
+  const loadStudents = async (className, dateStr, subject) => {
     try {
       setLoading(true);
-      setSessionSaved(false);
 
       const snap = await getDocs(
         query(collection(db, "students"), where("className", "==", className))
       );
-      // Ka reeb ardayda la calaamadeeyay pendingDeletion — isla markiiba
-      // ha ka baxeen liiska Attendance ee macallinka, xitaa haddii
-      // backend-ku uusan weli si buuxda uga tirtirin Firestore.
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((s) => !s.pendingDeletion);
       setStudents(list);
 
-      // Check Firestore itself (not local state) for any attendance already
-      // saved today for this class + teacher. This is what makes the lock
-      // survive a page refresh — sessionSaved was previously just local
-      // React state, so reloading the page reset it to false and let the
-      // teacher save a duplicate session for the same day.
+      const constraints = [
+        where("className", "==", className),
+        where("date", "==", dateStr),
+        where("teacherId", "==", teacherId),
+      ];
+      if (subject) {
+        constraints.push(where("subject", "==", subject));
+      }
+
       const existingSnap = await getDocs(
-        query(
-          collection(db, "attendance"),
-          where("className", "==", className),
-          where("date", "==", dateStr),
-          where("teacherId", "==", teacherId)
-        )
+        query(collection(db, "attendance"), ...constraints)
       );
 
       const sessionNumbers = new Set();
@@ -241,30 +267,11 @@ export default function Attendance() {
       const sessionsArr = Array.from(sessionNumbers).sort((a, b) => a - b);
       setExistingSessions(sessionsArr);
 
-      const alreadySavedToday = sessionsArr.length > 0;
-      setSessionSaved(alreadySavedToday);
+      const defaultSession =
+        sessionsArr.length > 0 ? Math.max(...sessionsArr) : 1;
+      setSelectedSessionNumber(defaultSession);
 
-      if (alreadySavedToday) {
-        // Show what was actually recorded instead of resetting to "Present".
-        const latestSession = Math.max(...sessionsArr);
-        const savedMap = {};
-        existingSnap.docs.forEach((d) => {
-          const data = d.data();
-          if (data.sessionNumber === latestSession) {
-            savedMap[data.studentId] = data.status;
-          }
-        });
-        setAttendance(savedMap);
-      } else {
-        // No attendance saved yet for this date/class: show every student
-        // with a neutral "Not Marked" status instead of defaulting to
-        // "Present", so the teacher explicitly marks each one.
-        const initial = {};
-        list.forEach((s) => {
-          initial[s.id] = "Not Marked";
-        });
-        setAttendance(initial);
-      }
+      applySessionData(list, existingSnap.docs, defaultSession);
     } catch (err) {
       console.log(err);
     } finally {
@@ -272,13 +279,56 @@ export default function Attendance() {
     }
   };
 
+  const applySessionData = (studentList, existingDocs, sessionNumber) => {
+    const savedMap = {};
+    let foundAny = false;
+    existingDocs.forEach((d) => {
+      const data = d.data();
+      if (data.sessionNumber === sessionNumber) {
+        savedMap[data.studentId] = data.status;
+        foundAny = true;
+      }
+    });
+
+    if (foundAny) {
+      setAttendance(savedMap);
+      setSessionSaved(true);
+    } else {
+      const initial = {};
+      studentList.forEach((s) => {
+        initial[s.id] = "Not Marked";
+      });
+      setAttendance(initial);
+      setSessionSaved(false);
+    }
+  };
+
+  const loadAttendanceForSession = async (className, dateStr, subject, sessionNumber) => {
+    try {
+      const constraints = [
+        where("className", "==", className),
+        where("date", "==", dateStr),
+        where("teacherId", "==", teacherId),
+      ];
+      if (subject) {
+        constraints.push(where("subject", "==", subject));
+      }
+      const existingSnap = await getDocs(
+        query(collection(db, "attendance"), ...constraints)
+      );
+      applySessionData(students, existingSnap.docs, sessionNumber);
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   const setStatus = (studentId, status) => {
-    if (sessionSaved || !isScheduledToday || activeHoliday) return;
+    if (sessionSaved || activeHoliday || !isDayAllowed) return;
     setAttendance({ ...attendance, [studentId]: status });
   };
 
   const markAll = (status) => {
-    if (sessionSaved || !isScheduledToday || activeHoliday) return;
+    if (sessionSaved || activeHoliday || !isDayAllowed) return;
     const updated = {};
     students.forEach((s) => {
       updated[s.id] = status;
@@ -290,9 +340,13 @@ export default function Attendance() {
     if (activeHoliday) {
       alert(
         `Waxa lagu jiraa xiliga fasaxa "${activeHoliday.name}" ilaa ` +
-          `${formatHolidayDate(activeHoliday.endDate)}. Ma xaadirin kartid ilaa ` +
-          `xiliga imaanshaha school-ku uu isku soo noqdo.`
+          `${formatHolidayDate(activeHoliday.endDate)}.`
       );
+      return;
+    }
+
+    if (!isDayAllowed) {
+      alert(dayErrorMsg);
       return;
     }
 
@@ -301,8 +355,8 @@ export default function Attendance() {
       return;
     }
 
-    if (!isScheduledToday) {
-      alert("Xiisad malihid maanta.");
+    if (classSubjects.length > 0 && !selectedSubject) {
+      alert("Fadlan dooro maadada (subject) aad wax ka xaadirinayso.");
       return;
     }
 
@@ -314,33 +368,38 @@ export default function Attendance() {
     try {
       setSaving(true);
 
-      const nextSessionNumber =
-        existingSessions.length > 0 ? Math.max(...existingSessions) + 1 : 1;
-
-      const sessionStartTime = new Date();
-      const timeLabel = sessionStartTime.toLocaleTimeString();
+      const sessionNumberToSave = selectedSessionNumber || 1;
+      const timeLabel = new Date().toLocaleTimeString();
 
       for (const student of students) {
-        const docId = `${selectedClass}_${student.id}_${date}_s${nextSessionNumber}`;
+        const docId = selectedSubject
+          ? `${selectedClass}_${selectedSubject}_${student.id}_${date}_s${sessionNumberToSave}`
+          : `${selectedClass}_${student.id}_${date}_s${sessionNumberToSave}`;
 
         await setDoc(doc(db, "attendance", docId), {
           studentId: student.id,
           studentName: student.fullName,
           className: selectedClass,
+          subject: selectedSubject || null,
           teacherId,
           date,
-          sessionNumber: nextSessionNumber,
+          sessionNumber: sessionNumberToSave,
           sessionTime: timeLabel,
+          sessionTimestamp: serverTimestamp(),
           status: attendance[student.id] === "Present" ? "Present" : "Absent",
-          updatedAt: new Date(),
+          updatedAt: serverTimestamp(),
         });
       }
 
-      setExistingSessions([...existingSessions, nextSessionNumber]);
+      const updatedSessions = !existingSessions.includes(sessionNumberToSave)
+        ? [...existingSessions, sessionNumberToSave].sort((a, b) => a - b)
+        : existingSessions;
+
+      setExistingSessions(updatedSessions);
       setSessionSaved(true);
 
       alert(
-        `Attendance saved successfully (Xiisadda #${nextSessionNumber} - ${timeLabel})`
+        `Xiisadda #${sessionNumberToSave} Waa La Kaydiyay! System-ku waa xiray xaadirintan.`
       );
     } catch (err) {
       console.log(err);
@@ -350,11 +409,22 @@ export default function Attendance() {
     }
   };
 
+  // Open the next new session explicitly upon user action
+  const startNextSession = () => {
+    const nextSessionNum =
+      existingSessions.length > 0 ? Math.max(...existingSessions) + 1 : 1;
+    setSelectedSessionNumber(nextSessionNum);
+
+    const freshAttendance = {};
+    students.forEach((s) => {
+      freshAttendance[s.id] = "Not Marked";
+    });
+    setAttendance(freshAttendance);
+    setSessionSaved(false);
+  };
+
   const presentCount = students.filter((s) => attendance[s.id] === "Present").length;
   const absentCount = students.filter((s) => attendance[s.id] === "Absent").length;
-  const notMarkedCount = students.filter(
-    (s) => !attendance[s.id] || attendance[s.id] === "Not Marked"
-  ).length;
   const totalCount = students.length;
   const presentPct = totalCount ? ((presentCount / totalCount) * 100).toFixed(2) : "0.00";
   const absentPct = totalCount ? ((absentCount / totalCount) * 100).toFixed(2) : "0.00";
@@ -364,7 +434,11 @@ export default function Attendance() {
     (s.studentId || s.id || "").toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const locked = sessionSaved || !isScheduledToday || !!activeHoliday;
+  const locked =
+    sessionSaved ||
+    !!activeHoliday ||
+    !isDayAllowed ||
+    (classSubjects.length > 0 && !selectedSubject);
 
   return (
     <div className="att-layout">
@@ -378,26 +452,21 @@ export default function Attendance() {
           {!checkingHoliday && activeHoliday && (
             <div style={lockedBanner}>
               🚫 Waxa lagu jiraa xiliga fasaxa "{activeHoliday.name}" ilaa{" "}
-              {formatHolidayDate(activeHoliday.endDate)} — ma xaadirin kartid
-              ilaa xiliga imaanshaha school-ku uu isku soo noqdo.
+              {formatHolidayDate(activeHoliday.endDate)}.
             </div>
           )}
 
-          {!activeHoliday && selectedClass && !checkingSchedule && !isScheduledToday && (
-            <div style={lockedBanner}>
-              🚫 Xiisad malihid maanta ({date}) fasalka {selectedClass}. Fadlan
-              dooro maalinta jadwalka ku qoran ama fasal kale.
+          {!activeHoliday && !isDayAllowed && (
+            <div style={lockedBanner}>⚠️ {dayErrorMsg}</div>
+          )}
+
+          {!activeHoliday && isDayAllowed && sessionSaved && (
+            <div style={{ ...lockedBanner, background: "rgba(245,158,11,0.12)", borderColor: "rgba(245,158,11,0.3)", color: "#FBBF24" }}>
+              🔒 Xiisadda #{selectedSessionNumber} waa la kaydiyay, system-kuna waa xiray. Haddii aad leedahay xiisad kale, riix badhanka hoose si aad u furto Xiisadda Labaad.
             </div>
           )}
 
-          {!activeHoliday && sessionSaved && isScheduledToday && (
-            <div style={lockedBanner}>
-              🔒 Xaadirintii maalintan ({date}) waa la kaydiyay ee waa la
-              xiray. Waxaad mar kale furan kartaa maalinta soo socota.
-            </div>
-          )}
-
-          {/* Summary cards */}
+          {/* Cards */}
           <div className="att-cards-row">
             <div className="att-panel" style={card}>
               <div style={{ ...iconCircle, background: "rgba(109,93,240,0.15)" }}>
@@ -460,6 +529,25 @@ export default function Attendance() {
                 </select>
               </div>
 
+              {classSubjects.length > 0 && (
+                <div>
+                  <label style={label}>Subject</label>
+                  <select
+                    style={input}
+                    value={selectedSubject}
+                    onChange={(e) => setSelectedSubject(e.target.value)}
+                    disabled={!!activeHoliday}
+                  >
+                    <option value="">Dooro maadada...</option>
+                    {classSubjects.map((subj) => (
+                      <option key={subj} value={subj}>
+                        {subj}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label style={label}>Date</label>
                 <input
@@ -470,6 +558,33 @@ export default function Attendance() {
                   disabled={!!activeHoliday}
                 />
               </div>
+
+              {selectedClass &&
+                isDayAllowed &&
+                (classSubjects.length === 0 || selectedSubject) && (
+                  <div>
+                    <label style={label}>Xiisadda (Session)</label>
+                    <select
+                      style={input}
+                      value={selectedSessionNumber ?? ""}
+                      onChange={(e) =>
+                        setSelectedSessionNumber(Number(e.target.value))
+                      }
+                      disabled={!!activeHoliday}
+                    >
+                      {existingSessions.map((n) => (
+                        <option key={n} value={n}>
+                          Xiisadda #{n} (Kaydsan)
+                        </option>
+                      ))}
+                      {!existingSessions.includes(selectedSessionNumber) && (
+                        <option value={selectedSessionNumber}>
+                          Xiisadda #{selectedSessionNumber} (Furan)
+                        </option>
+                      )}
+                    </select>
+                  </div>
+                )}
 
               <div style={{ flex: 1, minWidth: 220 }}>
                 <label style={label}>Search Student</label>
@@ -518,8 +633,10 @@ export default function Attendance() {
               <p style={{ padding: 20, color: "#94A3B8" }}>
                 Xiisad malihid — waxa lagu jiraa xiliga fasaxa.
               </p>
-            ) : checkingSchedule ? (
-              <p style={{ padding: 20, color: "#94A3B8" }}>Checking schedule...</p>
+            ) : !isDayAllowed ? (
+              <p style={{ padding: 20, color: "#EF4444", fontWeight: "bold" }}>
+                🚫 {dayErrorMsg}
+              </p>
             ) : loading ? (
               <p style={{ padding: 20, color: "#94A3B8" }}>Loading students...</p>
             ) : !selectedClass ? (
@@ -626,29 +743,41 @@ export default function Attendance() {
             )}
           </div>
 
-          {!activeHoliday && isScheduledToday && students.length > 0 && (
-            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
-              <button
-                onClick={saveAttendance}
-                disabled={saving || locked}
-                style={{
-                  ...btnPrimary,
-                  opacity: locked ? 0.6 : 1,
-                  cursor: locked ? "not-allowed" : "pointer",
-                }}
-              >
-                {saving
-                  ? "Saving..."
-                  : sessionSaved
-                  ? "✅ Xiisaddan waa la Kaydiyay"
-                  : "💾 Save Attendance"}
-              </button>
+          {!activeHoliday && isDayAllowed && students.length > 0 && (
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 14, marginTop: 20 }}>
+              {sessionSaved ? (
+                <button
+                  onClick={startNextSession}
+                  style={{
+                    ...btnPrimary,
+                    background: "linear-gradient(90deg, #F59E0B, #D97706)",
+                  }}
+                >
+                  <Play size={18} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                  Fur Xiisadda Labaad (#
+                  {existingSessions.length > 0
+                    ? Math.max(...existingSessions) + 1
+                    : 1}
+                  )
+                </button>
+              ) : (
+                <button
+                  onClick={saveAttendance}
+                  disabled={saving || locked}
+                  style={{
+                    ...btnPrimary,
+                    opacity: locked ? 0.6 : 1,
+                    cursor: locked ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "Saving..." : "💾 Save Attendance"}
+                </button>
+              )}
             </div>
           )}
         </div>
       </div>
 
-      {/* Bottom tab bar — mobile only (hidden via CSS on desktop) */}
       <MobileBottomNav />
     </div>
   );
@@ -664,6 +793,7 @@ const lockedBanner = {
   fontSize: 14,
   fontWeight: "bold",
 };
+
 const card = {
   background: "#0B1120",
   border: "1px solid rgba(255,255,255,.06)",
@@ -783,4 +913,5 @@ const btnPrimary = {
   padding: "14px 28px",
   fontWeight: "bold",
   fontSize: 15,
+  cursor: "pointer",
 };
