@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { db } from "../../firebase/firebase";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { collection, getDocs, doc, writeBatch } from "firebase/firestore";
 import {
   CalendarCheck,
   Users,
@@ -11,17 +11,31 @@ import {
   Clock,
   Check,
   X,
+  AlertCircle,
   Loader2,
   Printer,
   Filter,
-  UserCheck,
+  Save,
+  Download,
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import schoolLogo from "../assets/logo.png";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
+
+function formatClassName(className) {
+  if (!className) return "";
+  let clean = String(className).trim();
+  clean = clean.replace(/^fasalka\s*/i, "");
+  return `Fasalka ${clean}`;
+}
+
 function classRank(className) {
-  const idx = CLASS_ORDER.indexOf(String(className || "").toUpperCase());
+  const clean = String(className || "").replace(/^fasalka\s*/i, "").trim().toUpperCase();
+  const idx = CLASS_ORDER.indexOf(clean);
   return idx === -1 ? 999 : idx;
 }
 
@@ -32,24 +46,118 @@ function ResponsiveStyles() {
       .att-content { flex: 1; min-width: 0; }
       .att-summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 24px; }
       .att-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-      .att-mini-table { width: 100%; border-collapse: collapse; min-width: 620px; }
+      .att-mini-table { width: 100%; border-collapse: collapse; min-width: 750px; }
 
-      /* ========================================================= */
-      /* PERFECT A4 PRINT STYLES                                   */
-      /* ========================================================= */
       .print-only-header { display: none; }
+
+      /* PDF Generation Mode Class */
+      body.pdf-export-mode {
+        background: #ffffff !important;
+      }
+      body.pdf-export-mode .no-print, 
+      body.pdf-export-mode nav, 
+      body.pdf-export-mode sidebar, 
+      body.pdf-export-mode header, 
+      body.pdf-export-mode .att-summary-grid, 
+      body.pdf-export-mode .att-filters-bar, 
+      body.pdf-export-mode .att-header-row {
+        display: none !important;
+      }
+      body.pdf-export-mode .att-layout, 
+      body.pdf-export-mode .att-content, 
+      body.pdf-export-mode .att-page-pad {
+        background: #ffffff !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+      }
+      body.pdf-export-mode .print-only-header {
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 2px solid #1e1a4a;
+        padding-bottom: 10px !important;
+        margin-bottom: 15px !important;
+        font-family: Arial, sans-serif;
+      }
+      body.pdf-export-mode .print-logo-area {
+        display: flex !important;
+        align-items: center;
+        gap: 12px;
+      }
+      body.pdf-export-mode .print-logo-img {
+        width: 55px !important;
+        height: 55px !important;
+        object-fit: contain;
+      }
+      body.pdf-export-mode .print-school-title {
+        font-size: 16px !important;
+        font-weight: 800 !important;
+        color: #1e1a4a !important;
+        margin: 0 !important;
+        text-transform: uppercase;
+      }
+      body.pdf-export-mode .print-school-sub {
+        font-size: 11px !important;
+        color: #555555 !important;
+        margin: 2px 0 0 0 !important;
+      }
+      body.pdf-export-mode .print-meta-box {
+        text-align: right !important;
+        font-size: 10px !important;
+        color: #333 !important;
+        line-height: 1.4;
+      }
+      body.pdf-export-mode .att-class-card {
+        background: #ffffff !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 6px !important;
+        padding: 10px !important;
+        margin-bottom: 15px !important;
+        box-shadow: none !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
+      body.pdf-export-mode .att-class-card * {
+        color: #000000 !important;
+        text-shadow: none !important;
+      }
+      body.pdf-export-mode .att-mini-table {
+        width: 100% !important;
+        min-width: 100% !important;
+        table-layout: auto !important;
+        border-collapse: collapse !important;
+        margin-top: 8px !important;
+      }
+      body.pdf-export-mode .att-mini-table th {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border: 1px solid #94a3b8 !important;
+        padding: 6px 8px !important;
+        font-size: 10px !important;
+        font-weight: bold;
+        text-align: left;
+      }
+      body.pdf-export-mode .att-mini-table td {
+        border: 1px solid #cbd5e1 !important;
+        padding: 5px 8px !important;
+        font-size: 10px !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+      }
 
       @media print {
         @page {
-          size: A4 auto;
+          size: A4 landscape;
           margin: 10mm;
         }
         
-        body {
+        html, body {
           background: #ffffff !important;
           color: #000000 !important;
           margin: 0 !important;
           padding: 0 !important;
+          width: 100% !important;
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
         }
@@ -68,34 +176,56 @@ function ResponsiveStyles() {
 
         .print-only-header {
           display: flex !important;
-          justify-content: space-between;
           align-items: center;
-          background: #111111 !important;
-          color: #ffffff !important;
-          padding: 10px 16px !important;
-          font-family: sans-serif;
+          justify-content: space-between;
+          border-bottom: 2px solid #1e1a4a;
+          padding-bottom: 10px !important;
           margin-bottom: 15px !important;
-          border-radius: 4px;
+          font-family: Arial, sans-serif;
+          page-break-after: avoid;
         }
-        .print-only-header h2 {
-          margin: 0;
-          font-size: 15px;
-          font-weight: bold;
-          color: #ffffff !important;
+
+        .print-logo-area {
+          display: flex !important;
+          align-items: center;
+          gap: 12px;
         }
-        .print-only-header p {
-          margin: 0;
-          font-size: 11px;
-          color: #cccccc !important;
+
+        .print-logo-img {
+          width: 55px !important;
+          height: 55px !important;
+          object-fit: contain;
+        }
+
+        .print-school-title {
+          font-size: 16px !important;
+          font-weight: 800 !important;
+          color: #1e1a4a !important;
+          margin: 0 !important;
+          text-transform: uppercase;
+        }
+
+        .print-school-sub {
+          font-size: 11px !important;
+          color: #555555 !important;
+          margin: 2px 0 0 0 !important;
+        }
+
+        .print-meta-box {
+          text-align: right !important;
+          font-size: 10px !important;
+          color: #333 !important;
+          line-height: 1.4;
         }
 
         .att-class-card {
           background: #ffffff !important;
-          border: 1px solid #000000 !important;
-          border-radius: 0 !important;
+          border: 1px solid #d1d5db !important;
+          border-radius: 6px !important;
           padding: 10px !important;
           margin-bottom: 15px !important;
-          page-break-inside: avoid;
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
           box-shadow: none !important;
         }
 
@@ -104,36 +234,51 @@ function ResponsiveStyles() {
           text-shadow: none !important;
         }
 
+        .att-table-wrap {
+          overflow: visible !important;
+        }
+
         .att-mini-table {
           width: 100% !important;
           min-width: 100% !important;
+          table-layout: auto !important;
           border-collapse: collapse !important;
           margin-top: 8px !important;
         }
 
+        .att-mini-table tr {
+          page-break-inside: avoid !important;
+          break-inside: avoid !important;
+        }
+
         .att-mini-table th {
-          background: #333333 !important;
-          color: #ffffff !important;
-          border: 1px solid #333333 !important;
+          background: #f1f5f9 !important;
+          color: #0f172a !important;
+          border: 1px solid #94a3b8 !important;
           padding: 6px 8px !important;
-          font-size: 11px !important;
+          font-size: 10px !important;
+          font-weight: bold;
           text-align: left;
         }
 
         .att-mini-table td {
-          border: 1px solid #cccccc !important;
+          border: 1px solid #cbd5e1 !important;
           padding: 5px 8px !important;
-          font-size: 11px !important;
+          font-size: 10px !important;
           background: #ffffff !important;
           color: #000000 !important;
         }
 
         .print-badge-present {
-          color: #059669 !important;
+          color: #15803d !important;
           font-weight: bold;
         }
         .print-badge-absent {
-          color: #dc2626 !important;
+          color: #b91c1c !important;
+          font-weight: bold;
+        }
+        .print-badge-excused {
+          color: #1d4ed8 !important;
           font-weight: bold;
         }
       }
@@ -161,7 +306,12 @@ export default function Attendance() {
   const [timeRangeFilter, setTimeRangeFilter] = useState("ALL");
   const [expandedClass, setExpandedClass] = useState({});
   const [expandedDate, setExpandedDate] = useState({});
-  const [savingId, setSavingId] = useState(null);
+
+  const [pendingChanges, setPendingChanges] = useState({});
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
+
+  const reportRef = useRef(null);
 
   useEffect(() => {
     loadData();
@@ -203,26 +353,73 @@ export default function Attendance() {
     }
   };
 
-  // Filter records based on Class, Teacher, and Time Range
+  const studentStats = useMemo(() => {
+    const studentDates = {};
+
+    records.forEach((r) => {
+      const sId = r.studentId;
+      if (!sId) return;
+
+      if (!studentDates[sId]) studentDates[sId] = {};
+      
+      const currentStatus = pendingChanges[r.id] || r.status;
+
+      if (!studentDates[sId][r.date]) {
+        studentDates[sId][r.date] = [];
+      }
+      studentDates[sId][r.date].push(currentStatus);
+    });
+
+    const stats = {};
+    Object.keys(studentDates).forEach((sId) => {
+      let presentDays = 0;
+      let absentDays = 0;
+      let excusedDays = 0;
+      const dates = Object.keys(studentDates[sId]);
+
+      dates.forEach((d) => {
+        const statuses = studentDates[sId][d];
+        if (statuses.includes("Present")) {
+          presentDays++;
+        } else if (statuses.includes("Excused")) {
+          excusedDays++;
+        } else {
+          absentDays++;
+        }
+      });
+
+      const validTotalDays = presentDays + absentDays;
+      const percent = validTotalDays > 0 ? Math.round((presentDays / validTotalDays) * 100) : 100;
+
+      stats[sId] = {
+        presentDays,
+        absentDays,
+        excusedDays,
+        totalDays: validTotalDays,
+        percent,
+      };
+    });
+
+    return stats;
+  }, [records, pendingChanges]);
+
   const filteredRecords = useMemo(() => {
     const now = new Date();
 
     return records.filter((r) => {
-      // 1. Class Filter
       if (selectedClassFilter !== "ALL") {
-        if (String(r.className).toUpperCase() !== selectedClassFilter.toUpperCase()) {
+        const cleanClass = String(r.className).replace(/^fasalka\s*/i, "").trim().toUpperCase();
+        if (cleanClass !== selectedClassFilter.toUpperCase()) {
           return false;
         }
       }
 
-      // 2. Teacher Filter
       if (selectedTeacherFilter !== "ALL") {
         if (String(r.teacherId) !== selectedTeacherFilter) {
           return false;
         }
       }
 
-      // 3. Time Range Filter
       if (timeRangeFilter !== "ALL" && r.date) {
         const recDate = new Date(r.date);
         const diffTime = Math.abs(now - recDate);
@@ -237,35 +434,35 @@ export default function Attendance() {
     });
   }, [records, selectedClassFilter, selectedTeacherFilter, timeRangeFilter]);
 
-  // Group filtered records by Class -> Teacher -> Dates & Records
   const groupedByClass = useMemo(() => {
     const map = {};
 
     filteredRecords.forEach((r) => {
-      const className = String(r.className || "-").toUpperCase();
+      const rawClass = String(r.className || "-").replace(/^fasalka\s*/i, "").trim();
       const teacherId = r.teacherId || "Unknown";
 
-      if (!map[className]) map[className] = {};
-      if (!map[className][teacherId]) {
-        map[className][teacherId] = { dates: new Set(), records: [] };
+      if (!map[rawClass]) map[rawClass] = {};
+      if (!map[rawClass][teacherId]) {
+        map[rawClass][teacherId] = { dates: new Set(), records: [] };
       }
 
-      if (r.date) map[className][teacherId].dates.add(r.date);
-      map[className][teacherId].records.push(r);
+      if (r.date) map[rawClass][teacherId].dates.add(r.date);
+      map[rawClass][teacherId].records.push(r);
     });
 
     return map;
   }, [filteredRecords]);
 
-  // Filtered Teacher options for Dropdown
   const teacherOptions = useMemo(() => {
     const teacherIds = Array.from(
       new Set(records.map((r) => r.teacherId).filter(Boolean))
     );
-    return teacherIds.map((tid) => ({
-      id: tid,
-      name: teachers[tid]?.fullName || tid,
-    })).sort((a, b) => a.name.localeCompare(b.name));
+    return teacherIds
+      .map((tid) => ({
+        id: tid,
+        name: teachers[tid]?.fullName || tid,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [records, teachers]);
 
   const classNames = useMemo(() => {
@@ -273,10 +470,10 @@ export default function Attendance() {
     const baseList = selectedClassFilter === "ALL" ? availableClasses : [selectedClassFilter];
 
     return baseList
-      .filter((className) => {
+      .filter((rawClass) => {
         if (!search.trim()) return true;
-        const teacherIdsForClass = Object.keys(groupedByClass[className] || {});
-        const matchesClass = className.toLowerCase().includes(search.toLowerCase());
+        const teacherIdsForClass = Object.keys(groupedByClass[rawClass] || {});
+        const matchesClass = formatClassName(rawClass).toLowerCase().includes(search.toLowerCase());
         const matchesTeacher = teacherIdsForClass.some((tid) => {
           const name = teachers[tid]?.fullName || tid;
           return (
@@ -297,7 +494,7 @@ export default function Attendance() {
     setExpandedDate((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handlePrint = () => {
+  const expandAllSections = () => {
     const openClasses = {};
     const openDates = {};
     classNames.forEach((cn) => {
@@ -315,40 +512,101 @@ export default function Attendance() {
     });
     setExpandedClass(openClasses);
     setExpandedDate(openDates);
+  };
 
+  const handlePrint = () => {
+    expandAllSections();
     setTimeout(() => {
       window.print();
     }, 300);
   };
 
-  const updateStatus = async (record, newStatus) => {
-    if (record.status === newStatus || savingId === record.id) return;
+  const handleDownloadPDF = async () => {
+    try {
+      setIsDownloadingPDF(true);
+      expandAllSections();
 
-    const prevStatus = record.status;
-    setSavingId(record.id);
-    setRecords((prev) =>
-      prev.map((r) => (r.id === record.id ? { ...r, status: newStatus } : r))
-    );
+      document.body.classList.add("pdf-export-mode");
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const input = reportRef.current;
+      if (!input) return;
+
+      const canvas = await html2canvas(input, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: "#ffffff",
+      });
+
+      const imgData = canvas.toDataURL("image/jpeg", 1.0);
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const ratio = pdfWidth / imgWidth;
+      const renderedHeight = imgHeight * ratio;
+
+      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, renderedHeight);
+      pdf.save(`Attendance_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error(err);
+      alert("Cillad ayaa ka dhacday soo dejinta PDF-ka: " + err.message);
+    } finally {
+      document.body.classList.remove("pdf-export-mode");
+      setIsDownloadingPDF(false);
+    }
+  };
+
+  const handleStageStatusChange = (recordId, newStatus) => {
+    setPendingChanges((prev) => ({
+      ...prev,
+      [recordId]: newStatus,
+    }));
+  };
+
+  const handleSaveChanges = async () => {
+    const changeKeys = Object.keys(pendingChanges);
+    if (changeKeys.length === 0) return;
 
     try {
-      await updateDoc(doc(db, "attendance", record.id), {
-        status: newStatus,
-        updatedAt: new Date(),
+      setIsSaving(true);
+      const batch = writeBatch(db);
+
+      changeKeys.forEach((recId) => {
+        const newStatus = pendingChanges[recId];
+        const ref = doc(db, "attendance", recId);
+        batch.update(ref, {
+          status: newStatus,
+          updatedAt: new Date(),
+        });
       });
+
+      await batch.commit();
+
+      setRecords((prev) =>
+        prev.map((r) =>
+          pendingChanges[r.id] ? { ...r, status: pendingChanges[r.id] } : r
+        )
+      );
+      setPendingChanges({});
+      alert("Xogta si guul leh ayaa loo kaydiyay!");
     } catch (err) {
       console.log(err);
-      alert("Khalad ayaa dhacay marka la kaydinayay: " + err.message);
-      setRecords((prev) =>
-        prev.map((r) => (r.id === record.id ? { ...r, status: prevStatus } : r))
-      );
+      alert("Muu kaydsamin koodka: " + err.message);
     } finally {
-      setSavingId(null);
+      setIsSaving(false);
     }
   };
 
   const totalTeachers = useMemo(() => {
     return new Set(filteredRecords.map((r) => r.teacherId || "Unknown")).size;
   }, [filteredRecords]);
+
+  const hasUnsavedChanges = Object.keys(pendingChanges).length > 0;
 
   return (
     <div className="att-layout">
@@ -362,24 +620,22 @@ export default function Attendance() {
           <Topbar />
         </div>
 
-        <div className="att-page-pad" style={{ padding: "26px 30px" }}>
-          {/* Black Banner Bar specifically for A4 Printing */}
+        <div className="att-page-pad" ref={reportRef} style={{ padding: "26px 30px" }}>
           <div className="print-only-header">
-            <div>
-              <h2>
-                Rising Star School — Attendance Report (Fasalka: {selectedClassFilter} | Macallinka:{" "}
-                {selectedTeacherFilter === "ALL"
-                  ? "Dhammaan"
-                  : teachers[selectedTeacherFilter]?.fullName || selectedTeacherFilter}
-                )
-              </h2>
+            <div className="print-logo-area">
+              <img src={schoolLogo} alt="School Logo" className="print-logo-img" />
+              <div>
+                <h1 className="print-school-title">RISING STAR PRIMARY & SECONDARY SCHOOL</h1>
+                <p className="print-school-sub">Diiwaanka Xaadirinta Ardayda (Student Attendance Report)</p>
+              </div>
             </div>
-            <div>
-              <p>Taariikhda: {new Date().toLocaleDateString()}</p>
+            <div className="print-meta-box">
+              <div><strong>Fasalka:</strong> {selectedClassFilter === "ALL" ? "Dhammaan" : formatClassName(selectedClassFilter)}</div>
+              <div><strong>Macallinka:</strong> {selectedTeacherFilter === "ALL" ? "Dhammaan" : teachers[selectedTeacherFilter]?.fullName || selectedTeacherFilter}</div>
+              <div><strong>Taariikhda:</strong> {new Date().toLocaleDateString()}</div>
             </div>
           </div>
 
-          {/* Header */}
           <div
             className="att-header-row no-print"
             style={{
@@ -416,26 +672,70 @@ export default function Attendance() {
               </div>
             </div>
 
-            <button
-              onClick={handlePrint}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                background: "linear-gradient(135deg, #22C55E, #16A34A)",
-                color: "#fff",
-                border: "none",
-                padding: "12px 20px",
-                borderRadius: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              <Printer size={18} /> Print A4 Report
-            </button>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {hasUnsavedChanges && (
+                <button
+                  onClick={handleSaveChanges}
+                  disabled={isSaving}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "linear-gradient(135deg, #3B82F6, #2563EB)",
+                    color: "#fff",
+                    border: "none",
+                    padding: "12px 20px",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    boxShadow: "0 0 15px rgba(59,130,246,0.5)",
+                  }}
+                >
+                  {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                  Save Changes ({Object.keys(pendingChanges).length})
+                </button>
+              )}
+
+              <button
+                onClick={handleDownloadPDF}
+                disabled={isDownloadingPDF}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  background: "linear-gradient(135deg, #8B5CF6, #6D5DF0)",
+                  color: "#fff",
+                  border: "none",
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                {isDownloadingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                Download PDF
+              </button>
+
+              <button
+                onClick={handlePrint}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  background: "linear-gradient(135deg, #22C55E, #16A34A)",
+                  color: "#fff",
+                  border: "none",
+                  padding: "12px 20px",
+                  borderRadius: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <Printer size={18} /> Print A4 Report
+              </button>
+            </div>
           </div>
 
-          {/* Filters Bar */}
           <div
             className="att-filters-bar no-print"
             style={{
@@ -454,7 +754,6 @@ export default function Attendance() {
               <Filter size={16} /> Filters:
             </div>
 
-            {/* Filter by Class */}
             <div>
               <select
                 value={selectedClassFilter}
@@ -464,13 +763,12 @@ export default function Attendance() {
                 <option value="ALL">Dhammaan Fasallada (All Classes)</option>
                 {CLASS_ORDER.map((c) => (
                   <option key={c} value={c}>
-                    Fasalka {c}
+                    {formatClassName(c)}
                   </option>
                 ))}
               </select>
             </div>
 
-            {/* Filter by Teacher */}
             <div>
               <select
                 value={selectedTeacherFilter}
@@ -486,7 +784,6 @@ export default function Attendance() {
               </select>
             </div>
 
-            {/* Filter by Time Range */}
             <div>
               <select
                 value={timeRangeFilter}
@@ -500,7 +797,6 @@ export default function Attendance() {
               </select>
             </div>
 
-            {/* Search Input */}
             <div style={{ position: "relative", flex: 1, minWidth: 180 }}>
               <Search size={16} color="#8b87ad" style={{ position: "absolute", left: 12, top: 11 }} />
               <input
@@ -512,7 +808,6 @@ export default function Attendance() {
             </div>
           </div>
 
-          {/* Summary Cards */}
           <div className="att-summary-grid no-print">
             <SummaryCard
               icon={School}
@@ -534,7 +829,6 @@ export default function Attendance() {
             />
           </div>
 
-          {/* Content */}
           {loading ? (
             <div style={{ color: "#8b87ad", textAlign: "center", padding: 60 }}>
               Soo raraya xogta xaadirinta...
@@ -545,18 +839,20 @@ export default function Attendance() {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-              {classNames.map((className) => {
-                const teachersMap = groupedByClass[className] || {};
+              {classNames.map((rawClassName) => {
+                const teachersMap = groupedByClass[rawClassName] || {};
                 const teacherIdsForClass = Object.keys(teachersMap).sort();
                 const totalDaysForClass = new Set(
                   teacherIdsForClass.flatMap((tid) => Array.from(teachersMap[tid].dates))
                 ).size;
-                const classKey = `class__${className}`;
+                const classKey = `class__${rawClassName}`;
                 const isClassOpen = !!expandedClass[classKey];
+
+                const formattedTitle = formatClassName(rawClassName);
 
                 return (
                   <div
-                    key={className}
+                    key={rawClassName}
                     className="att-class-card"
                     style={{
                       background: "linear-gradient(160deg,#151233,#181341)",
@@ -565,7 +861,6 @@ export default function Attendance() {
                       padding: "22px 26px",
                     }}
                   >
-                    {/* Class header */}
                     <div
                       onClick={() => toggleClassExpand(classKey)}
                       style={{
@@ -589,15 +884,15 @@ export default function Attendance() {
                             justifyContent: "center",
                             color: "#fff",
                             fontWeight: 700,
-                            fontSize: 15,
+                            fontSize: 14,
                             flexShrink: 0,
                           }}
                         >
-                          {className}
+                          {rawClassName.toUpperCase()}
                         </div>
                         <div>
                           <div style={{ fontWeight: 700, color: "#fff", fontSize: 16 }}>
-                            Fasalka: {className}
+                            {formattedTitle}
                           </div>
                           <div style={{ color: "#8b87ad", fontSize: 12 }}>
                             {teacherIdsForClass.length} macalin · {totalDaysForClass} maalmood
@@ -614,7 +909,6 @@ export default function Attendance() {
                       </div>
                     </div>
 
-                    {/* Teachers list inside class */}
                     {isClassOpen && (
                       <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
                         {teacherIdsForClass.map((teacherId) => {
@@ -745,8 +1039,15 @@ export default function Attendance() {
                                     const dateKey = `${tKey}__${date}`;
                                     const isDateOpen = !!expandedDate[dateKey];
 
-                                    const presentCount = sessionsOnDate.filter((r) => r.status === "Present").length;
-                                    const absentCount = sessionsOnDate.filter((r) => r.status === "Absent").length;
+                                    const presentCount = sessionsOnDate.filter(
+                                      (r) => (pendingChanges[r.id] || r.status) === "Present"
+                                    ).length;
+                                    const absentCount = sessionsOnDate.filter(
+                                      (r) => (pendingChanges[r.id] || r.status) === "Absent"
+                                    ).length;
+                                    const excusedCount = sessionsOnDate.filter(
+                                      (r) => (pendingChanges[r.id] || r.status) === "Excused"
+                                    ).length;
 
                                     return (
                                       <div
@@ -779,13 +1080,18 @@ export default function Attendance() {
                                               ({sessionNums.length} xiisadood · {sessionsOnDate.length} arday)
                                             </span>
                                           </div>
-                                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                             <span style={{ color: "#22C55E", fontSize: 12, fontWeight: 700 }}>
                                               {presentCount} Present
                                             </span>
                                             <span style={{ color: "#EF4444", fontSize: 12, fontWeight: 700 }}>
                                               {absentCount} Absent
                                             </span>
+                                            {excusedCount > 0 && (
+                                              <span style={{ color: "#3B82F6", fontSize: 12, fontWeight: 700 }}>
+                                                {excusedCount} Excused
+                                              </span>
+                                            )}
                                             <span className="no-print">
                                               {isDateOpen ? (
                                                 <ChevronUp size={16} color="#8b87ad" />
@@ -807,59 +1113,101 @@ export default function Attendance() {
                                                     <MiniTh>Xiisad</MiniTh>
                                                     <MiniTh>Waqti</MiniTh>
                                                     <MiniTh>Status</MiniTh>
+                                                    <MiniTh>Joogay / Maqnaa</MiniTh>
+                                                    <MiniTh>Natiijada %</MiniTh>
                                                     <MiniTh className="no-print">Wax ka beddel</MiniTh>
                                                   </tr>
                                                 </thead>
                                                 <tbody>
-                                                  {sessionsOnDate.map((r) => (
-                                                    <tr key={r.id}>
-                                                      <MiniTd>{r.studentName || "-"}</MiniTd>
-                                                      <MiniTd>{r.studentId || "-"}</MiniTd>
-                                                      <MiniTd>#{r.sessionNumber ?? "-"}</MiniTd>
-                                                      <MiniTd>{r.sessionTime || "-"}</MiniTd>
-                                                      <MiniTd>
-                                                        <span
-                                                          className={
-                                                            r.status === "Present"
-                                                              ? "print-badge-present"
-                                                              : "print-badge-absent"
-                                                          }
-                                                        >
-                                                          ● {r.status || "Absent"}
-                                                        </span>
-                                                      </MiniTd>
-                                                      <MiniTd className="no-print">
-                                                        <div style={{ display: "flex", gap: 6 }}>
-                                                          <button
-                                                            onClick={() => updateStatus(r, "Present")}
-                                                            disabled={savingId === r.id}
-                                                            title="Present"
+                                                  {sessionsOnDate.map((r) => {
+                                                    const currentStatus = pendingChanges[r.id] || r.status;
+                                                    const stat = studentStats[r.studentId] || { presentDays: 0, absentDays: 0, percent: 100 };
+                                                    const isPending = !!pendingChanges[r.id];
+
+                                                    return (
+                                                      <tr key={r.id} style={{ background: isPending ? "rgba(234, 179, 8, 0.08)" : "transparent" }}>
+                                                        <MiniTd>{r.studentName || "-"}</MiniTd>
+                                                        <MiniTd>{r.studentId || "-"}</MiniTd>
+                                                        <MiniTd>#{r.sessionNumber ?? "-"}</MiniTd>
+                                                        <MiniTd>{r.sessionTime || "-"}</MiniTd>
+                                                        <MiniTd>
+                                                          <span
+                                                            className={
+                                                              currentStatus === "Present"
+                                                                ? "print-badge-present"
+                                                                : currentStatus === "Excused"
+                                                                ? "print-badge-excused"
+                                                                : "print-badge-absent"
+                                                            }
+                                                          >
+                                                            ● {currentStatus === "Excused" ? "Excused (Xaalad)" : currentStatus || "Absent"}
+                                                          </span>
+                                                        </MiniTd>
+
+                                                        <MiniTd>
+                                                          <span style={{ color: "#22C55E", fontWeight: "bold" }}>{stat.presentDays}J</span>
+                                                          {" / "}
+                                                          <span style={{ color: "#EF4444", fontWeight: "bold" }}>{stat.absentDays}M</span>
+                                                        </MiniTd>
+
+                                                        <MiniTd>
+                                                          <span
                                                             style={{
-                                                              ...editBtn,
-                                                              background:
-                                                                r.status === "Present" ? "#22C55E" : "#1F2937",
-                                                              color: r.status === "Present" ? "#fff" : "#94A3B8",
+                                                              padding: "2px 8px",
+                                                              borderRadius: "10px",
+                                                              fontSize: "12px",
+                                                              fontWeight: "bold",
+                                                              background: stat.percent >= 75 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                                                              color: stat.percent >= 75 ? "#4ADE80" : "#F87171",
                                                             }}
                                                           >
-                                                            {savingId === r.id ? <Loader2 size={13} /> : <Check size={13} />}
-                                                          </button>
-                                                          <button
-                                                            onClick={() => updateStatus(r, "Absent")}
-                                                            disabled={savingId === r.id}
-                                                            title="Absent"
-                                                            style={{
-                                                              ...editBtn,
-                                                              background:
-                                                                r.status === "Absent" ? "#EF4444" : "#1F2937",
-                                                              color: r.status === "Absent" ? "#fff" : "#94A3B8",
-                                                            }}
-                                                          >
-                                                            {savingId === r.id ? <Loader2 size={13} /> : <X size={13} />}
-                                                          </button>
-                                                        </div>
-                                                      </MiniTd>
-                                                    </tr>
-                                                  ))}
+                                                            {stat.percent}% {stat.percent >= 50 ? "Joogay" : "Maqnaa"}
+                                                          </span>
+                                                        </MiniTd>
+
+                                                        <MiniTd className="no-print">
+                                                          <div style={{ display: "flex", gap: 6 }}>
+                                                            <button
+                                                              onClick={() => handleStageStatusChange(r.id, "Present")}
+                                                              title="Present (Jooga)"
+                                                              style={{
+                                                                ...editBtn,
+                                                                background:
+                                                                  currentStatus === "Present" ? "#22C55E" : "#1F2937",
+                                                                color: currentStatus === "Present" ? "#fff" : "#94A3B8",
+                                                              }}
+                                                            >
+                                                              <Check size={13} />
+                                                            </button>
+                                                            <button
+                                                              onClick={() => handleStageStatusChange(r.id, "Absent")}
+                                                              title="Absent (Maqan)"
+                                                              style={{
+                                                                ...editBtn,
+                                                                background:
+                                                                  currentStatus === "Absent" ? "#EF4444" : "#1F2937",
+                                                                color: currentStatus === "Absent" ? "#fff" : "#94A3B8",
+                                                              }}
+                                                            >
+                                                              <X size={13} />
+                                                            </button>
+                                                            <button
+                                                              onClick={() => handleStageStatusChange(r.id, "Excused")}
+                                                              title="Excused / Xaalad Jirto"
+                                                              style={{
+                                                                ...editBtn,
+                                                                background:
+                                                                  currentStatus === "Excused" ? "#3B82F6" : "#1F2937",
+                                                                color: currentStatus === "Excused" ? "#fff" : "#94A3B8",
+                                                              }}
+                                                            >
+                                                              <AlertCircle size={13} />
+                                                            </button>
+                                                          </div>
+                                                        </MiniTd>
+                                                      </tr>
+                                                    );
+                                                  })}
                                                 </tbody>
                                               </table>
                                             </div>
@@ -978,13 +1326,14 @@ function MiniTd({ children, className }) {
 }
 
 const editBtn = {
-  width: 24,
-  height: 24,
+  width: 26,
+  height: 26,
   borderRadius: "50%",
   border: "none",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  cursor: "pointer",
 };
 
 const inputStyle = {

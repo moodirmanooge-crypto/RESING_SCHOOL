@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { db } from "../../firebase/firebase";
 import {
@@ -27,30 +27,32 @@ import {
 } from "lucide-react";
 
 const weekDays = [
+  "Saturday",
+  "Sunday",
   "Monday",
   "Tuesday",
   "Wednesday",
   "Thursday",
   "Friday",
-  "Saturday",
-  "Sunday",
 ];
 
-const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
+// ✅ Kaliya fasalada la ogol yahay (1-8 iyo F1-F4)
+const allowedClasses = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "F1",
+  "F2",
+  "F3",
+  "F4",
+];
 
 const emptySession = () => ({ startTime: "", endTime: "" });
-
-// ✅ Nooca shaqada macalinka ayaa hadda ku kaydsan collection-ka Firestore
-// oo array ah (tusaale: ["Full Time"], ["Part Time"], ama labadaba). Xogtii
-// hore ee macalimiinta laga yaabo inay lahaayeen string kaliya (Full Time
-// AMA Part Time) - halkan waxaan u beddelaynaa array si labada nooc uu si
-// isku mid ah loo maareeyo.
-function getEmploymentTypes(teacher) {
-  const raw = teacher.employmentType;
-  if (Array.isArray(raw)) return raw.filter(Boolean);
-  if (typeof raw === "string" && raw.trim()) return [raw.trim()];
-  return [];
-}
 
 export default function Teachers() {
   const [teachers, setTeachers] = useState([]);
@@ -71,14 +73,17 @@ export default function Teachers() {
       const snap = await getDocs(collection(db, "teachers"));
       setTeachers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
-      console.log(err);
+      console.error("Error fetching teachers:", err);
     } finally {
       setLoading(false);
     }
   }
 
-  // NOTE: macalimiinta la calaamadeeyay in la tirtirayo (pendingDeletion)
-  // waxaa laga qariyaa liiska front-end-ka ilaa backend-ku uu approve gareeyo.
+  // ✅ Waxay si toos ah u soo saaraysaa kaliya fasalada 1-8 iyo F1-F4
+  const allClassOptions = useMemo(() => {
+    return allowedClasses;
+  }, []);
+
   const filteredTeachers = teachers.filter((t) => {
     if (t.pendingDeletion) return false;
     return (
@@ -88,14 +93,17 @@ export default function Teachers() {
   });
 
   const totalSubjects = new Set(
-    teachers.flatMap((t) => (t.classes || []).map((c) => c.subject).filter(Boolean))
+    teachers.flatMap((t) =>
+      (t.classes || []).map((c) => c.subject).filter(Boolean)
+    )
   ).size;
 
   const totalClasses = new Set(
-    teachers.flatMap((t) => (t.classes || []).map((c) => c.className).filter(Boolean))
+    teachers.flatMap((t) =>
+      (t.classes || []).map((c) => c.className).filter(Boolean)
+    )
   ).size;
 
-  // ---- Fur modal-ka wax-ka-bedelka macalinka ----
   function openEdit(teacher) {
     setSelectedTeacher(teacher);
     setEditData({
@@ -129,7 +137,7 @@ export default function Teachers() {
     } else {
       updated[index].days = [...days, day];
       updated[index].daySessions = {
-        ...updated[index].daySessions,
+        ...(updated[index].daySessions || {}),
         [day]: [emptySession()],
       };
     }
@@ -139,7 +147,7 @@ export default function Teachers() {
 
   function addSessionToDay(index, day) {
     const updated = [...editData.classes];
-    const existing = updated[index].daySessions[day] || [];
+    const existing = updated[index].daySessions?.[day] || [];
     updated[index].daySessions = {
       ...updated[index].daySessions,
       [day]: [...existing, emptySession()],
@@ -149,7 +157,7 @@ export default function Teachers() {
 
   function removeSessionFromDay(index, day, sIdx) {
     const updated = [...editData.classes];
-    const existing = updated[index].daySessions[day] || [];
+    const existing = updated[index].daySessions?.[day] || [];
     if (existing.length === 1) return;
     updated[index].daySessions = {
       ...updated[index].daySessions,
@@ -160,7 +168,7 @@ export default function Teachers() {
 
   function updateSessionTime(index, day, sIdx, field, value) {
     const updated = [...editData.classes];
-    const existing = [...(updated[index].daySessions[day] || [])];
+    const existing = [...(updated[index].daySessions?.[day] || [])];
     existing[sIdx] = { ...existing[sIdx], [field]: value };
     updated[index].daySessions = {
       ...updated[index].daySessions,
@@ -187,7 +195,6 @@ export default function Teachers() {
     });
   }
 
-  // ---- Kaydi wax-ka-bedelka macalinka ----
   async function saveEdit() {
     if (!editData.fullName.trim() || !editData.username.trim()) {
       alert("Fadlan buuxi Magaca iyo Username-ka");
@@ -212,25 +219,14 @@ export default function Teachers() {
       const newId = editData.username.trim();
 
       if (newId !== oldId) {
-        // FIX: the doc ID must always match the `username` field. Simply
-        // calling updateDoc on the old doc only changes the `username`
-        // field inside it — the Firestore doc ID itself (oldId) never
-        // moves, so it silently drifts out of sync with `username`
-        // (breaking QR links / lookups that key off username, e.g. the
-        // Teacher ID card flow). Instead: write a new doc under the new
-        // id with the full merged record, then remove the old doc so the
-        // teacher exists under exactly one id — the current username.
         const fullRecord = { ...selectedTeacher, ...updatedFields };
-        delete fullRecord.id; // `id` is a local-only field, not part of the Firestore doc data
+        delete fullRecord.id;
         await setDoc(doc(db, "teachers", newId), fullRecord);
         await deleteDoc(doc(db, "teachers", oldId));
       } else {
         await updateDoc(doc(db, "teachers", oldId), updatedFields);
       }
 
-      // Isla markiiba cusboonaysii state-ka local-ka ah si liiska
-      // Teacher List uu isla markiiba u muujiyo xogta cusub — iyada
-      // oo aan loo baahnayn in bogga dib loo soo shubo (refresh).
       setTeachers((prev) =>
         prev.map((t) =>
           t.id === oldId ? { ...t, ...updatedFields, id: newId } : t
@@ -240,19 +236,13 @@ export default function Teachers() {
       alert("Macalinka waa la cusboonaysiiyay");
       closeEdit();
     } catch (err) {
-      console.log(err);
+      console.error(err);
       alert(err.message);
     } finally {
       setSaving(false);
     }
   }
 
-  // ---- Tirtirka macalinka ----
-  // MUHIIM: Xogta Firestore laftigeeda LAGAMA TIRTIRO halkan. Waxaa kaliya
-  // la calaamadeeyaa "pendingDeletion: true" (iyo waqtiga codsiga) si
-  // macalinku uu si toos ah uga qarsoomo liiska front-end-ka. Tirtirka
-  // dhabta ah ee Firestore waxaa kaliya sameeya backend-ka marka la
-  // ansixiyo (approve).
   async function deleteTeacher(teacher) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${teacher.fullName}?`)) return;
     try {
@@ -264,14 +254,18 @@ export default function Teachers() {
       setTeachers((prev) =>
         prev.map((t) =>
           t.id === teacher.id
-            ? { ...t, pendingDeletion: true, deletionRequestedAt: new Date().toISOString() }
+            ? {
+                ...t,
+                pendingDeletion: true,
+                deletionRequestedAt: new Date().toISOString(),
+              }
             : t
         )
       );
 
       alert("SUCCESSFULLY REQUESTED FOR DELETION✅.");
     } catch (err) {
-      console.log(err);
+      console.error(err);
       alert(err.message);
     }
   }
@@ -286,11 +280,25 @@ export default function Teachers() {
         </div>
 
         <div style={{ padding: "26px 30px" }}>
-          <h1 style={{ color: "#fff", marginBottom: 22, fontSize: 26, fontWeight: 800 }}>
+          <h1
+            style={{
+              color: "#fff",
+              marginBottom: 22,
+              fontSize: 26,
+              fontWeight: 800,
+            }}
+          >
             Teachers
           </h1>
 
-          <div style={{ display: "flex", gap: 15, marginBottom: 25, flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 15,
+              marginBottom: 25,
+              flexWrap: "wrap",
+            }}
+          >
             <Link to="/admin/add-teacher">
               <button style={purpleBtn}>
                 <Plus size={17} />
@@ -309,110 +317,139 @@ export default function Teachers() {
             </div>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 20 }}>
-            <Card icon={Users} title="Total Teachers" value={teachers.length} color="#6d5df0" />
-            <Card icon={CheckCircle2} title="Active" value={teachers.length} color="#22c55e" />
-            <Card icon={BookOpen} title="Subjects" value={totalSubjects} color="#f59e0b" />
-            <Card icon={School} title="Classes" value={totalClasses} color="#c084fc" />
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4,1fr)",
+              gap: 20,
+            }}
+          >
+            <Card
+              icon={Users}
+              title="Total Teachers"
+              value={teachers.length}
+              color="#6d5df0"
+            />
+            <Card
+              icon={CheckCircle2}
+              title="Active"
+              value={teachers.length}
+              color="#22c55e"
+            />
+            <Card
+              icon={BookOpen}
+              title="Subjects"
+              value={totalSubjects}
+              color="#f59e0b"
+            />
+            <Card
+              icon={School}
+              title="Classes"
+              value={totalClasses}
+              color="#c084fc"
+            />
           </div>
 
           <div style={listCard}>
-            <h3 style={{ color: "#fff", margin: "0 0 16px", fontSize: 17 }}>Teacher List</h3>
+            <h3 style={{ color: "#fff", margin: "0 0 16px", fontSize: 17 }}>
+              Teacher List
+            </h3>
 
             {loading ? (
               <p style={{ color: "#8b87ad" }}>Loading...</p>
             ) : filteredTeachers.length === 0 ? (
               <p style={{ color: "#8b87ad" }}>No Teachers Yet</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredTeachers.map((teacher) => {
-                  const employmentTypes = getEmploymentTypes(teacher);
-                  return (
-                    <div key={teacher.id} style={teacherRow}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: 10 }}
+              >
+                {filteredTeachers.map((teacher) => (
+                  <div key={teacher.id} style={teacherRow}>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        minWidth: 44,
+                        borderRadius: "50%",
+                        background: teacher.teacherPhoto
+                          ? `url(${teacher.teacherPhoto}) center/cover`
+                          : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#fff",
+                        fontWeight: 700,
+                        fontSize: 15,
+                      }}
+                    >
+                      {!teacher.teacherPhoto &&
+                        (teacher.fullName || "?").slice(0, 2).toUpperCase()}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
-                          width: 44,
-                          height: 44,
-                          minWidth: 44,
-                          borderRadius: "50%",
-                          background: teacher.teacherPhoto
-                            ? `url(${teacher.teacherPhoto}) center/cover`
-                            : "linear-gradient(135deg,#6d5df0,#8b6cf5)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
                           color: "#fff",
-                          fontWeight: 700,
-                          fontSize: 15,
+                          fontWeight: 600,
+                          fontSize: 14.5,
                         }}
                       >
-                        {!teacher.teacherPhoto &&
-                          (teacher.fullName || "?").slice(0, 2).toUpperCase()}
+                        {teacher.fullName || "—"}
                       </div>
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
-                          {teacher.fullName || "—"}
-                        </div>
-                        <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
-                          @{teacher.username || "—"}
-                        </div>
-                      </div>
-
-                      {/* ✅ Calaamadaha nooca shaqada - Full Time / Part Time / labadaba */}
-                      {employmentTypes.length > 0 && (
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {employmentTypes.map((type) => (
-                            <span
-                              key={type}
-                              style={{
-                                ...employmentTag,
-                                color: type === "Part Time" ? "#fbbf24" : "#4ade80",
-                                borderColor:
-                                  type === "Part Time"
-                                    ? "rgba(251,191,36,0.35)"
-                                    : "rgba(74,222,128,0.3)",
-                                background:
-                                  type === "Part Time"
-                                    ? "rgba(251,191,36,0.12)"
-                                    : "rgba(74,222,128,0.12)",
-                              }}
-                            >
-                              {type}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", maxWidth: 320 }}>
-                        {(teacher.classes || []).slice(0, 4).map((c, i) => (
-                          <span key={i} style={classTag}>
-                            {c.className || "?"} · {c.subject || "?"}
-                          </span>
-                        ))}
-                        {(teacher.classes || []).length > 4 && (
-                          <span style={classTag}>+{teacher.classes.length - 4}</span>
-                        )}
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => openEdit(teacher)} style={iconBtnEdit}>
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => deleteTeacher(teacher)} style={iconBtnDelete}>
-                          <Trash2 size={15} />
-                        </button>
+                      <div
+                        style={{
+                          color: "#8b87ad",
+                          fontSize: 12.5,
+                          marginTop: 2,
+                        }}
+                      >
+                        @{teacher.username || "—"}
                       </div>
                     </div>
-                  );
-                })}
+
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                        maxWidth: 320,
+                      }}
+                    >
+                      {(teacher.classes || []).slice(0, 4).map((c, i) => (
+                        <span key={i} style={classTag}>
+                          {c.className || "?"} · {c.subject || "?"}
+                        </span>
+                      ))}
+                      {(teacher.classes || []).length > 4 && (
+                        <span style={classTag}>
+                          +{teacher.classes.length - 4}
+                        </span>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={() => openEdit(teacher)}
+                        style={iconBtnEdit}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => deleteTeacher(teacher)}
+                        style={iconBtnDelete}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* ---- Modal-ka wax-ka-bedelka macalinka ---- */}
+      {/* Modal-ka Edit-ka */}
       {editData && (
         <div style={overlay}>
           <div style={modal}>
@@ -431,7 +468,9 @@ export default function Teachers() {
                   <input
                     style={input}
                     value={editData.fullName}
-                    onChange={(e) => setEditData({ ...editData, fullName: e.target.value })}
+                    onChange={(e) =>
+                      setEditData({ ...editData, fullName: e.target.value })
+                    }
                   />
                 </Field>
 
@@ -439,7 +478,9 @@ export default function Teachers() {
                   <input
                     style={input}
                     value={editData.username}
-                    onChange={(e) => setEditData({ ...editData, username: e.target.value })}
+                    onChange={(e) =>
+                      setEditData({ ...editData, username: e.target.value })
+                    }
                   />
                 </Field>
               </div>
@@ -451,12 +492,20 @@ export default function Teachers() {
                     type="text"
                     placeholder="Ugu yaraan 6 xaraf"
                     value={editData.password}
-                    onChange={(e) => setEditData({ ...editData, password: e.target.value })}
+                    onChange={(e) =>
+                      setEditData({ ...editData, password: e.target.value })
+                    }
                   />
                 </Field>
               </div>
 
-              <hr style={{ margin: "10px 0 22px", border: "none", borderTop: "1px solid rgba(139,108,245,0.2)" }} />
+              <hr
+                style={{
+                  margin: "10px 0 22px",
+                  border: "none",
+                  borderTop: "1px solid rgba(139,108,245,0.2)",
+                }}
+              />
 
               <h3 style={{ color: "#fff", fontSize: 16, marginBottom: 16 }}>
                 Fasalada uu Xaadirin Doono
@@ -467,7 +516,11 @@ export default function Teachers() {
                   <div style={classCardHeader}>
                     <span style={classCardTitle}>Fasalka #{index + 1}</span>
                     {editData.classes.length > 1 && (
-                      <button type="button" onClick={() => removeClassBlock(index)} style={removeBtn}>
+                      <button
+                        type="button"
+                        onClick={() => removeClassBlock(index)}
+                        style={removeBtn}
+                      >
                         <X size={13} /> Ka saar
                       </button>
                     )}
@@ -478,11 +531,15 @@ export default function Teachers() {
                       <select
                         style={input}
                         value={block.className}
-                        onChange={(e) => updateClassBlock(index, "className", e.target.value)}
+                        onChange={(e) =>
+                          updateClassBlock(index, "className", e.target.value)
+                        }
                       >
-                        <option value="">-- Dooro --</option>
-                        {classOptions.map((c) => (
-                          <option key={c}>{c}</option>
+                        <option value="">-- Dooro Fasal --</option>
+                        {allClassOptions.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
                         ))}
                       </select>
                     </Field>
@@ -492,7 +549,9 @@ export default function Teachers() {
                         style={input}
                         placeholder="Tusaale: Mathematics"
                         value={block.subject}
-                        onChange={(e) => updateClassBlock(index, "subject", e.target.value)}
+                        onChange={(e) =>
+                          updateClassBlock(index, "subject", e.target.value)
+                        }
                       />
                     </Field>
                   </div>
@@ -513,7 +572,9 @@ export default function Teachers() {
                                 ? "linear-gradient(90deg,#6d5df0,#8b6cf5)"
                                 : "rgba(255,255,255,0.03)",
                               color: active ? "#fff" : "#a9a6c4",
-                              borderColor: active ? "transparent" : "rgba(139,108,245,0.3)",
+                              borderColor: active
+                                ? "transparent"
+                                : "rgba(139,108,245,0.3)",
                             }}
                           >
                             {day}
@@ -528,7 +589,7 @@ export default function Teachers() {
                       <label style={label}>Saacadaha Xiisadaha</label>
 
                       {block.days.map((day) => {
-                        const sessions = block.daySessions[day] || [];
+                        const sessions = block.daySessions?.[day] || [];
                         return (
                           <div key={day} style={dayScheduleCard}>
                             <div style={dayScheduleHeader}>
@@ -547,7 +608,9 @@ export default function Teachers() {
 
                             {sessions.map((session, sIdx) => (
                               <div key={sIdx} style={sessionRow}>
-                                <span style={sessionLabel}>Xiisadda #{sIdx + 1}</span>
+                                <span style={sessionLabel}>
+                                  Xiisadda #{sIdx + 1}
+                                </span>
 
                                 <div>
                                   <label style={miniLabel}>Waqtiga Bilowga</label>
@@ -556,7 +619,13 @@ export default function Teachers() {
                                     style={timeInput}
                                     value={session.startTime}
                                     onChange={(e) =>
-                                      updateSessionTime(index, day, sIdx, "startTime", e.target.value)
+                                      updateSessionTime(
+                                        index,
+                                        day,
+                                        sIdx,
+                                        "startTime",
+                                        e.target.value
+                                      )
                                     }
                                   />
                                 </div>
@@ -568,7 +637,13 @@ export default function Teachers() {
                                     style={timeInput}
                                     value={session.endTime}
                                     onChange={(e) =>
-                                      updateSessionTime(index, day, sIdx, "endTime", e.target.value)
+                                      updateSessionTime(
+                                        index,
+                                        day,
+                                        sIdx,
+                                        "endTime",
+                                        e.target.value
+                                      )
                                     }
                                   />
                                 </div>
@@ -576,7 +651,9 @@ export default function Teachers() {
                                 {sessions.length > 1 && (
                                   <button
                                     type="button"
-                                    onClick={() => removeSessionFromDay(index, day, sIdx)}
+                                    onClick={() =>
+                                      removeSessionFromDay(index, day, sIdx)
+                                    }
                                     style={removeSessionBtn}
                                   >
                                     <X size={14} />
@@ -592,7 +669,11 @@ export default function Teachers() {
                 </div>
               ))}
 
-              <button type="button" onClick={addClassBlock} style={addBlockBtn}>
+              <button
+                type="button"
+                onClick={addClassBlock}
+                style={addBlockBtn}
+              >
                 <Plus size={16} /> Ku dar Fasal/Maado Kale
               </button>
             </div>
@@ -604,7 +685,10 @@ export default function Teachers() {
               <button onClick={saveEdit} disabled={saving} style={saveBtn}>
                 {saving ? (
                   <>
-                    <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
+                    <Loader2
+                      size={16}
+                      style={{ animation: "spin 1s linear infinite" }}
+                    />
                     Kaydinaya...
                   </>
                 ) : (
@@ -661,7 +745,9 @@ function Card({ icon: Icon, title, value, color }) {
         <Icon size={18} color={color} />
       </div>
       <h2 style={{ color: "#fff", margin: 0, fontSize: 26 }}>{value}</h2>
-      <p style={{ color: "#8b87ad", margin: "4px 0 0", fontSize: 13 }}>{title}</p>
+      <p style={{ color: "#8b87ad", margin: "4px 0 0", fontSize: 13 }}>
+        {title}
+      </p>
     </div>
   );
 }
@@ -736,15 +822,6 @@ const classTag = {
   padding: "5px 10px",
   borderRadius: 20,
   border: "1px solid rgba(139,108,245,0.25)",
-  whiteSpace: "nowrap",
-};
-
-const employmentTag = {
-  fontSize: 11.5,
-  padding: "5px 10px",
-  borderRadius: 20,
-  border: "1px solid",
-  fontWeight: 700,
   whiteSpace: "nowrap",
 };
 

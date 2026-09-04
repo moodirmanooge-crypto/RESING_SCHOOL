@@ -1,8 +1,7 @@
-// src/teacher/Students.jsx
 import { useEffect, useState } from "react";
 import { db } from "../firebase/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
-import { GraduationCap, Search, X, CalendarCheck2 } from "lucide-react";
+import { GraduationCap, Search, X, CalendarCheck2, BookOpen } from "lucide-react";
 
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
@@ -16,7 +15,7 @@ function StudentsStyles() {
       .st-body { padding: 0 20px 30px; }
       .st-filters-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 16px;
       }
       .st-main-row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
@@ -35,11 +34,15 @@ function StudentsStyles() {
 
 export default function Students() {
   const [classes, setClasses] = useState([]);
+  const [teacherClassEntries, setTeacherClassEntries] = useState([]);
+  const [classSubjects, setClassSubjects] = useState([]);
+  
   const [allStudents, setAllStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
   const [attendanceMap, setAttendanceMap] = useState({});
 
   const [selectedClass, setSelectedClass] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState("");
   const [searchText, setSearchText] = useState("");
 
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -53,12 +56,26 @@ export default function Students() {
   }, []);
 
   useEffect(() => {
-    applyFilters();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedClass, searchText, allStudents]);
+    if (selectedClass) {
+      const subjects = Array.from(
+        new Set(
+          teacherClassEntries
+            .filter((c) => c.className === selectedClass)
+            .map((c) => c.subject)
+            .filter((subj) => subj && String(subj).trim() !== "")
+        )
+      ).sort();
+      setClassSubjects(subjects);
+    } else {
+      setClassSubjects([]);
+    }
+    setSelectedSubject("");
+  }, [selectedClass, teacherClassEntries]);
 
-  // Matches actual Firestore structure: teachers/{teacherId} document
-  // has a "classes" array field with { className, subject, ... } entries
+  useEffect(() => {
+    applyFiltersAndCalculateAttendance();
+  }, [selectedClass, selectedSubject, searchText, allStudents]);
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -79,6 +96,7 @@ export default function Students() {
 
       const data = teacherSnap.data();
       const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
+      setTeacherClassEntries(teacherClasses);
 
       const uniqueClassNames = Array.from(
         new Set(teacherClasses.map((c) => c.className).filter(Boolean))
@@ -90,6 +108,12 @@ export default function Students() {
       }));
       setClasses(classList);
 
+      // Default class selection
+      if (uniqueClassNames.length > 0) {
+        setSelectedClass(uniqueClassNames[0]);
+      }
+
+      // Load Students
       let students = [];
       if (uniqueClassNames.length > 0) {
         const studentsSnap = await getDocs(
@@ -102,61 +126,70 @@ export default function Students() {
       }
       setAllStudents(students);
 
-      // Load all attendance records for these classes and compute per-student %
-      if (uniqueClassNames.length > 0) {
-        const attSnap = await getDocs(
-          query(
-            collection(db, "attendance"),
-            where("className", "in", uniqueClassNames.slice(0, 10))
-          )
-        );
-
-        const perStudent = {};
-
-        attSnap.docs.forEach((d) => {
-          const rec = d.data();
-          // Support two possible shapes:
-          // 1) one doc per student per day: { studentId, status: "present"|"absent" }
-          // 2) one doc per class per day with a "records" map: { records: { [studentId]: "present"|"absent" } }
-          if (rec.studentId) {
-            const sid = rec.studentId;
-            if (!perStudent[sid]) perStudent[sid] = { present: 0, total: 0 };
-            perStudent[sid].total += 1;
-            if (rec.status === "present" || rec.present === true) {
-              perStudent[sid].present += 1;
-            }
-          } else if (rec.records && typeof rec.records === "object") {
-            Object.entries(rec.records).forEach(([sid, status]) => {
-              if (!perStudent[sid]) perStudent[sid] = { present: 0, total: 0 };
-              perStudent[sid].total += 1;
-              if (status === "present" || status === true) {
-                perStudent[sid].present += 1;
-              }
-            });
-          }
-        });
-
-        const map = {};
-        Object.entries(perStudent).forEach(([sid, v]) => {
-          map[sid] = {
-            present: v.present,
-            total: v.total,
-            pct: v.total > 0 ? Math.round((v.present / v.total) * 100) : 0,
-          };
-        });
-
-        setAttendanceMap(map);
-      } else {
-        setAttendanceMap({});
-      }
+      // Load Attendance Records
+      await fetchAttendanceData(uniqueClassNames);
     } catch (err) {
-      console.log(err);
+      console.log("Error loading data:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  const applyFilters = () => {
+  const fetchAttendanceData = async (uniqueClassNames) => {
+    if (uniqueClassNames.length === 0) return;
+
+    try {
+      const attSnap = await getDocs(
+        query(
+          collection(db, "attendance"),
+          where("className", "in", uniqueClassNames.slice(0, 10))
+        )
+      );
+
+      const perStudent = {};
+
+      attSnap.docs.forEach((d) => {
+        const rec = d.data();
+        const sid = rec.studentId || rec.id;
+        const subj = rec.subject || "";
+
+        if (sid) {
+          if (!perStudent[sid]) perStudent[sid] = { total: 0, present: 0, bySubject: {} };
+
+          // Total overall
+          perStudent[sid].total += 1;
+          if (
+            rec.status === "Present" ||
+            rec.status === "present" ||
+            rec.present === true
+          ) {
+            perStudent[sid].present += 1;
+          }
+
+          // Subject specific
+          if (subj) {
+            if (!perStudent[sid].bySubject[subj]) {
+              perStudent[sid].bySubject[subj] = { total: 0, present: 0 };
+            }
+            perStudent[sid].bySubject[subj].total += 1;
+            if (
+              rec.status === "Present" ||
+              rec.status === "present" ||
+              rec.present === true
+            ) {
+              perStudent[sid].bySubject[subj].present += 1;
+            }
+          }
+        }
+      });
+
+      setAttendanceMap(perStudent);
+    } catch (err) {
+      console.log("Error fetching attendance:", err);
+    }
+  };
+
+  const applyFiltersAndCalculateAttendance = () => {
     let list = [...allStudents];
 
     if (selectedClass) {
@@ -168,17 +201,33 @@ export default function Students() {
       list = list.filter(
         (s) =>
           (s.fullName || "").toLowerCase().includes(text) ||
-          (s.studentPhone || "").toLowerCase().includes(text) ||
-          (s.parentPhone || "").toLowerCase().includes(text)
+          (s.studentId || s.id || "").toLowerCase().includes(text) ||
+          (s.studentPhone || "").toLowerCase().includes(text)
       );
     }
 
     setFilteredStudents(list);
   };
 
+  const getStudentAttData = (student) => {
+    const sid = student.studentId || student.id;
+    const att = attendanceMap[sid] || attendanceMap[student.id];
+
+    if (!att) return { present: 0, total: 0, pct: 0 };
+
+    if (selectedSubject && att.bySubject && att.bySubject[selectedSubject]) {
+      const subjData = att.bySubject[selectedSubject];
+      const pct = subjData.total > 0 ? Math.round((subjData.present / subjData.total) * 100) : 0;
+      return { present: subjData.present, total: subjData.total, pct };
+    }
+
+    const pct = att.total > 0 ? Math.round((att.present / att.total) * 100) : 0;
+    return { present: att.present, total: att.total, pct };
+  };
+
   const attendanceColor = (pct) => {
-    if (pct >= 90) return { bg: "rgba(34,197,94,.15)", fg: "#22C55E" };
-    if (pct >= 75) return { bg: "rgba(59,130,246,.15)", fg: "#3B82F6" };
+    if (pct >= 85) return { bg: "rgba(34,197,94,.15)", fg: "#22C55E" };
+    if (pct >= 65) return { bg: "rgba(59,130,246,.15)", fg: "#3B82F6" };
     if (pct >= 50) return { bg: "rgba(234,179,8,.15)", fg: "#EAB308" };
     return { bg: "rgba(239,68,68,.15)", fg: "#EF4444" };
   };
@@ -192,39 +241,52 @@ export default function Students() {
         <Topbar teacherName={teacherName} />
 
         <div className="st-body">
-          {/* Filters */}
+          {/* Filters Panel */}
           <div className="st-panel" style={filterCard}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
               <div style={iconCircle}>
                 <GraduationCap size={20} color="#8B5CF6" />
               </div>
-              <h3 style={{ margin: 0, color: "#fff" }}>My Students</h3>
+              <h3 style={{ margin: 0, color: "#fff" }}>Ardayda & Xaadirinta</h3>
             </div>
 
             <div className="st-filters-grid">
               <div>
-                <label style={label}>Class</label>
+                <label style={label}>Fasalka (Class)</label>
                 <select
                   style={input}
                   value={selectedClass}
                   onChange={(e) => setSelectedClass(e.target.value)}
                 >
-                  <option value="">All Classes</option>
+                  <option value="">Dhammaan Fasallada</option>
                   {classes.map((c) => (
                     <option key={c.id} value={c.className}>
                       {c.className}
                     </option>
                   ))}
                 </select>
-                {classes.length === 0 && (
-                  <p style={{ color: "#F59E0B", fontSize: 12, marginTop: 6 }}>
-                    Ma jiraan classes la helay teacher-kan.
-                  </p>
-                )}
               </div>
 
+              {classSubjects.length > 0 && (
+                <div>
+                  <label style={label}>Maadada (Subject)</label>
+                  <select
+                    style={input}
+                    value={selectedSubject}
+                    onChange={(e) => setSelectedSubject(e.target.value)}
+                  >
+                    <option value="">Dhammaan Maadadooyinka</option>
+                    {classSubjects.map((subj) => (
+                      <option key={subj} value={subj}>
+                        {subj}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
-                <label style={label}>Search</label>
+                <label style={label}>Raadi Arday</label>
                 <div style={{ position: "relative" }}>
                   <Search
                     size={16}
@@ -233,7 +295,7 @@ export default function Students() {
                   />
                   <input
                     style={{ ...input, paddingLeft: 36 }}
-                    placeholder="Search by name or phone..."
+                    placeholder="Magaca ama ID-ga..."
                     value={searchText}
                     onChange={(e) => setSearchText(e.target.value)}
                   />
@@ -242,14 +304,14 @@ export default function Students() {
             </div>
           </div>
 
-          {/* Table + profile */}
+          {/* Student List Table */}
           {loading ? (
             <div className="st-panel" style={tableCard}>
               <p style={{ padding: 20, color: "#94A3B8" }}>Loading students...</p>
             </div>
           ) : filteredStudents.length === 0 ? (
             <div className="st-panel" style={tableCard}>
-              <p style={{ padding: 20, color: "#94A3B8" }}>No students found.</p>
+              <p style={{ padding: 20, color: "#94A3B8" }}>Somalida: Arday ma la helin.</p>
             </div>
           ) : (
             <div className="st-main-row">
@@ -261,15 +323,16 @@ export default function Students() {
                         <th style={th}>Photo</th>
                         <th style={th}>Name</th>
                         <th style={th}>Class</th>
-                        <th style={th}>Attendance %</th>
+                        <th style={th}>
+                          Attendance % {selectedSubject ? `(${selectedSubject})` : ""}
+                        </th>
                         <th style={th}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredStudents.map((s) => {
-                        const att = attendanceMap[s.id];
-                        const pct = att ? att.pct : 0;
-                        const ac = attendanceColor(pct);
+                        const att = getStudentAttData(s);
+                        const ac = attendanceColor(att.pct);
                         return (
                           <tr key={s.id}>
                             <td style={td}>
@@ -288,7 +351,7 @@ export default function Students() {
                             <td style={td}>{s.fullName}</td>
                             <td style={td}>{s.className}</td>
                             <td style={td}>
-                              {att ? (
+                              {att.total > 0 ? (
                                 <span
                                   style={{
                                     background: ac.bg,
@@ -299,10 +362,10 @@ export default function Students() {
                                     fontSize: 13,
                                   }}
                                 >
-                                  {pct}% ({att.present}/{att.total})
+                                  {att.pct}% ({att.present}/{att.total})
                                 </span>
                               ) : (
-                                <span style={{ color: "#94A3B8", fontSize: 13 }}>No data</span>
+                                <span style={{ color: "#94A3B8", fontSize: 13 }}>0% (0/0)</span>
                               )}
                             </td>
                             <td style={td}>
@@ -321,6 +384,7 @@ export default function Students() {
                 </div>
               </div>
 
+              {/* View Profile Drawer */}
               {selectedStudent && (
                 <div className="st-panel" style={profileCard}>
                   <button style={closeBtn} onClick={() => setSelectedStudent(null)}>
@@ -345,23 +409,25 @@ export default function Students() {
                     {selectedStudent.fullName}
                   </h3>
                   <p style={{ textAlign: "center", color: "#94A3B8", marginTop: 0 }}>
-                    {selectedStudent.className}
+                    {selectedStudent.className} | ID: {selectedStudent.studentId || selectedStudent.id}
                   </p>
 
-                  {attendanceMap[selectedStudent.id] && (
-                    <div style={attSummary}>
-                      <CalendarCheck2 size={18} color="#8B5CF6" />
-                      <div>
-                        <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>
-                          {attendanceMap[selectedStudent.id].pct}% Joogitaan
-                        </div>
-                        <div style={{ color: "#94A3B8", fontSize: 12 }}>
-                          {attendanceMap[selectedStudent.id].present} /{" "}
-                          {attendanceMap[selectedStudent.id].total} maalmood
+                  {(() => {
+                    const att = getStudentAttData(selectedStudent);
+                    return (
+                      <div style={attSummary}>
+                        <CalendarCheck2 size={20} color="#8B5CF6" />
+                        <div>
+                          <div style={{ color: "#fff", fontWeight: 700, fontSize: 15 }}>
+                            {att.pct}% Joogitaan
+                          </div>
+                          <div style={{ color: "#94A3B8", fontSize: 12 }}>
+                            {att.present} / {att.total} Xiisadood oo xaadirin ah
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
               )}
             </div>
@@ -369,7 +435,6 @@ export default function Students() {
         </div>
       </div>
 
-      {/* Bottom tab bar — mobile only (hidden via CSS on desktop) */}
       <MobileBottomNav />
     </div>
   );
@@ -514,15 +579,5 @@ const attSummary = {
   border: "1px solid rgba(139,92,246,.25)",
   borderRadius: 14,
   padding: "10px 14px",
-  marginBottom: 14,
-};
-const profileRow = {
-  display: "flex",
-  justifyContent: "space-between",
-  padding: "8px 0",
-  borderBottom: "1px solid rgba(255,255,255,.05)",
-  fontSize: 14,
-};
-const profileLabel = {
-  color: "#94A3B8",
+  marginTop: 14,
 };

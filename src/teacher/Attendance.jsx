@@ -62,6 +62,7 @@ const WEEKDAYS = [
 export default function Attendance() {
   const [classes, setClasses] = useState([]);
   const [teacherClassEntries, setTeacherClassEntries] = useState([]);
+  const [teacherRawData, setTeacherRawData] = useState(null); // Firestore Data
   const [selectedClass, setSelectedClass] = useState("");
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
@@ -156,8 +157,9 @@ export default function Attendance() {
       }
 
       const data = teacherSnap.data();
-      const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
+      setTeacherRawData(data); // Save complete teacher profile data
 
+      const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
       setTeacherClassEntries(teacherClasses);
 
       const uniqueClassNames = Array.from(
@@ -199,7 +201,7 @@ export default function Attendance() {
       return;
     }
 
-    const selectedDateObj = new Date(date);
+    const selectedDateObj = new Date(`${date}T00:00:00`);
     const dayName = WEEKDAYS[selectedDateObj.getDay()];
 
     const matchedEntries = teacherClassEntries.filter((c) => {
@@ -303,7 +305,12 @@ export default function Attendance() {
     }
   };
 
-  const loadAttendanceForSession = async (className, dateStr, subject, sessionNumber) => {
+  const loadAttendanceForSession = async (
+    className,
+    dateStr,
+    subject,
+    sessionNumber
+  ) => {
     try {
       const constraints = [
         where("className", "==", className),
@@ -409,12 +416,48 @@ export default function Attendance() {
     }
   };
 
-  // Open the next new session explicitly upon user action
+  // CHECK IF SECOND SESSION IS SCHEDULED OR ALLOWED
   const startNextSession = () => {
+    const selectedDateObj = new Date(`${date}T00:00:00`);
+    const dayName = WEEKDAYS[selectedDateObj.getDay()];
+
     const nextSessionNum =
       existingSessions.length > 0 ? Math.max(...existingSessions) + 1 : 1;
-    setSelectedSessionNumber(nextSessionNum);
 
+    let hasNextSession = false;
+
+    // 1. Firestore `daySessions` Check
+    if (teacherRawData && teacherRawData.daySessions) {
+      const dayData = teacherRawData.daySessions[dayName];
+      if (
+        dayData &&
+        (Array.isArray(dayData) ? dayData.length >= nextSessionNum : dayData[nextSessionNum - 1] || dayData[nextSessionNum])
+      ) {
+        hasNextSession = true;
+      }
+    }
+
+    // 2. Schedule Classes Entry Check (Count subjects/classes assigned for the day)
+    if (!hasNextSession && teacherClassEntries.length > 0) {
+      const todayClassesCount = teacherClassEntries.filter((c) => {
+        if (c.className !== selectedClass) return false;
+        if (Array.isArray(c.days)) return c.days.includes(dayName);
+        return true;
+      }).length;
+
+      if (todayClassesCount >= nextSessionNum) {
+        hasNextSession = true;
+      }
+    }
+
+    // Hadii uusan xiisad labaad lahayn, alert sii
+    if (!hasNextSession) {
+      alert("Malihiid xiisad kale maanta.");
+      return;
+    }
+
+    // Hadii uu leeyahay xiisad labaad, sii wada xaadirinta!
+    setSelectedSessionNumber(nextSessionNum);
     const freshAttendance = {};
     students.forEach((s) => {
       freshAttendance[s.id] = "Not Marked";

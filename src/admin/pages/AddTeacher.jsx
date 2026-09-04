@@ -1,10 +1,20 @@
 // src/admin/pages/AddTeacher.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { db, storage } from "../../firebase/firebase";
 
-import { doc, setDoc, getDoc, getDocs, collection, query, where, writeBatch, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  getDoc,
+  getDocs,
+  collection,
+  query,
+  where,
+  writeBatch,
+  serverTimestamp,
+} from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   GraduationCap,
@@ -30,7 +40,11 @@ const weekDays = [
   "Wednesday",
 ];
 
-const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
+// Liiska caadiga ah ee fasalada ka bilaabanaya 1 ilaa F4
+const defaultClassOptions = [
+  "1", "2", "3", "4", "5", "6", "7", "8",
+  "F1", "F2", "F3", "F4"
+];
 
 const emptySession = () => ({
   startTime: "",
@@ -70,8 +84,29 @@ export default function AddTeacher() {
   const [photoPreview, setPhotoPreview] = useState(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
+  // Fasalada laga soo saari doono db ama default
+  const [availableClasses, setAvailableClasses] = useState(defaultClassOptions);
+
   const [classBlocks, setClassBlocks] = useState([emptyClassBlock()]);
   const [saving, setSaving] = useState(false);
+
+  // 1. Soo akhrinta Fasalada ka jira Database-ka si Dynamic ah
+  useEffect(() => {
+    const fetchClasses = async () => {
+      try {
+        const classesSnap = await getDocs(collection(db, "classes"));
+        if (!classesSnap.empty) {
+          const dbClasses = classesSnap.docs.map((d) => d.data().className || d.id);
+          // Isku dar fasalada DB-ka iyo kuwii hore oo ka saar kuwa ku doban (Unique)
+          const mergedClasses = Array.from(new Set([...defaultClassOptions, ...dbClasses]));
+          setAvailableClasses(mergedClasses);
+        }
+      } catch (err) {
+        console.log("Warbixinta fasalada DB-ka waa la heli waayay, waxaa la isticmaalayaa liiska default-ka:", err);
+      }
+    };
+    fetchClasses();
+  }, []);
 
   const toggleEmploymentType = (type) => {
     setEmploymentTypes((prev) =>
@@ -204,9 +239,10 @@ export default function AddTeacher() {
     return true;
   };
 
-  // SOO AKHRISKA TIMETABLE-KA IYO KU SHUBAALADA MAADOOBYINKA CUSUB
+  // 2. SOO AKHRISKA TIMETABLE-KA IYO KU SHUBAALADA MAADOOBYINKA & ARDAYDA CUSUB
   const syncTeacherTimetableToClasses = async (teacherUsername, teacherFullName) => {
     const modifiedClasses = new Set();
+    const assignedStudents = [];
 
     for (const block of classBlocks) {
       const className = block.className;
@@ -222,7 +258,6 @@ export default function AddTeacher() {
         const ttDocKey = `${className}__${day}`;
         const ttRef = doc(db, "timetable", ttDocKey);
 
-        // 1. SOO AKHRINAYA TIMETABLE-KA HORAY U JIRAY
         const ttSnap = await getDoc(ttRef);
 
         let existingSessions = [];
@@ -230,10 +265,8 @@ export default function AddTeacher() {
           existingSessions = ttSnap.data().sessions || [];
         }
 
-        // 2. Ka saar xiisaddii hore oo keliya ee Macalinkani lahaa (si aan loo tirtirin macalimiinta kale)
         let otherTeachersSessions = existingSessions.filter((s) => s.teacherId !== teacherUsername);
 
-        // 3. Ku dar xiisadaha iyo maadooyinka cusub ee macalinkan
         const newTeacherSessions = daySessions.map((s) => ({
           id: `s_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
           startTime: s.startTime,
@@ -243,11 +276,9 @@ export default function AddTeacher() {
           subject: subject,
         }));
 
-        // 4. Isku darka jadwalka
         const allSessionsCombined = sortedBySessionTime([...otherTeachersSessions, ...newTeacherSessions]);
         const finalSessions = withSessionNumbers(allSessionsCombined);
 
-        // 5. Ku dib-u-kaydinta Timetable-ka
         await setDoc(ttRef, {
           className,
           day,
@@ -257,12 +288,22 @@ export default function AddTeacher() {
       }
     }
 
-    // 6. SOO AKHRINAYA TIMETABLE-KA OO DHAN SI LOO CUSBOONEYSIIYO ARDAYDA FASALKAAS
+    // 3. SOO AKHRINAYA ARDAYDA FASALADAAS OO DIGNIIN LA'AAN LOO KU LINGAYO MACALINKA
     for (const className of modifiedClasses) {
       try {
         const studentsSnap = await getDocs(
           query(collection(db, "students"), where("className", "==", className))
         );
+
+        studentsSnap.docs.forEach((docSnap) => {
+          const sData = docSnap.data();
+          assignedStudents.push({
+            studentId: docSnap.id,
+            fullName: sData.fullName || "",
+            className: className
+          });
+        });
+
         if (studentsSnap.empty) continue;
 
         const fullWeekSchedule = [];
@@ -299,6 +340,8 @@ export default function AddTeacher() {
         console.log("Error updating student schedules:", err);
       }
     }
+
+    return assignedStudents;
   };
 
   const saveTeacher = async (e) => {
@@ -362,6 +405,9 @@ export default function AddTeacher() {
         ),
       ];
 
+      // DISPATCH TIMETABLE READ & ARDAYDA FASALADAAS
+      const assignedStudents = await syncTeacherTimetableToClasses(username, fullName);
+
       const teacherData = {
         fullName,
         username,
@@ -375,6 +421,7 @@ export default function AddTeacher() {
         subjects: uniqueSubjects,
         teacherPhoto: teacherPhotoUrl,
         classes: classBlocks,
+        students: assignedStudents, // Ardayda loo xiray macalinka sida AddStudent.jsx ga
         createdAt: serverTimestamp(),
       };
 
@@ -386,10 +433,7 @@ export default function AddTeacher() {
         issuedAt: serverTimestamp(),
       });
 
-      // ---- DISPATCH TIMETABLE READ & UPDATE ----
-      await syncTeacherTimetableToClasses(username, fullName);
-
-      alert("Macalinka waa la kaydiyay, jadwalka oo dhamina si sax ah ayaa loo akhrriyay oo loo cusbooneysiiyay!");
+      alert("Macalinka waa la kaydiyay, jadwalka fasaladiisa iyo ardayda oo dhan waa la aqriyay oo la cusbooneysiiyay!");
       navigate("/admin/teachers");
     } catch (err) {
       console.log(err);
@@ -620,9 +664,11 @@ export default function AddTeacher() {
                       updateClassBlock(index, "className", e.target.value)
                     }
                   >
-                    <option value="">-- Dooro --</option>
-                    {classOptions.map((c) => (
-                      <option key={c}>{c}</option>
+                    <option value="">-- Dooro Fasal --</option>
+                    {availableClasses.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </select>
                 </Field>
@@ -964,7 +1010,7 @@ const addSessionBtn = {
   alignItems: "center",
   gap: 5,
   background: "rgba(139,108,245,0.1)",
-  border: "1px solid rgba(139,108,245,0.4)",
+  border: "1.5px solid rgba(139,108,245,0.4)",
   color: "#8b6cf5",
   borderRadius: 8,
   padding: "6px 12px",
