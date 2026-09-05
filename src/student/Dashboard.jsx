@@ -1,5 +1,4 @@
 //src/student/Dashboard.jsx
-//student dashboard.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -28,18 +27,16 @@ const COLORS = {
   danger: "#ef5a6f",
 };
 
-// Rotating colors for the "#N" session badges, matching the printed timetable design.
 const BADGE_COLORS = [
-  "#6d5df0", // purple
-  "#2a9fb5", // teal
-  "#2fae63", // green
-  "#c99a1e", // gold
-  "#d97b1e", // orange
-  "#c0507a", // pink/rose
-  "#5b4fd6", // indigo
+  "#6d5df0",
+  "#2a9fb5",
+  "#2fae63",
+  "#c99a1e",
+  "#d97b1e",
+  "#c0507a",
+  "#5b4fd6",
 ];
 
-// Rough icon mapping for common subjects, falling back to a generic book icon.
 function subjectIcon(subject) {
   const s = (subject || "").toLowerCase();
   if (s.includes("islam")) return "🌙";
@@ -52,7 +49,6 @@ function subjectIcon(subject) {
   return "📘";
 }
 
-// Class order: 1 -> 8 (primary), then F1 -> F4 (secondary/form)
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 function classRank(className) {
   const idx = CLASS_ORDER.indexOf(String(className || "").toUpperCase());
@@ -78,7 +74,6 @@ const DAYS = [
   { key: "Wednesday", label: "Wednesday" },
 ];
 
-// Injects the responsive/media-query behavior that inline styles can't express.
 function ResponsiveStyles() {
   return (
     <style>{`
@@ -91,7 +86,7 @@ function ResponsiveStyles() {
       .rs-payment-summary-row { display: flex; gap: 16px; margin-bottom: 20px; }
       .rs-table-wrap { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
       .rs-table { width: 100%; border-collapse: collapse; min-width: 420px; }
-      .rs-header { display:flex; justify-content: space-between; align-items: flex-end; margin-bottom: 28px; gap: 12px; }
+      .rs-header { display:flex; justify-space-between; align-items: flex-end; margin-bottom: 28px; gap: 12px; }
       .rs-bottom-nav { display: none; }
       .rs-mobile-topbar { display: none; }
       .rs-day-tabs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px; }
@@ -181,29 +176,12 @@ const NAV_ITEMS = [
   { key: "messages", label: "Messages", icon: "💬" },
 ];
 
-// Loads html2canvas from a CDN on demand (only when the student actually
-// clicks "Download"), snapshots the timetable card, and triggers a PNG
-// download. Falls back to opening a print-friendly window if the canvas
-// library can't be loaded (e.g. network blocked).
-//
-// BUG U SAXAN: `.rs-table-wrap` (gudaha kaadhka) wuxuu leeyahay
-// `overflow-x: auto` + `min-width: 640px` si mobile-ka table-ku ugu
-// scroll-garmo dhinaca. html2canvas, marka aan wax laga beddelin, wuxuu
-// qaataa KALIYA qaybta hadda screen-ka ku muuqata (viewport-ka la
-// scroll-garay), mana qaadanayo dhererka buuxa ee table-ka — taas ayaa
-// sababaysay in sawirka la keydiyo uu ka maqan yahay SUBJECT iyo TEACHER
-// (loo jaray/loo dhimbay). Xalka: kahor inta aan sawirka la qaadin,
-// si ku meel gaar ah ugu beddel node-ka + wrap-ka gudaha si ay u
-// muujiyaan dhererka buuxa (scrollWidth), kadibna dib ugu celi qaabkii
-// hore marka sawirku dhamaado.
-async function downloadTimetableImage({ className, dayLabel }) {
+async function downloadTimetableImage({ className, studentType, dayLabel }) {
   const node = document.getElementById("student-timetable-card");
   if (!node) return;
 
-  // Gudaha kaadhka ee leh overflow-x: auto (halkaas ayaa jaridda ka dhacaysa)
   const scrollWrap = node.querySelector(".rs-table-wrap");
 
-  // Keydi qaabkii asalka ahaa si aan dib ugu celino sawirka ka dib
   const prevNodeWidth = node.style.width;
   const prevWrapOverflow = scrollWrap ? scrollWrap.style.overflow : null;
   const prevWrapWidth = scrollWrap ? scrollWrap.style.width : null;
@@ -219,9 +197,6 @@ async function downloadTimetableImage({ className, dayLabel }) {
       });
     }
 
-    // Si ku meel gaar ah u fur scroll-ka si dhererka buuxa (SUBJECT +
-    // TEACHER oo dhan) uu u muuqdo, si html2canvas uu u sawiro dhammaan
-    // table-ka — ma aha kaliya qaybta la scroll-garay.
     if (scrollWrap) {
       const fullWidth = scrollWrap.scrollWidth;
       scrollWrap.style.overflow = "visible";
@@ -233,21 +208,18 @@ async function downloadTimetableImage({ className, dayLabel }) {
       backgroundColor: "#0f1626",
       scale: 2,
       useCORS: true,
-      // scrollWidth-ka dhabta ah ayaa la siinayaa si canvas-ku uusan
-      // u xadidnaan viewport/window-ka mobile-ka.
       width: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
       windowWidth: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
     });
     const link = document.createElement("a");
-    link.download = `Timetable-${className || "class"}-${dayLabel || "day"}.png`;
+    const safeType = (studentType || "full-time").toLowerCase().replace(/\s+/g, "-");
+    link.download = `Timetable-${className || "class"}-${safeType}-${dayLabel || "day"}.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
   } catch (err) {
     console.log("Falling back to print view:", err);
     window.print();
   } finally {
-    // Dib ugu celi qaabkii asalka ahaa si screen-ka toos ahi uusan u
-    // xumaan sawirka ka dib.
     if (scrollWrap) {
       scrollWrap.style.overflow = prevWrapOverflow || "";
       scrollWrap.style.width = prevWrapWidth || "";
@@ -256,9 +228,6 @@ async function downloadTimetableImage({ className, dayLabel }) {
   }
 }
 
-// Snapshots the rendered certificate card (from CertificateCard.jsx) and
-// triggers a PNG download. Same html2canvas-on-demand pattern as the
-// timetable download above, for consistency across the dashboard.
 async function downloadCertificateImage(fullName) {
   const node = document.getElementById("certificate-render-card");
   if (!node) return;
@@ -300,15 +269,12 @@ export default function StudentDashboard() {
   const [tab, setTab] = useState("overview");
   const [loading, setLoading] = useState(true);
 
-  // Regular class timetable + exam timetable (read-only, keyed by day)
   const [timetableByDay, setTimetableByDay] = useState({});
   const [examTimetableByDay, setExamTimetableByDay] = useState({});
   const [examWeek, setExamWeek] = useState(null);
   const [activeTimetableDay, setActiveTimetableDay] = useState(DAYS[0].key);
   const [activeExamDay, setActiveExamDay] = useState(DAYS[0].key);
-  // teacherId -> fullName, so each timetable session can show who teaches it
   const [teacherNames, setTeacherNames] = useState({});
-  // Class 8 leaving certificate, if one has been issued for this student
   const [certificate, setCertificate] = useState(null);
 
   useEffect(() => {
@@ -319,10 +285,36 @@ export default function StudentDashboard() {
 
     const load = async () => {
       try {
-        const studentSnap = await getDoc(doc(db, "students", studentId));
         let className = null;
+        let studentSnap = await getDoc(doc(db, "students", studentId));
+        let isPartTimeCollection = false;
+
+        if (!studentSnap.exists()) {
+          studentSnap = await getDoc(doc(db, "partTimeStudents", studentId));
+          isPartTimeCollection = true;
+        }
+
+        let isPartTime = false;
+        let studentTypeLabel = "Full Time";
+
         if (studentSnap.exists()) {
-          const data = { id: studentSnap.id, ...studentSnap.data() };
+          const sData = studentSnap.data();
+          const rawType =
+            sData.studentType ||
+            sData.type ||
+            (isPartTimeCollection ? "Part Time" : "Full Time");
+
+          isPartTime =
+            isPartTimeCollection ||
+            String(rawType).toLowerCase().includes("part");
+
+          studentTypeLabel = isPartTime ? "Part Time" : "Full Time";
+
+          const data = {
+            id: studentSnap.id,
+            ...sData,
+            studentType: studentTypeLabel,
+          };
           setStudent(data);
           className = data.className;
         }
@@ -338,8 +330,6 @@ export default function StudentDashboard() {
           setAttendance([]);
         }
 
-        // Load every teacher's name once, so timetable sessions (which only
-        // store teacherId) can be displayed with the teacher's full name.
         try {
           const teachersSnap = await getDocs(collection(db, "teachers"));
           const map = {};
@@ -352,15 +342,18 @@ export default function StudentDashboard() {
           setTeacherNames({});
         }
 
-        // Load the regular class timetable (timetable collection, doc id
-        // `${className}__${day}`), one document per day.
+        // FULL-TIME students read ONLY from "timetable", PART-TIME students read ONLY from "timetablePartTime"
+        const timetableCollectionName = isPartTime
+          ? "timetablePartTime"
+          : "timetable";
+
         if (className) {
           try {
             const ttMap = {};
             await Promise.all(
               DAYS.map(async (d) => {
                 const snap = await getDoc(
-                  doc(db, "timetable", `${className}__${d.key}`)
+                  doc(db, timetableCollectionName, `${className}__${d.key}`)
                 );
                 if (snap.exists()) ttMap[d.key] = snap.data();
               })
@@ -370,9 +363,6 @@ export default function StudentDashboard() {
             setTimetableByDay({});
           }
 
-          // Load the exam timetable (examTimetable collection, doc id
-          // `${className}__${day}`) — kept fully separate from the
-          // regular timetable above.
           try {
             const examMap = {};
             await Promise.all(
@@ -388,7 +378,6 @@ export default function StudentDashboard() {
             setExamTimetableByDay({});
           }
 
-          // Load the exam week date range (examWeek/{className}), if set.
           try {
             const wkSnap = await getDoc(doc(db, "examWeek", className));
             if (wkSnap.exists()) setExamWeek(wkSnap.data());
@@ -396,9 +385,6 @@ export default function StudentDashboard() {
             setExamWeek(null);
           }
 
-          // Load the Class 8 leaving certificate, if issued. Certificates
-          // are keyed by a random certificateId, so look them up by the
-          // studentId field instead of by doc id.
           if (String(className).toUpperCase() === "8") {
             try {
               const certQ = query(
@@ -423,11 +409,6 @@ export default function StudentDashboard() {
 
     load();
 
-    // Live messages feed — catches both broadcast messages sent to
-    // "all students" and individual messages addressed to this exact
-    // student (matched by recipientId, which MessagesCard sets to the
-    // student's document id). onSnapshot means this updates instantly,
-    // no refresh needed, as soon as admin sends something.
     let unsubscribeBroadcast = () => {};
     let unsubscribeIndividual = () => {};
     let broadcastMsgs = [];
@@ -435,7 +416,6 @@ export default function StudentDashboard() {
 
     function mergeAndSetMessages() {
       const all = [...broadcastMsgs, ...individualMsgs];
-      // de-dupe by id, sort newest first
       const seen = new Map();
       all.forEach((m) => seen.set(m.id, m));
       const merged = Array.from(seen.values()).sort((a, b) => {
@@ -475,7 +455,6 @@ export default function StudentDashboard() {
       individualMsgs = [];
     }
 
-    // Live payments feed — updates instantly when the cashier records a payment
     let unsubscribe = () => {};
     try {
       const paymentsQ = query(
@@ -518,12 +497,8 @@ export default function StudentDashboard() {
       ? Math.round((attendanceStats.present / attendanceStats.total) * 100)
       : null;
 
-  // Student is Free if feeType is explicitly "Free" (case-insensitive).
   const isFreeStudent = String(student?.feeType || "").toLowerCase() === "free";
 
-  // Payments written by the Cashier's Payments.jsx use paidAmount/monthKey/
-  // status/monthLabel/schoolName — not amount/date/method/cashierName.
-  // Sort newest first by monthKey (falls back to createdAt if monthKey missing).
   const sortedPayments = [...payments].sort((a, b) => {
     if (a.monthKey && b.monthKey) return b.monthKey.localeCompare(a.monthKey);
     const aTime = a.createdAt?.seconds || 0;
@@ -565,7 +540,6 @@ export default function StudentDashboard() {
     <div className="rs-page">
       <ResponsiveStyles />
 
-      {/* Mobile top bar (visible only on small screens) */}
       <div className="rs-mobile-topbar">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={styles.brandMark}>RS</div>
@@ -580,7 +554,6 @@ export default function StudentDashboard() {
       </div>
 
       <div className="rs-layout">
-        {/* Desktop sidebar (hidden on small screens) */}
         <aside className="rs-sidebar">
           <div style={styles.brand}>
             <div style={styles.brandMark}>RS</div>
@@ -616,7 +589,21 @@ export default function StudentDashboard() {
         <main className="rs-main">
           <header className="rs-header">
             <div>
-              <div style={styles.eyebrow}>Student ID {studentId}</div>
+              <div style={styles.eyebrow}>
+                Student ID {studentId}
+                {student?.studentType && (
+                  <span
+                    style={{
+                      ...styles.studentTypeBadge,
+                      ...(student.studentType === "Part Time"
+                        ? styles.studentTypeBadgePartTime
+                        : styles.studentTypeBadgeFullTime),
+                    }}
+                  >
+                    {student.studentType}
+                  </span>
+                )}
+              </div>
               <h1 className="rs-h1" style={styles.h1}>
                 {student?.fullName ? `Welcome, ${student.fullName.split(" ")[0]}` : "Welcome"}
               </h1>
@@ -632,14 +619,14 @@ export default function StudentDashboard() {
                 accent={COLORS.accent}
               />
               <StatCard
-  label={student?.feeType === "Free" ? "Fee Status" : "Monthly Fee"}
-  value={
-    student?.feeType === "Free"
-      ? "Free"
-      : `$${Number(student?.monthlyFee || 0).toLocaleString()}`
-  }
-  accent={COLORS.accent}
-/>
+                label={student?.feeType === "Free" ? "Fee Status" : "Monthly Fee"}
+                value={
+                  student?.feeType === "Free"
+                    ? "Free"
+                    : `$${Number(student?.monthlyFee || 0).toLocaleString()}`
+                }
+                accent={COLORS.accent}
+              />
               <StatCard
                 label="Messages from admin"
                 value={messages.length}
@@ -651,6 +638,7 @@ export default function StudentDashboard() {
                   <Detail label="Full name" value={student?.fullName} />
                   <Detail label="Class" value={student?.className} />
                   <Detail label="District" value={student?.district} />
+                  <Detail label="Student type" value={student?.studentType} />
                   <Detail label="Monthly fee" value={student?.monthlyFee} />
                   <Detail label="Parent phone" value={student?.parentPhone} />
                   <Detail label="Student phone" value={student?.studentPhone} />
@@ -659,11 +647,6 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          {/* Student ID Card — auto-generated from the student's own record,
-              nothing typed by the student. Admin/teacher only enters
-              fullName, className, shift and studentPhoto when registering;
-              this tab simply renders those fields into the official card
-              design (front + back), with a working print button. */}
           {tab === "idCard" && (
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>My Student ID Card</div>
@@ -671,11 +654,6 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          {/* Class 8 Leaving Certificate — only visible to Class 8 students.
-              Rendered from the same CertificateCard component used in the
-              admin panel and the public verify page, so the design always
-              stays in sync. If admin hasn't generated one yet, show an
-              empty state instead of a broken/missing certificate. */}
           {tab === "certificate" && isClass8 && (
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>My Class 8 Leaving Certificate</div>
@@ -699,7 +677,7 @@ export default function StudentDashboard() {
                       cursor: "pointer",
                     }}
                   >
-                    
+                    ⬇️ Download Certificate
                   </button>
                 </div>
               ) : (
@@ -708,9 +686,6 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          {/* Regular weekly class timetable — styled to match the official
-              printed timetable design, with a "Download as image" button.
-              Each session shows the teacher's name (not just the subject). */}
           {tab === "timetable" && (
             <section className="rs-panel" style={styles.panel}>
               <div
@@ -725,8 +700,22 @@ export default function StudentDashboard() {
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <div style={styles.timetableIconBadge}>🗓️</div>
-                  <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text }}>
-                    Class Timetable – {student?.className || "—"}
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: COLORS.text, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span>Class Timetable – {student?.className || "—"}</span>
+                      {student?.studentType && (
+                        <span
+                          style={{
+                            ...styles.studentTypeBadge,
+                            ...(student.studentType === "Part Time"
+                              ? styles.studentTypeBadgePartTime
+                              : styles.studentTypeBadgeFullTime),
+                          }}
+                        >
+                          {student.studentType}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -735,6 +724,7 @@ export default function StudentDashboard() {
                     onClick={() =>
                       downloadTimetableImage({
                         className: student?.className,
+                        studentType: student?.studentType,
                         dayLabel: DAYS.find((d) => d.key === activeTimetableDay)?.label,
                       })
                     }
@@ -781,7 +771,7 @@ export default function StudentDashboard() {
                   (a, b) => (a.startTime || "").localeCompare(b.startTime || "")
                 );
                 if (sessions.length === 0) {
-                  return <EmptyState text="No timetable set for this day yet." />;
+                  return <EmptyState text={`No ${student?.studentType || ""} timetable set for this day yet.`} />;
                 }
                 return (
                   <div id="student-timetable-card" style={styles.ttCard}>
@@ -827,7 +817,6 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          {/* Exam timetable — its own tab, separate collection/data from the regular timetable */}
           {tab === "examTimetable" && (
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>Exam Timetable — {student?.className || "—"}</div>
@@ -1060,7 +1049,6 @@ export default function StudentDashboard() {
         </main>
       </div>
 
-      {/* Mobile bottom nav (visible only on small screens) */}
       <nav className="rs-bottom-nav">
         {visibleNavItems.map((item) => (
           <button
@@ -1199,6 +1187,27 @@ const styles = {
     color: COLORS.textDim,
     textTransform: "uppercase",
     marginBottom: 6,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  studentTypeBadge: {
+    fontSize: 10.5,
+    letterSpacing: 0.6,
+    fontWeight: 700,
+    padding: "3px 9px",
+    borderRadius: 999,
+    textTransform: "uppercase",
+  },
+  studentTypeBadgeFullTime: {
+    background: "rgba(62,207,142,0.12)",
+    color: COLORS.accent,
+    border: `1px solid rgba(62,207,142,0.35)`,
+  },
+  studentTypeBadgePartTime: {
+    background: "rgba(245,166,35,0.12)",
+    color: COLORS.warn,
+    border: `1px solid rgba(245,166,35,0.35)`,
   },
   h1: { fontSize: 28, margin: 0, fontWeight: 700 },
   classPill: {
@@ -1295,7 +1304,6 @@ const styles = {
     color: "#06231a",
   },
 
-  // ---- Timetable card (matches the printed reference design) ----
   timetableIconBadge: {
     width: 42,
     height: 42,
