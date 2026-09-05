@@ -319,10 +319,23 @@ export default function StudentDashboard() {
 
     const load = async () => {
       try {
-        const studentSnap = await getDoc(doc(db, "students", studentId));
+        // Fulltime-ka marka hore ka raadi, haddii aan la helin (ardaygu
+        // waa part time) ka raadi collection-ka partTimeStudents.
         let className = null;
+        let studentSnap = await getDoc(doc(db, "students", studentId));
+        let studentTypeLabel = "Full Time";
+
+        if (!studentSnap.exists()) {
+          studentSnap = await getDoc(doc(db, "partTimeStudents", studentId));
+          studentTypeLabel = "Part Time";
+        }
+
         if (studentSnap.exists()) {
-          const data = { id: studentSnap.id, ...studentSnap.data() };
+          const data = {
+            id: studentSnap.id,
+            ...studentSnap.data(),
+            studentType: studentTypeLabel,
+          };
           setStudent(data);
           className = data.className;
         }
@@ -352,15 +365,20 @@ export default function StudentDashboard() {
           setTeacherNames({});
         }
 
-        // Load the regular class timetable (timetable collection, doc id
-        // `${className}__${day}`), one document per day.
+        // Load the regular class timetable — Full Time students read from
+        // the "timetable" collection, Part Time students read from the
+        // separate "timetablePartTime" collection (kept fully independent
+        // so the two never overwrite each other).
+        const timetableCollectionName =
+          studentTypeLabel === "Part Time" ? "timetablePartTime" : "timetable";
+
         if (className) {
           try {
             const ttMap = {};
             await Promise.all(
               DAYS.map(async (d) => {
                 const snap = await getDoc(
-                  doc(db, "timetable", `${className}__${d.key}`)
+                  doc(db, timetableCollectionName, `${className}__${d.key}`)
                 );
                 if (snap.exists()) ttMap[d.key] = snap.data();
               })
@@ -616,7 +634,21 @@ export default function StudentDashboard() {
         <main className="rs-main">
           <header className="rs-header">
             <div>
-              <div style={styles.eyebrow}>Student ID {studentId}</div>
+              <div style={styles.eyebrow}>
+                Student ID {studentId}
+                {student?.studentType && (
+                  <span
+                    style={{
+                      ...styles.studentTypeBadge,
+                      ...(student.studentType === "Part Time"
+                        ? styles.studentTypeBadgePartTime
+                        : styles.studentTypeBadgeFullTime),
+                    }}
+                  >
+                    {student.studentType}
+                  </span>
+                )}
+              </div>
               <h1 className="rs-h1" style={styles.h1}>
                 {student?.fullName ? `Welcome, ${student.fullName.split(" ")[0]}` : "Welcome"}
               </h1>
@@ -651,6 +683,7 @@ export default function StudentDashboard() {
                   <Detail label="Full name" value={student?.fullName} />
                   <Detail label="Class" value={student?.className} />
                   <Detail label="District" value={student?.district} />
+                  <Detail label="Student type" value={student?.studentType} />
                   <Detail label="Monthly fee" value={student?.monthlyFee} />
                   <Detail label="Parent phone" value={student?.parentPhone} />
                   <Detail label="Student phone" value={student?.studentPhone} />
@@ -1199,6 +1232,27 @@ const styles = {
     color: COLORS.textDim,
     textTransform: "uppercase",
     marginBottom: 6,
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  studentTypeBadge: {
+    fontSize: 10.5,
+    letterSpacing: 0.6,
+    fontWeight: 700,
+    padding: "3px 9px",
+    borderRadius: 999,
+    textTransform: "uppercase",
+  },
+  studentTypeBadgeFullTime: {
+    background: "rgba(62,207,142,0.12)",
+    color: COLORS.accent,
+    border: `1px solid rgba(62,207,142,0.35)`,
+  },
+  studentTypeBadgePartTime: {
+    background: "rgba(245,166,35,0.12)",
+    color: COLORS.warn,
+    border: `1px solid rgba(245,166,35,0.35)`,
   },
   h1: { fontSize: 28, margin: 0, fontWeight: 700 },
   classPill: {

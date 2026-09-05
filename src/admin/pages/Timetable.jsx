@@ -22,9 +22,6 @@ import {
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
-// Xogta iskoolka ee lagu daabaco boggaga A4-ka — la mid ah magaca/website-ka
-// ee ku muuqda ID Card-ka ardayga, si dukumentiyada la daabaco oo dhan ay
-// isku mid u yihiin (branding sax ah, mid keliya oo la isticmaalo app-ka oo dhan).
 const SCHOOL_INFO = {
   name1: "RISING STAR PRIMARY",
   name2: "& SECONDARY SCHOOL",
@@ -32,6 +29,14 @@ const SCHOOL_INFO = {
 };
 
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
+
+// Fulltime -> collection "timetable" (sida hore, waxba kama beddelin xogtiisa)
+// Part time -> collection cusub "timetablePartTime", si aysan waligood
+// isugu qarxin ama isu dul saarin xogta fulltime-ka.
+const STUDENT_TYPES = [
+  { key: "fulltime", label: "Full Time", collectionName: "timetable" },
+  { key: "parttime", label: "Part Time", collectionName: "timetablePartTime" },
+];
 
 function cleanClassName(val) {
   if (!val) return "";
@@ -62,12 +67,6 @@ function emptySession() {
   };
 }
 
-// ---------------------------------------------------------------------
-// PRINT STYLES — waxaa lagu daabacayaa A4 Landscape, bog kasta oo Fasal.
-// Habka la isticmaalay: "print isolation" — marka daabacaadu bilaabmayso,
-// dhammaan boggaha (Sidebar/Topbar/modal-ka) waa la qariyaa (.tt-app-shell),
-// oo kaliya .tt-print-root (bogagga jadwalka) ayaa la muujiyaa.
-// ---------------------------------------------------------------------
 function PrintStyles() {
   return (
     <style>{`
@@ -83,7 +82,6 @@ function PrintStyles() {
           print-color-adjust: exact !important;
         }
 
-        /* Qari dhammaan app-ka (sidebar, topbar, modal, kaadhadhka) */
         .tt-app-shell {
           display: none !important;
         }
@@ -93,8 +91,6 @@ function PrintStyles() {
         }
       }
 
-      /* Marka aan la daabacayn (screen-ka caadiga ah), boggagga daabacaadda
-         ha la muujin — waxay ku jiraan DOM-ka si print-ku u shaqeeyo. */
       .tt-print-root {
         display: none;
       }
@@ -227,19 +223,13 @@ function PrintStyles() {
   );
 }
 
-// ---------------------------------------------------------------------
-// TABLE-ka hal Fasal — waxa uu ka soo ururiyaa xogta timetableDocs
-// (5-ta maalmood), oo isu geeya hal grid: safaf = xiisad #, tiirar = maalin.
-// Sabab: waqtiyada maalin walba way iskala duwan yihiin, marka lama isku
-// xidhin karo waqtiga (sida sida bogga arday-ku u dhigmo), ee waa la isu
-// geeyaa taxane ahaan sida maalinta laga sameeyay.
-// ---------------------------------------------------------------------
-function ClassPrintTable({ cls, timetableDocs }) {
+function ClassPrintTable({ cls, type, timetableByType, studentTypeLabel }) {
   const norm = cleanClassName(cls);
+  const docs = timetableByType[type] || {};
 
   const dayData = DAYS.map((d) => {
     const key = `${norm}__${d.key}`;
-    const sessions = [...(timetableDocs[key]?.sessions || [])].sort((a, b) =>
+    const sessions = [...(docs[key]?.sessions || [])].sort((a, b) =>
       (a.startTime || "").localeCompare(b.startTime || "")
     );
     return { ...d, sessions };
@@ -255,7 +245,7 @@ function ClassPrintTable({ cls, timetableDocs }) {
           <div className="tt-print-school-name">{SCHOOL_INFO.name1}</div>
           <div className="tt-print-school-name">{SCHOOL_INFO.name2}</div>
           <div className="tt-print-school-year">
-            Sannad Dugsiyeedka: {SCHOOL_INFO.academicYear}
+            Sannad Dugsiyeedka: {SCHOOL_INFO.academicYear} · {studentTypeLabel}
           </div>
         </div>
         <div className="tt-print-class-badge">
@@ -311,11 +301,9 @@ function ClassPrintTable({ cls, timetableDocs }) {
   );
 }
 
-// ---------------------------------------------------------------------
-// MODAL-ka doorashada Fasallada — "Dhammaan Fasallada" ama gaar ah.
-// ---------------------------------------------------------------------
 function PrintPreviewModal({ selected, onToggle, onSelectAll, onClose, onPrint }) {
-  const allSelected = selected.length === CLASS_ORDER.length;
+  const totalPossible = CLASS_ORDER.length * STUDENT_TYPES.length;
+  const allSelected = selected.length === totalPossible;
 
   return (
     <div
@@ -336,7 +324,7 @@ function PrintPreviewModal({ selected, onToggle, onSelectAll, onClose, onPrint }
           background: "#151233",
           border: "1px solid rgba(139,108,245,0.25)",
           borderRadius: 18,
-          width: "min(560px, 100%)",
+          width: "min(680px, 100%)",
           maxHeight: "86vh",
           display: "flex",
           flexDirection: "column",
@@ -366,8 +354,10 @@ function PrintPreviewModal({ selected, onToggle, onSelectAll, onClose, onPrint }
 
         <div style={{ padding: "16px 22px", overflowY: "auto" }}>
           <p style={{ color: "#8b87ad", fontSize: 13, marginTop: 0 }}>
-            Dooro Fasallada aad rabto in la daabaco — waxaa la sameyn doonaa
-            bog A4 Landscape ah oo gaar ah Fasal kasta.
+            Dooro Fasallada aad rabto in la daabaco — Full Time, Part Time, ama
+            labadaba isku mar. Fasal kasta oo la doorto waxaa lagu sameyn
+            doonaa bog A4 Landscape gaar ah, oo muujinaya magaca fasalka iyo
+            nooca (Full Time / Part Time).
           </p>
 
           <button
@@ -388,44 +378,67 @@ function PrintPreviewModal({ selected, onToggle, onSelectAll, onClose, onPrint }
             }}
           >
             {allSelected ? <CheckSquare size={16} /> : <Square size={16} />}
-            {allSelected ? "Ka saar Dhammaan" : "Xulo Dhammaan Fasallada"}
+            {allSelected ? "Ka saar Dhammaan" : "Xulo Dhammaan (Full Time + Part Time)"}
           </button>
 
+          {/* Halkan waxaa lagu tusayaa magaca fasalka mar walba oo tick-gu
+              taagan yahay — labo checkbox (Full Time / Part Time) oo
+              fasal kasta leeyahay, si macalinku u dooran karo mid, kale,
+              ama labadaba isku mar hal fasal. */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))",
               gap: 10,
             }}
           >
-            {CLASS_ORDER.map((cls) => {
-              const isChecked = selected.includes(cls);
-              return (
-                <label
-                  key={cls}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    background: isChecked ? "rgba(139,108,245,0.15)" : "#0b0a1c",
-                    border: `1px solid ${isChecked ? "#6d5df0" : "rgba(139,108,245,0.2)"}`,
-                    borderRadius: 8,
-                    padding: "9px 10px",
-                    cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: 600,
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isChecked}
-                    onChange={() => onToggle(cls)}
-                    style={{ accentColor: "#6d5df0" }}
-                  />
+            {CLASS_ORDER.map((cls) => (
+              <div
+                key={cls}
+                style={{
+                  background: "#0b0a1c",
+                  border: "1px solid rgba(139,108,245,0.2)",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                }}
+              >
+                <div style={{ fontWeight: "bold", fontSize: 13.5, marginBottom: 8, color: "#eef0f4" }}>
                   Fasalka: {cls}
-                </label>
-              );
-            })}
+                </div>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {STUDENT_TYPES.map((t) => {
+                    const isChecked = selected.some(
+                      (item) => item.cls === cls && item.type === t.key
+                    );
+                    return (
+                      <label
+                        key={t.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          background: isChecked ? "rgba(139,108,245,0.15)" : "transparent",
+                          border: `1px solid ${isChecked ? "#6d5df0" : "rgba(139,108,245,0.2)"}`,
+                          borderRadius: 8,
+                          padding: "6px 10px",
+                          cursor: "pointer",
+                          fontSize: 12.5,
+                          fontWeight: 600,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => onToggle(cls, t.key)}
+                          style={{ accentColor: "#6d5df0" }}
+                        />
+                        {t.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -481,26 +494,51 @@ export default function Timetable() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [teachers, setTeachers] = useState([]);
-  const [timetableDocs, setTimetableDocs] = useState({});
+  // Xogta labada nooc (Full Time + Part Time) waxay isku mar ku jirtaa
+  // halkan — { fulltime: { "1__Saturday": {...} }, parttime: {...} } —
+  // si macalinku uu ugu daawan/daabaco karo labadaba isku mar, iyada oo
+  // aan loo baahnayn in mar walba dib loo soo qaado xogta marka toggle-ka
+  // la beddelo.
+  const [timetableByType, setTimetableByType] = useState({ fulltime: {}, parttime: {} });
   const [selectedClass, setSelectedClass] = useState(null);
   const [activeDay, setActiveDay] = useState(DAYS[0].key);
   const [draftSessions, setDraftSessions] = useState([]);
 
+  // ---- Full Time / Part Time toggle (gudaha bogga tafatirka) ----
+  const [studentType, setStudentType] = useState("fulltime");
+  const activeCollectionName =
+    STUDENT_TYPES.find((t) => t.key === studentType)?.collectionName || "timetable";
+  const activeTypeLabel =
+    STUDENT_TYPES.find((t) => t.key === studentType)?.label || "Full Time";
+  const timetableDocs = timetableByType[studentType] || {};
+
   // ---- Daawo & Daabac (Preview & Print) ----
+  // selectedForPrint hadda waa liis walxo ah { cls, type } — si fasal
+  // kastaa loogu doorto Full Time, Part Time, ama labadaba.
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [selectedForPrint, setSelectedForPrint] = useState([]);
   const [classesToPrint, setClassesToPrint] = useState([]);
 
-  function togglePrintClass(cls) {
-    setSelectedForPrint((prev) =>
-      prev.includes(cls) ? prev.filter((c) => c !== cls) : [...prev, cls]
-    );
+  function togglePrintClass(cls, type) {
+    setSelectedForPrint((prev) => {
+      const exists = prev.some((item) => item.cls === cls && item.type === type);
+      if (exists) {
+        return prev.filter((item) => !(item.cls === cls && item.type === type));
+      }
+      return [...prev, { cls, type }];
+    });
   }
 
   function toggleSelectAllForPrint() {
-    setSelectedForPrint((prev) =>
-      prev.length === CLASS_ORDER.length ? [] : [...CLASS_ORDER]
-    );
+    setSelectedForPrint((prev) => {
+      const totalPossible = CLASS_ORDER.length * STUDENT_TYPES.length;
+      if (prev.length === totalPossible) return [];
+      const all = [];
+      CLASS_ORDER.forEach((cls) => {
+        STUDENT_TYPES.forEach((t) => all.push({ cls, type: t.key }));
+      });
+      return all;
+    });
   }
 
   function handleStartPrint() {
@@ -509,11 +547,6 @@ export default function Timetable() {
     setPrintModalOpen(false);
   }
 
-  // Marka classesToPrint la buuxiyo, bogagga A4-ka ayaa DOM-ka ku soo daray
-  // (tt-print-root). Waan sugaynaa hal frame si render-ku u dhammaado,
-  // kadibna waxaan wacnaa window.print(). Marka daabacaaddu dhammaato ama
-  // la joojiyo, waxaan nadiifinaynaa classesToPrint si bogagga aan mar kale
-  // uga muuqan screen-ka.
   useEffect(() => {
     if (classesToPrint.length === 0) return;
 
@@ -530,6 +563,11 @@ export default function Timetable() {
     };
   }, [classesToPrint]);
 
+  // Marka bogga la furo, xogta LABADA nooc (Full Time + Part Time) waxaa
+  // hal mar la soo qaadaa, si toggle-ka Full Time/Part Time uu si degdeg
+  // ah u shaqeeyo, oo Daawo & Daabac-na uu awoodo inuu isla mar u
+  // muujiyo labada nooc — la'aanteed waxaa loo baahnaan lahaa in xogta
+  // labaad la sugo marka la daabacayo.
   useEffect(() => {
     loadAllData();
   }, []);
@@ -538,47 +576,54 @@ export default function Timetable() {
     try {
       setLoading(true);
 
-      // 1. Soo qaad macalimiinta dhan
       const teacherSnap = await getDocs(collection(db, "teachers"));
       const tList = teacherSnap.docs.map((d) => {
         const data = d.data();
         return {
-          id: d.id, // waa username-ka uu AddTeacher ku kaydiyay
+          id: d.id,
           fullName: data.fullName || d.id,
           username: data.username || d.id,
         };
       });
       setTeachers(tList);
 
-      // 2. Soo qaad collection-ka timetable-ka oo dhan
-      const ttSnap = await getDocs(collection(db, "timetable"));
-      const ttMap = {};
+      const [fullSnap, partSnap] = await Promise.all([
+        getDocs(collection(db, "timetable")),
+        getDocs(collection(db, "timetablePartTime")),
+      ]);
 
-      ttSnap.docs.forEach((d) => {
-        const data = d.data();
-        const docId = d.id; // Tusaale: "6__Saturday"
+      function buildMap(snap) {
+        const ttMap = {};
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          const docId = d.id;
 
-        let cls = cleanClassName(data.className);
-        let day = data.day;
+          let cls = cleanClassName(data.className);
+          let day = data.day;
 
-        if (!cls && docId.includes("__")) {
-          const parts = docId.split("__");
-          cls = cleanClassName(parts[0]);
-          day = parts[1];
-        }
+          if (!cls && docId.includes("__")) {
+            const parts = docId.split("__");
+            cls = cleanClassName(parts[0]);
+            day = parts[1];
+          }
 
-        if (cls && day) {
-          const key = `${cls}__${day}`;
-          ttMap[key] = {
-            docId: d.id,
-            className: cls,
-            day: day,
-            sessions: Array.isArray(data.sessions) ? data.sessions : [],
-          };
-        }
+          if (cls && day) {
+            const key = `${cls}__${day}`;
+            ttMap[key] = {
+              docId: d.id,
+              className: cls,
+              day: day,
+              sessions: Array.isArray(data.sessions) ? data.sessions : [],
+            };
+          }
+        });
+        return ttMap;
+      }
+
+      setTimetableByType({
+        fulltime: buildMap(fullSnap),
+        parttime: buildMap(partSnap),
       });
-
-      setTimetableDocs(ttMap);
     } catch (err) {
       console.error("Error loading data:", err);
       alert("Error: " + err.message);
@@ -587,7 +632,6 @@ export default function Timetable() {
     }
   }
 
-  // Marka Fasal ama Maalin cusub la doorto
   useEffect(() => {
     if (!selectedClass) return;
     const clsKey = cleanClassName(selectedClass);
@@ -606,7 +650,6 @@ export default function Timetable() {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
 
-      // Haddii uu macalin doorto, si toos ah u geli teacherName
       if (field === "teacherId") {
         const selectedT = teachers.find((t) => t.id === value || t.username === value);
         if (selectedT) {
@@ -641,27 +684,33 @@ export default function Timetable() {
 
     try {
       if (validSessions.length === 0) {
-        await deleteDoc(doc(db, "timetable", fullKey));
-        const newMap = { ...timetableDocs };
-        delete newMap[fullKey];
-        setTimetableDocs(newMap);
+        await deleteDoc(doc(db, activeCollectionName, fullKey));
+        setTimetableByType((prev) => {
+          const newTypeMap = { ...prev[studentType] };
+          delete newTypeMap[fullKey];
+          return { ...prev, [studentType]: newTypeMap };
+        });
       } else {
         const payload = {
           className: clsKey,
           day: activeDay,
           sessions: validSessions,
+          studentType: studentType,
           updatedAt: new Date(),
         };
 
-        await setDoc(doc(db, "timetable", fullKey), payload, { merge: true });
+        await setDoc(doc(db, activeCollectionName, fullKey), payload, { merge: true });
 
-        setTimetableDocs((prev) => ({
+        setTimetableByType((prev) => ({
           ...prev,
-          [fullKey]: { docId: fullKey, ...payload },
+          [studentType]: {
+            ...prev[studentType],
+            [fullKey]: { docId: fullKey, ...payload },
+          },
         }));
       }
 
-      alert("Jadwalka maanta si sax ah ayaa loo kaydiyay!");
+      alert(`Jadwalka ${activeTypeLabel} ee maanta si sax ah ayaa loo kaydiyay!`);
     } catch (err) {
       console.error(err);
       alert("Error: " + err.message);
@@ -670,7 +719,6 @@ export default function Timetable() {
     }
   }
 
-  // Tirada Xiisadaha Fasal kasta
   const sessionCounts = useMemo(() => {
     const map = {};
     Object.values(timetableDocs).forEach((item) => {
@@ -683,7 +731,6 @@ export default function Timetable() {
     return map;
   }, [timetableDocs]);
 
-  // Tirada Maalmaha uu Fasal kasta leeyahay Xiisado
   const dayCounts = useMemo(() => {
     const map = {};
     Object.values(timetableDocs).forEach((item) => {
@@ -730,11 +777,11 @@ export default function Timetable() {
                 </div>
               </div>
 
-              {/* Furaha Daawo & Daabac ee Fasal kasta ama Fasallo badan
-                  ugu daabaca warqad A4 Landscape ah. */}
               <button
                 onClick={() => {
-                  setSelectedForPrint(selectedClass ? [selectedClass] : []);
+                  setSelectedForPrint(
+                    selectedClass ? [{ cls: selectedClass, type: studentType }] : []
+                  );
                   setPrintModalOpen(true);
                 }}
                 style={{
@@ -756,13 +803,48 @@ export default function Timetable() {
               </button>
             </div>
 
+            {/* ---- Full Time / Part Time Toggle ---- */}
+            <div
+              style={{
+                display: "inline-flex",
+                background: "#151233",
+                border: "1px solid rgba(139,108,245,0.25)",
+                borderRadius: 12,
+                padding: 4,
+                marginBottom: 22,
+                gap: 4,
+              }}
+            >
+              {STUDENT_TYPES.map((t) => {
+                const isActive = t.key === studentType;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => setStudentType(t.key)}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 9,
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: "bold",
+                      fontSize: 13.5,
+                      background: isActive ? "#6d5df0" : "transparent",
+                      color: isActive ? "#fff" : "#8b87ad",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
+
           {loading ? (
             <div style={{ textAlign: "center", color: "#8b87ad", padding: 50 }}>
               <Loader2 className="animate-spin" size={32} style={{ margin: "0 auto 12px" }} />
               Loading Timetable...
             </div>
           ) : !selectedClass ? (
-            /* KAADHADHKA FASALLADA */
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
               {CLASS_ORDER.map((cls) => {
                 const norm = cleanClassName(cls);
@@ -818,7 +900,6 @@ export default function Timetable() {
               })}
             </div>
           ) : (
-            /* GUDAHA FASALKA MARKA LA DOORTO */
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
                 <button
@@ -848,9 +929,25 @@ export default function Timetable() {
                 </button>
               </div>
 
-              <h2 style={{ marginBottom: 15 }}>Fasalka: {selectedClass}</h2>
+              <h2 style={{ marginBottom: 6 }}>Fasalka: {selectedClass}</h2>
+              <div
+                style={{
+                  display: "inline-block",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                  color: studentType === "fulltime" ? "#4ade9b" : "#f5a623",
+                  background: studentType === "fulltime" ? "rgba(62,207,142,0.12)" : "rgba(245,166,35,0.12)",
+                  border: `1px solid ${studentType === "fulltime" ? "rgba(62,207,142,0.35)" : "rgba(245,166,35,0.35)"}`,
+                  padding: "4px 10px",
+                  borderRadius: 999,
+                  marginBottom: 15,
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                {activeTypeLabel}
+              </div>
 
-              {/* Tabyada Maalmaha */}
               <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
                 {DAYS.map((d) => {
                   const norm = cleanClassName(selectedClass);
@@ -878,7 +975,6 @@ export default function Timetable() {
                 })}
               </div>
 
-              {/* Form-ka Xiisadaha */}
               <div style={{ background: "#151233", padding: 22, borderRadius: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
                   <h3 style={{ margin: 0 }}>Xiisadaha — {activeDay}</h3>
@@ -979,7 +1075,6 @@ export default function Timetable() {
         </div>
       </div>
 
-      {/* Modal-ka doorashada Fasallada ee la daabacayo */}
       {printModalOpen && (
         <PrintPreviewModal
           selected={selectedForPrint}
@@ -990,13 +1085,15 @@ export default function Timetable() {
         />
       )}
 
-      {/* Bogagga A4 Landscape ee dhabta ah — waxay ku jiraan DOM-ka had iyo
-          jeer (qarsoon marka aan la daabacayn), oo waxay soo baxaan
-          Fasal kasta oo la doortay, hal bog gaar ah oo bog kale ka
-          go'ay (page-break) marka la daabaco. */}
       <div className="tt-print-root">
-        {classesToPrint.map((cls) => (
-          <ClassPrintTable key={cls} cls={cls} timetableDocs={timetableDocs} />
+        {classesToPrint.map(({ cls, type }) => (
+          <ClassPrintTable
+            key={`${type}_${cls}`}
+            cls={cls}
+            type={type}
+            timetableByType={timetableByType}
+            studentTypeLabel={STUDENT_TYPES.find((t) => t.key === type)?.label || "Full Time"}
+          />
         ))}
       </div>
     </>

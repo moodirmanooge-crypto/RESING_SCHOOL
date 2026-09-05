@@ -20,13 +20,11 @@ export default function LoginForm({ role }) {
     function handleKeyDown(e) {
       const key = (e.key || "").toLowerCase();
 
-      // F12
       if (key === "f12") {
         e.preventDefault();
         return;
       }
 
-      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
       if (
         (e.ctrlKey || e.metaKey) &&
         e.shiftKey &&
@@ -36,7 +34,6 @@ export default function LoginForm({ role }) {
         return;
       }
 
-      // Ctrl+U (View source) iyo Ctrl+S (Save page)
       if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
         e.preventDefault();
         return;
@@ -74,8 +71,6 @@ export default function LoginForm({ role }) {
           collectionName = "cashier";
           break;
         case "Student":
-          collectionName = "students";
-          break;
         case "Parent":
           collectionName = "students";
           break;
@@ -83,85 +78,128 @@ export default function LoginForm({ role }) {
           return;
       }
 
-      const snapshot = await getDocs(collection(db, collectionName));
-
       let found = false;
 
-      snapshot.forEach((item) => {
-        const data = item.data();
+      // ---- Student / Parent: raadi labada collection (full time + part time) ----
+      if (role === "Student" || role === "Parent") {
+        // 1) Fulltime students
+        const fullSnap = await getDocs(collection(db, "students"));
 
-        if (role === "Admin") {
-          if (
-            (data.email === username.trim() ||
-              data.username === username.trim()) &&
-            data.password === password.trim()
-          ) {
-            found = true;
-            localStorage.setItem("adminId", item.id);
-            localStorage.setItem("adminName", data.fullName || data.name || data.username || "Admin");
-            // Sub-admins have role: "subadmin" and a `permissions` array
-            // of sidebar paths (see AddSubAdmin.jsx). The original Super
-            // Admin doc has no `role` field or role: "admin" — treat
-            // anything else as a sub-admin so Sidebar.jsx knows whether
-            // to filter its menu.
-            localStorage.setItem("adminRole", data.role || "admin");
-            localStorage.setItem(
-              "adminPermissions",
-              JSON.stringify(Array.isArray(data.permissions) ? data.permissions : [])
-            );
-          }
-        }
+        fullSnap.forEach((item) => {
+          const data = item.data();
 
-        if (role === "Teacher") {
-          if (
-            (data.username === username.trim() ||
-              data.teacherId === username.trim()) &&
-            data.password === password.trim()
-          ) {
-            found = true;
-            localStorage.setItem("teacherId", item.id);
-            localStorage.setItem(
-              "teacherName",
-              data.fullName || data.name || data.username || "Teacher"
-            );
+          if (role === "Student") {
+            if (
+              (data.studentId === username.trim() ||
+                item.id === username.trim()) &&
+              data.parentPassword === password.trim()
+            ) {
+              found = true;
+              localStorage.setItem("studentId", item.id);
+              localStorage.setItem("studentName", data.fullName || data.name || "Student");
+              localStorage.setItem("studentType", "fulltime");
+            }
           }
-        }
 
-        if (role === "Cashier") {
-          if (
-            data.username === username.trim() &&
-            data.password === password.trim()
-          ) {
-            found = true;
-            localStorage.setItem("cashierId", item.id);
-            localStorage.setItem("cashierName", data.name || data.username || "Cashier");
+          if (role === "Parent") {
+            if (
+              (data.studentId === username.trim() ||
+                data.parentPhone === username.trim()) &&
+              data.parentPassword === password.trim()
+            ) {
+              found = true;
+              localStorage.setItem("studentId", item.id);
+              localStorage.setItem("parentName", data.parentName || "Parent");
+              localStorage.setItem("studentType", "fulltime");
+            }
           }
-        }
+        });
 
-        if (role === "Student") {
-          if (
-            (data.studentId === username.trim() ||
-              item.id === username.trim()) &&
-            data.parentPassword === password.trim()
-          ) {
-            found = true;
-            localStorage.setItem("studentId", item.id);
-            localStorage.setItem("studentName", data.fullName || data.name || "Student");
-          }
-        }
+        // 2) Part time students — halkan lagu daray
+        if (!found) {
+          const partSnap = await getDocs(collection(db, "partTimeStudents"));
 
-        if (role === "Parent") {
-          if (
-            (data.studentId === username.trim() ||
-              data.parentPhone === username.trim()) &&
-            data.parentPassword === password.trim()
-          ) {
-            found = true;
-            localStorage.setItem("studentId", item.id);
-            localStorage.setItem("parentName", data.parentName || "Parent");
-          }
+          partSnap.forEach((item) => {
+            const data = item.data();
+
+            if (role === "Student") {
+              if (
+                (data.studentId === username.trim() ||
+                  item.id === username.trim()) &&
+                data.parentPassword === password.trim()
+              ) {
+                found = true;
+                localStorage.setItem("studentId", item.id);
+                localStorage.setItem("studentName", data.fullName || data.name || "Student");
+                localStorage.setItem("studentType", "parttime");
+              }
+            }
+
+            if (role === "Parent") {
+              if (
+                (data.studentId === username.trim() ||
+                  data.parentPhone === username.trim()) &&
+                data.parentPassword === password.trim()
+              ) {
+                found = true;
+                localStorage.setItem("studentId", item.id);
+                localStorage.setItem("parentName", data.parentName || "Parent");
+                localStorage.setItem("studentType", "parttime");
+              }
+            }
+          });
         }
-      });
+      } else {
+        // ---- Admin / Teacher / Cashier: sida hore ----
+        const snapshot = await getDocs(collection(db, collectionName));
+
+        snapshot.forEach((item) => {
+          const data = item.data();
+
+          if (role === "Admin") {
+            if (
+              (data.email === username.trim() ||
+                data.username === username.trim()) &&
+              data.password === password.trim()
+            ) {
+              found = true;
+              localStorage.setItem("adminId", item.id);
+              localStorage.setItem("adminName", data.fullName || data.name || data.username || "Admin");
+              localStorage.setItem("adminRole", data.role || "admin");
+              localStorage.setItem(
+                "adminPermissions",
+                JSON.stringify(Array.isArray(data.permissions) ? data.permissions : [])
+              );
+            }
+          }
+
+          if (role === "Teacher") {
+            if (
+              (data.username === username.trim() ||
+                data.teacherId === username.trim()) &&
+              data.password === password.trim()
+            ) {
+              found = true;
+              localStorage.setItem("teacherId", item.id);
+              localStorage.setItem(
+                "teacherName",
+                data.fullName || data.name || data.username || "Teacher"
+              );
+            }
+          }
+
+          if (role === "Cashier") {
+            if (
+              data.username === username.trim() &&
+              data.password === password.trim()
+            ) {
+              found = true;
+              localStorage.setItem("cashierId", item.id);
+              localStorage.setItem("cashierName", data.name || data.username || "Cashier");
+            }
+          }
+        });
+      }
 
       if (!found) {
         alert(

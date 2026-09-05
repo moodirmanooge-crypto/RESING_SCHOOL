@@ -32,13 +32,18 @@ import {
   Camera,
 } from "lucide-react";
 
-const weekDays = [
+// Macalimiinta Full Time waxay leeyihiin maalmaha caadiga ah ee toddobaadka
+// dugsiga. Macalimiinta Part Time kaliya waxay xaadirin karaan/waxaa loo
+// qaboojiyay Thursday iyo Friday, sida ardayda Part Time.
+const fullTimeWeekDays = [
   "Saturday",
   "Sunday",
   "Monday",
   "Tuesday",
   "Wednesday",
 ];
+
+const partTimeWeekDays = ["Thursday", "Friday"];
 
 // Liiska caadiga ah ee fasalada ka bilaabanaya 1 ilaa F4
 const defaultClassOptions = [
@@ -108,10 +113,48 @@ export default function AddTeacher() {
     fetchClasses();
   }, []);
 
+  // Maalmaha loogu talagalay noocyada shaqada ee la doortay hadda. Haddii
+  // Full Time la doorto (kali ama isla Part Time), maalmaha caadiga ah ayaa
+  // la isticmaalaa (Sat–Wed). Haddii KALIYA Part Time la doorto, waxaa
+  // gaar loo hayaa Thursday iyo Friday oo keliya.
+  const allowedWeekDays = employmentTypes.includes("Full Time")
+    ? fullTimeWeekDays
+    : employmentTypes.includes("Part Time")
+    ? partTimeWeekDays
+    : fullTimeWeekDays;
+
   const toggleEmploymentType = (type) => {
-    setEmploymentTypes((prev) =>
-      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
-    );
+    setEmploymentTypes((prev) => {
+      const updated = prev.includes(type)
+        ? prev.filter((t) => t !== type)
+        : [...prev, type];
+
+      // Haddii nooca shaqadu isbedelo una noqdo Part Time oo keliya, ka
+      // saar maalin kasta oo aan ka mid ahayn Thursday/Friday oo horeba
+      // loo doortay fasalada, si aan loo hayn xog aan la rabin.
+      const newAllowedDays = updated.includes("Full Time")
+        ? fullTimeWeekDays
+        : updated.includes("Part Time")
+        ? partTimeWeekDays
+        : fullTimeWeekDays;
+
+      setClassBlocks((prevBlocks) =>
+        prevBlocks.map((block) => {
+          const filteredDays = block.days.filter((d) => newAllowedDays.includes(d));
+          const filteredSessions = {};
+          filteredDays.forEach((d) => {
+            filteredSessions[d] = block.daySessions[d];
+          });
+          return {
+            ...block,
+            days: filteredDays,
+            daySessions: filteredSessions,
+          };
+        })
+      );
+
+      return updated;
+    });
   };
 
   const handlePhotoChange = (e) => {
@@ -307,7 +350,7 @@ export default function AddTeacher() {
         if (studentsSnap.empty) continue;
 
         const fullWeekSchedule = [];
-        for (const d of weekDays) {
+        for (const d of fullTimeWeekDays) {
           const key = `${className}__${d}`;
           const ttSnap = await getDoc(doc(db, "timetable", key));
           const sessionsData = ttSnap.exists() ? ttSnap.data().sessions || [] : [];
@@ -700,9 +743,16 @@ export default function AddTeacher() {
               </div>
 
               <div style={{ marginTop: 18 }}>
-                <label style={label}>Maalmaha Toddobaadka</label>
+                <label style={label}>
+                  Maalmaha Toddobaadka
+                  {employmentTypes.includes("Part Time") && !employmentTypes.includes("Full Time") && (
+                    <span style={{ color: "#8b87ad", fontWeight: 400, fontSize: 12 }}>
+                      {" "}(Part Time — Thursday &amp; Friday oo keliya)
+                    </span>
+                  )}
+                </label>
                 <div style={dayRow}>
-                  {weekDays.map((day) => {
+                  {allowedWeekDays.map((day) => {
                     const active = block.days.includes(day);
                     return (
                       <button
