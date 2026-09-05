@@ -115,8 +115,6 @@ function ResponsiveStyles() {
         padding: 10px !important;
         margin-bottom: 15px !important;
         box-shadow: none !important;
-        page-break-inside: avoid !important;
-        break-inside: avoid !important;
       }
       body.pdf-export-mode .att-class-card * {
         color: #000000 !important;
@@ -148,7 +146,7 @@ function ResponsiveStyles() {
 
       @media print {
         @page {
-          size: A4 landscape;
+          size: auto;
           margin: 10mm;
         }
         
@@ -182,7 +180,6 @@ function ResponsiveStyles() {
           padding-bottom: 10px !important;
           margin-bottom: 15px !important;
           font-family: Arial, sans-serif;
-          page-break-after: avoid;
         }
 
         .print-logo-area {
@@ -224,8 +221,7 @@ function ResponsiveStyles() {
           border-radius: 6px !important;
           padding: 10px !important;
           margin-bottom: 15px !important;
-          page-break-inside: avoid !important;
-          break-inside: avoid !important;
+          page-break-inside: avoid;
           box-shadow: none !important;
         }
 
@@ -244,11 +240,6 @@ function ResponsiveStyles() {
           table-layout: auto !important;
           border-collapse: collapse !important;
           margin-top: 8px !important;
-        }
-
-        .att-mini-table tr {
-          page-break-inside: avoid !important;
-          break-inside: avoid !important;
         }
 
         .att-mini-table th {
@@ -521,11 +512,13 @@ export default function Attendance() {
     }, 300);
   };
 
+  // Modern PDF Generator function
   const handleDownloadPDF = async () => {
     try {
       setIsDownloadingPDF(true);
       expandAllSections();
 
+      // Add print mode class to document body
       document.body.classList.add("pdf-export-mode");
 
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -556,6 +549,7 @@ export default function Attendance() {
       console.error(err);
       alert("Cillad ayaa ka dhacday soo dejinta PDF-ka: " + err.message);
     } finally {
+      // Clean up body class
       document.body.classList.remove("pdf-export-mode");
       setIsDownloadingPDF(false);
     }
@@ -606,6 +600,28 @@ export default function Attendance() {
     return new Set(filteredRecords.map((r) => r.teacherId || "Unknown")).size;
   }, [filteredRecords]);
 
+  const reportDateLabel = useMemo(() => {
+    const uniqueDates = Array.from(
+      new Set(filteredRecords.map((r) => r.date).filter(Boolean))
+    ).sort();
+
+    if (uniqueDates.length === 0) return "—";
+
+    const fmt = (d) => {
+      const parsed = new Date(d);
+      if (isNaN(parsed.getTime())) return d;
+      return parsed.toLocaleDateString("en-GB", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      });
+    };
+
+    if (uniqueDates.length === 1) return fmt(uniqueDates[0]);
+
+    return `${fmt(uniqueDates[0])} - ${fmt(uniqueDates[uniqueDates.length - 1])}`;
+  }, [filteredRecords]);
+
   const hasUnsavedChanges = Object.keys(pendingChanges).length > 0;
 
   return (
@@ -625,14 +641,14 @@ export default function Attendance() {
             <div className="print-logo-area">
               <img src={schoolLogo} alt="School Logo" className="print-logo-img" />
               <div>
-                <h1 className="print-school-title">RISING STAR PRIMARY & SECONDARY SCHOOL</h1>
+                <h1 className="print-school-title">Rising Star PRIMARY & SECONDARY SCHOOL</h1>
                 <p className="print-school-sub">Diiwaanka Xaadirinta Ardayda (Student Attendance Report)</p>
               </div>
             </div>
             <div className="print-meta-box">
               <div><strong>Fasalka:</strong> {selectedClassFilter === "ALL" ? "Dhammaan" : formatClassName(selectedClassFilter)}</div>
               <div><strong>Macallinka:</strong> {selectedTeacherFilter === "ALL" ? "Dhammaan" : teachers[selectedTeacherFilter]?.fullName || selectedTeacherFilter}</div>
-              <div><strong>Taariikhda:</strong> {new Date().toLocaleDateString()}</div>
+              <div><strong>Taariikhda:</strong> {reportDateLabel}</div>
             </div>
           </div>
 

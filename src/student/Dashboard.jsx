@@ -185,9 +185,28 @@ const NAV_ITEMS = [
 // clicks "Download"), snapshots the timetable card, and triggers a PNG
 // download. Falls back to opening a print-friendly window if the canvas
 // library can't be loaded (e.g. network blocked).
+//
+// BUG U SAXAN: `.rs-table-wrap` (gudaha kaadhka) wuxuu leeyahay
+// `overflow-x: auto` + `min-width: 640px` si mobile-ka table-ku ugu
+// scroll-garmo dhinaca. html2canvas, marka aan wax laga beddelin, wuxuu
+// qaataa KALIYA qaybta hadda screen-ka ku muuqata (viewport-ka la
+// scroll-garay), mana qaadanayo dhererka buuxa ee table-ka — taas ayaa
+// sababaysay in sawirka la keydiyo uu ka maqan yahay SUBJECT iyo TEACHER
+// (loo jaray/loo dhimbay). Xalka: kahor inta aan sawirka la qaadin,
+// si ku meel gaar ah ugu beddel node-ka + wrap-ka gudaha si ay u
+// muujiyaan dhererka buuxa (scrollWidth), kadibna dib ugu celi qaabkii
+// hore marka sawirku dhamaado.
 async function downloadTimetableImage({ className, dayLabel }) {
   const node = document.getElementById("student-timetable-card");
   if (!node) return;
+
+  // Gudaha kaadhka ee leh overflow-x: auto (halkaas ayaa jaridda ka dhacaysa)
+  const scrollWrap = node.querySelector(".rs-table-wrap");
+
+  // Keydi qaabkii asalka ahaa si aan dib ugu celino sawirka ka dib
+  const prevNodeWidth = node.style.width;
+  const prevWrapOverflow = scrollWrap ? scrollWrap.style.overflow : null;
+  const prevWrapWidth = scrollWrap ? scrollWrap.style.width : null;
 
   try {
     if (!window.html2canvas) {
@@ -200,9 +219,24 @@ async function downloadTimetableImage({ className, dayLabel }) {
       });
     }
 
+    // Si ku meel gaar ah u fur scroll-ka si dhererka buuxa (SUBJECT +
+    // TEACHER oo dhan) uu u muuqdo, si html2canvas uu u sawiro dhammaan
+    // table-ka — ma aha kaliya qaybta la scroll-garay.
+    if (scrollWrap) {
+      const fullWidth = scrollWrap.scrollWidth;
+      scrollWrap.style.overflow = "visible";
+      scrollWrap.style.width = `${fullWidth}px`;
+      node.style.width = `${fullWidth}px`;
+    }
+
     const canvas = await window.html2canvas(node, {
       backgroundColor: "#0f1626",
       scale: 2,
+      useCORS: true,
+      // scrollWidth-ka dhabta ah ayaa la siinayaa si canvas-ku uusan
+      // u xadidnaan viewport/window-ka mobile-ka.
+      width: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
+      windowWidth: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
     });
     const link = document.createElement("a");
     link.download = `Timetable-${className || "class"}-${dayLabel || "day"}.png`;
@@ -211,6 +245,14 @@ async function downloadTimetableImage({ className, dayLabel }) {
   } catch (err) {
     console.log("Falling back to print view:", err);
     window.print();
+  } finally {
+    // Dib ugu celi qaabkii asalka ahaa si screen-ka toos ahi uusan u
+    // xumaan sawirka ka dib.
+    if (scrollWrap) {
+      scrollWrap.style.overflow = prevWrapOverflow || "";
+      scrollWrap.style.width = prevWrapWidth || "";
+    }
+    node.style.width = prevNodeWidth || "";
   }
 }
 
