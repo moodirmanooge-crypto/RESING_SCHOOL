@@ -59,10 +59,6 @@ export default function ResultsByClass() {
   const [classGroups, setClassGroups] = useState([]); 
   const printRefs = useRef({}); 
   const [pendingAction, setPendingAction] = useState({}); 
-  // Per-class page orientation for Print/Download PDF — "landscape" (the
-  // original, wide table layout) or "portrait" (normal upright A4).
-  // Defaults to "landscape" so existing behavior is unchanged unless the
-  // admin picks "Portrait" for a given class.
   const [orientation, setOrientation] = useState({});
 
   useEffect(() => {
@@ -81,9 +77,14 @@ export default function ResultsByClass() {
     try {
       setLoading(true);
 
-      // 1) Dhammaan xogta ardayda
-      const studentsSnap = await getDocs(collection(db, "students"));
+      // 1) Dhammaan xogta ardayda Full Time ("students") iyo Part Time ("partTimeStudents")
+      const [studentsSnap, partTimeStudentsSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "partTimeStudents")),
+      ]);
+
       const studentsById = {};
+
       studentsSnap.docs.forEach((d) => {
         const data = d.data();
         studentsById[d.id] = {
@@ -92,6 +93,19 @@ export default function ResultsByClass() {
           fullName: data.fullName || data.name || "—",
           studentPhoto: data.studentPhoto || data.photoUrl || "",
           className: data.className || "",
+          studentType: "Full Time",
+        };
+      });
+
+      partTimeStudentsSnap.docs.forEach((d) => {
+        const data = d.data();
+        studentsById[d.id] = {
+          docId: d.id,
+          studentId: data.studentId || d.id,
+          fullName: data.fullName || data.name || "—",
+          studentPhoto: data.studentPhoto || data.photoUrl || "",
+          className: data.className || "",
+          studentType: "Part Time",
         };
       });
 
@@ -99,13 +113,18 @@ export default function ResultsByClass() {
       const resultsSnap = await getDocs(collection(db, "results"));
       const resultsList = resultsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-      // 3) U kala saar className
+      // 3) U kala saar className iyo studentType (Tusaale: "Class 1 (Full Time)" ama "Class 1 (Part Time)")
       const byClass = {};
       resultsList.forEach((r) => {
-        const cls = (r.className || "Unassigned").toString();
+        const rawClass = (r.className || "Unassigned").toString().trim();
+        const linkedStudent = studentsById[r.studentId] || null;
+        const studentType = linkedStudent?.studentType || r.studentType || "Full Time";
+        
+        // Magaca fasalka oo ay ku jirto nooca si loo kala saaro haddii uu yahay Full Time ama Part Time
+        const cls = `${rawClass} (${studentType})`;
+
         if (!byClass[cls]) byClass[cls] = {};
 
-        const linkedStudent = studentsById[r.studentId] || null;
         const studentKey = r.studentId || r.studentName || r.id;
 
         if (!byClass[cls][studentKey]) {
@@ -114,22 +133,13 @@ export default function ResultsByClass() {
             studentId: linkedStudent?.studentId || r.studentId || "—",
             studentName: linkedStudent?.fullName || r.studentName || "Unknown",
             studentPhoto: linkedStudent?.studentPhoto || "",
+            studentType: studentType,
             subjects: {},
             totalMarks: 0,
             totalMax: 0,
           };
         }
 
-        // FIX: subject names from Firestore aren't always entered with
-        // identical spacing/casing (e.g. "Saynis" vs "saynis " vs
-        // "SAYNIS"). Using the raw string as the column key meant each
-        // variant became its own separate column, so a student's real
-        // score could silently land in a duplicate column while the
-        // column everyone else uses showed "—" for them — looking like
-        // the wrong subject's score, when really it was a split column.
-        // subjectKey is normalized (trimmed, collapsed whitespace,
-        // lowercased) for matching/grouping; subjectLabel keeps the
-        // original text (just trimmed) for display on the header.
         const subjectLabel = (r.subject || "—").toString().trim().replace(/\s+/g, " ");
         const subjectKey = subjectLabel.toLowerCase();
         const marks = Number(r.marks) || 0;
@@ -147,7 +157,7 @@ export default function ResultsByClass() {
       // 4) Isku dar xogta fasalada
       const classGroupsArr = Object.entries(byClass).map(([className, studentsMap]) => {
         const subjectSet = new Set();
-        const subjectLabels = {}; // subjectKey -> display label (first one seen)
+        const subjectLabels = {}; 
         Object.values(studentsMap).forEach((s) => {
           Object.entries(s.subjects).forEach(([subj, v]) => {
             subjectSet.add(subj);
@@ -278,7 +288,7 @@ export default function ResultsByClass() {
                 margin: 10mm; 
               }
               body { 
-                filter: grayscale(100%); /* Force High Contrast B&W */
+                filter: grayscale(100%);
               }
             }
           </style>
@@ -366,7 +376,7 @@ export default function ResultsByClass() {
       }
 
       pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
-      pdf.save(`Class-${className}-Results.pdf`);
+      pdf.save(`Class-${className.replace(/[\s()]/g, "_")}-Results.pdf`);
     } catch (err) {
       console.error("Khalad ayaa dhacay markii PDF-ka la sameynayay:", err);
       window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay.");
@@ -399,7 +409,7 @@ export default function ResultsByClass() {
           <div
             style={{
               display: "flex",
-              justifySpaceBetween: "space-between",
+              justifyContent: "space-between",
               alignItems: "center",
               marginBottom: 20,
               flexWrap: "wrap",
@@ -408,10 +418,10 @@ export default function ResultsByClass() {
           >
             <div>
               <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>
-                Results by Class
+                Results by Class (Full Time & Part Time)
               </h1>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>
-                Dhammaan natiijooyinka, loo kala saaray fasal walba jadwal gaar ah.
+                Natiijooyinka oo kala soocan fasallada iyo nooca ardayda (Full Time / Part Time).
               </p>
             </div>
             <button
@@ -477,14 +487,12 @@ export default function ResultsByClass() {
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                       <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
-                        Class {group.className} · {group.rows.length} student
+                        Class: {group.className} · {group.rows.length} student
                         {group.rows.length !== 1 ? "s" : ""}
                       </span>
                     </div>
 
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                      {/* Page orientation toggle — A4 Landscape (original,
-                          wide table) or A4 Portrait (normal upright page). */}
                       <div
                         style={{
                           display: "inline-flex",
@@ -526,7 +534,6 @@ export default function ResultsByClass() {
                         </button>
                       </div>
 
-                      {/* Always Enabled Print & Download Buttons */}
                       <button
                         onClick={() => handlePrintClass(group.className)}
                         title="Print this class results"
@@ -596,7 +603,7 @@ export default function ResultsByClass() {
                           </p>
                         </div>
                       </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#111827" }}>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", textAlign: "right" }}>
                         CLASS: {group.className}
                       </div>
                     </div>

@@ -1,3 +1,4 @@
+//src/teacher/Students.jsx
 import { useEffect, useState } from "react";
 import { db } from "../firebase/firebase";
 import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
@@ -113,18 +114,74 @@ export default function Students() {
         setSelectedClass(uniqueClassNames[0]);
       }
 
-      // Load Students
-      let students = [];
-      if (uniqueClassNames.length > 0) {
-        const studentsSnap = await getDocs(
-          query(
-            collection(db, "students"),
-            where("className", "in", uniqueClassNames.slice(0, 10))
-          )
-        );
-        students = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Determine employment type to fetch correct students collection(s)[cite: 4]
+      const empType = data.employmentType;
+      let fetchFullTime = true;
+      let fetchPartTime = false;
+
+      if (typeof empType === "string") {
+        const lower = empType.toLowerCase();
+        if (lower.includes("part time") && !lower.includes("full")) {
+          fetchFullTime = false;
+          fetchPartTime = true;
+        } else if (lower.includes("both") || (lower.includes("full") && lower.includes("part"))) {
+          fetchFullTime = true;
+          fetchPartTime = true;
+        }
+      } else if (Array.isArray(empType)) {
+        fetchFullTime = empType.some((t) => String(t).toLowerCase().includes("full"));
+        fetchPartTime = empType.some((t) => String(t).toLowerCase().includes("part"));
+      } else if (empType && typeof empType === "object") {
+        const values = Object.values(empType).map((v) => String(v).toLowerCase());
+        fetchFullTime = values.some((v) => v.includes("full"));
+        fetchPartTime = values.some((v) => v.includes("part"));
       }
-      setAllStudents(students);
+
+      // Load Students from appropriate collection(s)[cite: 4]
+      let loadedStudents = [];
+      if (uniqueClassNames.length > 0) {
+        const queries = [];
+        if (fetchFullTime) {
+          queries.push(
+            getDocs(
+              query(
+                collection(db, "students"),
+                where("className", "in", uniqueClassNames.slice(0, 10))
+              )
+            )
+          );
+        }
+        if (fetchPartTime) {
+          queries.push(
+            getDocs(
+              query(
+                collection(db, "partTimeStudents"),
+                where("className", "in", uniqueClassNames.slice(0, 10))
+              )
+            )
+          );
+        }
+
+        const snapshots = await Promise.all(queries);
+        snapshots.forEach((snap, idx) => {
+          const typeLabel =
+            fetchFullTime && fetchPartTime
+              ? idx === 0
+                ? "Full Time"
+                : "Part Time"
+              : fetchPartTime
+              ? "Part Time"
+              : "Full Time";
+          snap.docs.forEach((d) => {
+            loadedStudents.push({
+              id: d.id,
+              ...d.data(),
+              studentType: d.data().studentType || typeLabel,
+            });
+          });
+        });
+      }
+      setAllStudents(loadedStudents);
 
       // Load Attendance Records
       await fetchAttendanceData(uniqueClassNames);
@@ -323,6 +380,7 @@ export default function Students() {
                         <th style={th}>Photo</th>
                         <th style={th}>Name</th>
                         <th style={th}>Class</th>
+                        <th style={th}>Type</th>
                         <th style={th}>
                           Attendance % {selectedSubject ? `(${selectedSubject})` : ""}
                         </th>
@@ -350,6 +408,24 @@ export default function Students() {
                             </td>
                             <td style={td}>{s.fullName}</td>
                             <td style={td}>{s.className}</td>
+                            <td style={td}>
+                              <span
+                                style={{
+                                  background:
+                                    s.studentType === "Part Time"
+                                      ? "rgba(245,166,35,0.15)"
+                                      : "rgba(62,207,142,0.15)",
+                                  color:
+                                    s.studentType === "Part Time" ? "#F5A623" : "#3ECF8E",
+                                  padding: "3px 10px",
+                                  borderRadius: 12,
+                                  fontWeight: 600,
+                                  fontSize: 12,
+                                }}
+                              >
+                                {s.studentType || "Full Time"}
+                              </span>
+                            </td>
                             <td style={td}>
                               {att.total > 0 ? (
                                 <span
@@ -409,7 +485,7 @@ export default function Students() {
                     {selectedStudent.fullName}
                   </h3>
                   <p style={{ textAlign: "center", color: "#94A3B8", marginTop: 0 }}>
-                    {selectedStudent.className} | ID: {selectedStudent.studentId || selectedStudent.id}
+                    {selectedStudent.className} | {selectedStudent.studentType || "Full Time"} | ID: {selectedStudent.studentId || selectedStudent.id}
                   </p>
 
                   {(() => {
