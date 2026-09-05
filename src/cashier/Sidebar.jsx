@@ -5,8 +5,9 @@ const NAV_ITEMS = [
   { to: "/cashier/dashboard", label: "Dashboard", icon: "📊" },
   { to: "/cashier/payments", label: "Payments", icon: "💳" },
   { to: "/cashier/classes", label: "Classes", icon: "🏫" },
-  { to: "/cashier/exam-payments", label: "Exam Payments", icon: "🪪" },
-  { to: "/cashier/reports", label: "Reports", icon: "📁" },
+  { to: "/cashier/exam-payments", label: "Exam Payments", icon: "📝" },
+  { to: "/cashier/receipts", label: "Receipts", icon: "🧾" },
+  { to: "/cashier/reports", label: "Reports", icon: "📈" },
   { to: "/cashier/profile", label: "Profile", icon: "👤" },
 ];
 
@@ -16,7 +17,7 @@ export default function Sidebar() {
   return (
     <div style={styles.sidebar}>
       <div style={styles.brandRow}>
-        <span style={styles.brandCoin}>💰</span>
+        <span style={styles.brandCoin}>🪙</span>
         <div>
           <div style={styles.brandTitle}>CASHIER</div>
           <div style={styles.brandSub}>Finance Desk</div>

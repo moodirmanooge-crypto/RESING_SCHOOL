@@ -64,6 +64,7 @@ import CashierPayments from "./cashier/Payments";
 import CashierReports from "./cashier/Reports";
 import CashierProfile from "./cashier/Profile";
 import CashierClasses from "./cashier/Classes";
+import CashierReceipts from "./cashier/Receipts";
 import ReceiptModal from "./cashier/ReceiptModal";
 import ExamCards from "./admin/pages/ExamCards";
 import ExamPayments from "./cashier/ExamPayments";
@@ -96,7 +97,6 @@ function App() {
         <Route path="/student-login" element={<Login role="Student" />} />
         <Route path="/parent-login" element={<Login role="Parent" />} />
         <Route path="/cashier-login" element={<Login role="Cashier" />} />
-        <Route path="/cashier/receipts" element={<CashierReports />} />
         <Route path="/admin/exam-cards" element={<ExamCards />} />
         <Route path="/admin/id-cards" element={<AllIdCards />} />
         <Route path="/admin/results-by-class" element={<ResultsByClass />} />
@@ -232,7 +232,7 @@ function App() {
           <Route path="classes" element={<CashierClasses />} />
           <Route path="reports" element={<CashierReports />} />
           <Route path="profile" element={<CashierProfile />} />
-          <Route path="receipts" element={<CashierReports />} />
+          <Route path="receipts" element={<CashierReceipts />} />
         </Route>
 
       </Routes>

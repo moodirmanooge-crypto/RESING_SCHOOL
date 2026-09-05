@@ -140,7 +140,10 @@ function getNormalizedClassName(student) {
 }
 
 export default function Classes() {
-  const [students, setStudents] = useState([]);
+  const [regularStudents, setRegularStudents] = useState({});
+  const [partTimeStudents, setPartTimeStudents] = useState({});
+  const [cashierDocs, setCashierDocs] = useState([]);
+
   const [paymentsByStudent, setPaymentsByStudent] = useState({});
   const [loading, setLoading] = useState(true);
 
@@ -166,70 +169,45 @@ export default function Classes() {
   useEffect(() => {
     setLoading(true);
 
-    let allStudentsMap = {};
-
-    // 1. Soo akhrinta collection-ka regular students
+    // 1. Soo akhrinta collection-ka regular students[cite: 9]
     const unsubStudents = onSnapshot(
       collection(db, "students"),
       (snap) => {
+        const map = {};
         snap.docs.forEach((d) => {
           const data = d.data();
           const sId = data.studentId || d.id;
-          allStudentsMap[sId] = { ...data, sourceCollection: "students" };
+          map[sId] = { ...data, sourceCollection: "students" };
         });
+        setRegularStudents(map);
       },
       (err) => console.error("Error fetching students:", err)
     );
 
-    // 2. Soo akhrinta collection-ka partTimeStudents
+    // 2. Soo akhrinta collection-ka partTimeStudents[cite: 9]
     const unsubPartTime = onSnapshot(
       collection(db, "partTimeStudents"),
       (snap) => {
+        const map = {};
         snap.docs.forEach((d) => {
           const data = d.data();
           const sId = data.studentId || d.id;
-          allStudentsMap[sId] = {
+          map[sId] = {
             ...data,
             isPartTime: true,
             sourceCollection: "partTimeStudents",
           };
         });
+        setPartTimeStudents(map);
       },
       (err) => console.error("Error fetching partTimeStudents:", err)
     );
 
-    // 3. Soo akhrinta cashier iyo isku dhiibidda xogta
+    // 3. Soo akhrinta cashier docs[cite: 9]
     const unsubCashier = onSnapshot(
       collection(db, "cashier"),
-      (cashierSnap) => {
-        const studentData = cashierSnap.docs
-          .map((d) => {
-            const data = d.data();
-            const sid = data.studentId || d.id;
-            const mainData = allStudentsMap[sid] || {};
-
-            const merged = {
-              id: d.id,
-              fullName: data.studentName || data.fullName,
-              ...mainData,
-              ...data,
-            };
-
-            const actualClass = getNormalizedClassName(merged);
-
-            return {
-              ...merged,
-              className: actualClass,
-            };
-          })
-          .filter(
-            (s) =>
-              !s.pendingDeletion &&
-              s.studentId &&
-              String(s.studentId).trim() !== ""
-          );
-
-        setStudents(studentData);
+      (snap) => {
+        setCashierDocs(snap.docs);
         setLoading(false);
       },
       (err) => {
@@ -266,6 +244,42 @@ export default function Classes() {
       unsubPayments();
     };
   }, []);
+
+  // Isku dubaridka iyo sifeynta ardayda (Filter-garaynta sugan) oo laga hortagayo Unknown iyo Race Condition
+  const students = useMemo(() => {
+    const allStudentsMap = { ...regularStudents, ...partTimeStudents };
+
+    return cashierDocs
+      .map((d) => {
+        const data = d.data();
+        const sid = data.studentId || d.id;
+        const mainData = allStudentsMap[sid];
+
+        // Haddii uusan ardaygu ka jirin students ama partTimeStudents, iska reeb si uusan ugu soo bixin Unknown
+        if (!mainData) return null;
+
+        const merged = {
+          id: d.id,
+          fullName: data.studentName || data.fullName,
+          ...mainData,
+          ...data,
+        };
+
+        const actualClass = getNormalizedClassName(merged);
+
+        return {
+          ...merged,
+          className: actualClass,
+        };
+      })
+      .filter(
+        (s) =>
+          s !== null &&
+          !s.pendingDeletion &&
+          s.studentId &&
+          String(s.studentId).trim() !== ""
+      );
+  }, [regularStudents, partTimeStudents, cashierDocs]);
 
   const classGroups = useMemo(() => {
     const groups = {};
@@ -643,7 +657,7 @@ export default function Classes() {
         const workingPartialMap = { ...partialMap };
         if (editingIds[student.id]) {
           workingFullyPaidSet.delete(currentMonthKey());
-          delete workingPartialMap[student.id];
+          delete workingPartialMap[currentMonthKey()];
         }
 
         const startKey = findNextUnpaidMonth(

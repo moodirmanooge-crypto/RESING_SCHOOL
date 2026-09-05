@@ -1,19 +1,7 @@
 // src/pages/Academics.jsx
 //
-// Public "Academics" page — a parent/student types the Student ID +
-// parent/student password and gets back EVERY subject result stored for
-// that student in the `results` collection, combined into one table
-// (matching the mobile results screenshot: Islamic, Somali, Biology,
-// Chemistry, Arabic, Geography, English, Business, History, Technology,
-// Physics, Math — whatever subjects exist for that studentId).
-//
-// Each `results` document is one subject score (studentId, subject,
-// marks, maxMarks, className, examId, ...). This page queries all docs
-// where studentId == the entered ID, verifies the password against the
-// student's own record in `students/{studentId}`, then checks the
-// `payments` collection for that student's current-month fee status
-// before releasing results — if any amount is still owed (even $1),
-// results are withheld and a note tells the family exactly what's owed.
+// Public "Academics" page — supports both Full Time and Part Time students
+// looking up their results using Student ID + parent/student password.
 
 import { useState, useEffect } from "react";
 import "../styles/academics.css";
@@ -41,7 +29,7 @@ const NAV_LINKS = [
 
 const ACADEMIC_YEARS = ["2025-2026", "2024-2025", "2023-2024"];
 
-const currentMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-07"
+const currentMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-09"
 
 const monthLabel = (key) => {
   if (!key) return "—";
@@ -79,14 +67,9 @@ export default function Academics() {
   const [student, setStudent] = useState(null);
   const [results, setResults] = useState([]);
 
-  // Celebration banner — shows when a strong overall result (top-tier,
-  // average >= 65%) comes back. Sits inside the results card itself.
   const [showCelebration, setShowCelebration] = useState(false);
-
-  // Fee-lock state — when the current month's fee isn't fully paid, we
-  // stop before showing any result and surface this instead.
   const [feeBlocked, setFeeBlocked] = useState(false);
-  const [feeInfo, setFeeInfo] = useState(null); // { monthlyFee, paidAmount, remaining, monthLabel }
+  const [feeInfo, setFeeInfo] = useState(null);
 
   // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
   useEffect(() => {
@@ -97,13 +80,11 @@ export default function Academics() {
     function handleKeyDown(e) {
       const key = (e.key || "").toLowerCase();
 
-      // F12
       if (key === "f12") {
         e.preventDefault();
         return;
       }
 
-      // Ctrl+Shift+I / J / C  (DevTools, Console, Inspect element)
       if (
         (e.ctrlKey || e.metaKey) &&
         e.shiftKey &&
@@ -113,7 +94,6 @@ export default function Academics() {
         return;
       }
 
-      // Ctrl+U (View source) iyo Ctrl+S (Save page)
       if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
         e.preventDefault();
         return;
@@ -157,41 +137,73 @@ export default function Academics() {
       return;
     }
 
-    // Student IDs are stored zero-padded (e.g. "0004") — accept either
-    // "4" or "0004" from the input.
-    const paddedId = idInput.padStart(4, "0");
-
     try {
       setLoading(true);
 
-      const studentSnap = await getDoc(doc(db, "students", paddedId));
-      if (!studentSnap.exists()) {
+      let foundStudentData = null;
+      let finalStudentId = idInput;
+
+      // Raadin sugan oo ka baadi-goobaysa collection-yada 'students' iyo 'partTimeStudents'
+      async function findStudentInCollection(collName, targetId) {
+        const variants = [
+          targetId,
+          targetId.toUpperCase(),
+          targetId.toLowerCase(),
+          targetId.padStart(4, "0"),
+        ];
+
+        // 1. Ku baaro Document ID ahaan
+        for (const v of variants) {
+          const snap = await getDoc(doc(db, collName, v));
+          if (snap.exists()) {
+            return { id: snap.id, data: snap.data() };
+          }
+        }
+
+        // 2. Ku baaro 'studentId' field ahaan
+        for (const v of variants) {
+          const q = query(collection(db, collName), where("studentId", "==", v));
+          const querySnap = await getDocs(q);
+          if (!querySnap.empty) {
+            const d = querySnap.docs[0];
+            return { id: d.id, data: d.data() };
+          }
+        }
+        return null;
+      }
+
+      // Marka hore ka raadi 'students' kadibna 'partTimeStudents'
+      let match = await findStudentInCollection("students", idInput);
+      if (!match) {
+        match = await findStudentInCollection("partTimeStudents", idInput);
+      }
+
+      if (!match) {
         setError("Lambarka Ardayga lama helin. Fadlan hubi oo isku day mar kale.");
         setLoading(false);
         return;
       }
 
-      const studentData = studentSnap.data();
+      foundStudentData = match.data;
+      finalStudentId = match.id || match.data.studentId || idInput;
 
-      // Password check — matches the same field AddStudent.jsx saves
-      // (parentPassword) against what the student/parent types in.
-      if (String(studentData.parentPassword || "") !== password.trim()) {
+      // Password check
+      const dbPassword = String(
+        foundStudentData.parentPassword || foundStudentData.password || ""
+      );
+      if (dbPassword !== password.trim()) {
         setError("Password-ku waa khalad. Fadlan isku day mar kale.");
         setLoading(false);
         return;
       }
 
-      // ---- Fee gate: block results unless the current month is fully
-      // paid. Free students (feeType === "Free") always pass through —
-      // there is nothing owed to check. Paid students must have a
-      // `payments/{studentId}_{monthKey}` doc with status "Paid" and
-      // remaining <= 0; even $1 still owed withholds the results. ----
-      if (studentData.feeType !== "Free") {
+      // ---- Fee gate: Hubinta lacagta bisha ----
+      if (foundStudentData.feeType !== "Free") {
         const monthKey = currentMonthKey();
-        const paymentDocId = `${paddedId}_${monthKey}`;
+        const paymentDocId = `${finalStudentId}_${monthKey}`;
         const paymentSnap = await getDoc(doc(db, "payments", paymentDocId));
 
-        const monthlyFee = Number(studentData.monthlyFee || 0);
+        const monthlyFee = Number(foundStudentData.monthlyFee || 0);
         const paidAmount = paymentSnap.exists()
           ? Number(paymentSnap.data().paidAmount || 0)
           : 0;
@@ -214,20 +226,15 @@ export default function Academics() {
         }
       }
 
-      // Pull every subject result stored for this student, across all
-      // exams — the studentId field on each results doc is what ties
-      // them together, exactly as written by the teacher's Results page.
+      // Soo qaadashada natiijooyinka ardaygan
       const resultsSnap = await getDocs(
-        query(collection(db, "results"), where("studentId", "==", paddedId))
+        query(collection(db, "results"), where("studentId", "==", finalStudentId))
       );
 
       const subjectRows = resultsSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((r) => r.subject && String(r.subject).trim() !== "");
 
-      // If the same subject appears more than once (re-takes, multiple
-      // exams), keep only the most recently updated one per subject so
-      // the table shows one row per subject like the reference screen.
       const bySubject = {};
       subjectRows.forEach((r) => {
         const key = String(r.subject).toLowerCase();
@@ -239,8 +246,6 @@ export default function Academics() {
         }
       });
 
-      // Sort by score percentage, HIGHEST first — the strongest subject
-      // sits at the top, the weakest falls to the bottom.
       const combined = Object.values(bySubject).sort((a, b) => {
         const aMax = Number(a.maxMarks) || 100;
         const bMax = Number(b.maxMarks) || 100;
@@ -249,15 +254,10 @@ export default function Academics() {
         return bPct - aPct;
       });
 
-      setStudent({ ...studentData, studentId: paddedId });
+      setStudent({ ...foundStudentData, studentId: finalStudentId });
       setResults(combined);
 
-      if (combined.length === 0) {
-        setError(
-          "Ardaygan weli natiijo lagama helin xilligan la doortay. Fadlan la xiriir maamulka."
-        );
-      } else {
-        // Trigger the celebration only for a top-tier overall result.
+      if (combined.length > 0) {
         const tMarks = combined.reduce((s, r) => s + (Number(r.marks) || 0), 0);
         const tMax = combined.reduce((s, r) => s + (Number(r.maxMarks) || 0), 0);
         const avg = tMax > 0 ? (tMarks / tMax) * 100 : 0;
@@ -342,7 +342,7 @@ export default function Academics() {
                 <input
                   value={studentId}
                   onChange={(e) => setStudentId(e.target.value)}
-                  placeholder="e.g. 0004"
+                  placeholder="e.g. 0004 or R001"
                 />
               </div>
               <div className="aca-field">
@@ -415,47 +415,8 @@ export default function Academics() {
           </div>
         )}
 
-        {student && results.length > 0 && (
+        {student && (
           <div className="aca-results-card">
-            {showCelebration && (
-              <div className="aca-celebrate-banner">
-                <div className="aca-confetti" aria-hidden="true">
-                  {Array.from({ length: 30 }).map((_, i) => (
-                    <span
-                      key={i}
-                      className="aca-confetti-piece"
-                      style={{
-                        left: `${Math.random() * 100}%`,
-                        background: [
-                          "#f97316",
-                          "#22a05f",
-                          "#2563eb",
-                          "#eab308",
-                          "#7c3aed",
-                          "#ec4899",
-                        ][i % 6],
-                        animationDelay: `${Math.random() * 2}s`,
-                        animationDuration: `${2.5 + Math.random() * 2}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div className="aca-celebrate-banner-inner">
-                  <div className="aca-celebrate-trophy">🏆</div>
-                  <div className="aca-celebrate-banner-text">
-                    <h3 className="aca-celebrate-title">Hambalyo!</h3>
-                    <p className="aca-celebrate-sub">Horumar Wacan!</p>
-                    <p className="aca-celebrate-text">
-                      {student?.fullName || "Ardaygan"}, waxaad gaadhay
-                      celceliska <strong>{averagePct.toFixed(1)}%</strong> —
-                      waxaad ka mid tahay ardayda ugu fiican! Sii wad shaqadan
-                      wanaagsan.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div className="aca-student-banner">
               <div className="aca-student-info">
                 <span className="aca-student-name">
@@ -463,7 +424,7 @@ export default function Academics() {
                 </span>
                 <span className="aca-student-meta">
                   Student ID: {student.studentId} &nbsp;•&nbsp; Class:{" "}
-                  {student.className || "—"} &nbsp;•&nbsp; {year}
+                  {student.className || student.studentType || "—"} &nbsp;•&nbsp; {year}
                 </span>
               </div>
               <button className="aca-logout-btn" onClick={resetLookup}>
@@ -471,86 +432,139 @@ export default function Academics() {
               </button>
             </div>
 
-            <div className="aca-table-wrap">
-              <table className="aca-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th>Marks (out of {headerMax})</th>
-                    <th>Grade</th>
-                    <th>Remark</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r) => {
-                    const max = Number(r.maxMarks) || 100;
-                    const marks = Number(r.marks) || 0;
-                    const pct = max > 0 ? (marks / max) * 100 : 0;
-                    const g = gradeFor(pct);
-                    return (
-                      <tr key={r.id}>
-                        <td style={{ fontWeight: 700, textTransform: "capitalize" }}>
-                          {r.subject}
-                        </td>
-                        <td>
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 10,
-                            }}
-                          >
-                            <span>{pct.toFixed(1)}</span>
-                            <div className="aca-bar-track">
-                              <div
-                                className="aca-bar-fill"
-                                style={{
-                                  width: `${Math.min(pct, 100)}%`,
-                                  background: g.color,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td>
-                          <span
-                            className="aca-grade-dot"
-                            style={{ color: g.color }}
-                          >
-                            {g.letter}
-                          </span>
-                        </td>
-                        <td>{g.remark}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            {results.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "#475569" }}>
+                <div style={{ fontSize: "45px", marginBottom: "12px" }}>📭</div>
+                <h3 style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "8px", color: "#1e293b" }}>
+                  Lama helin imtixaankaaga
+                </h3>
+                <p style={{ fontSize: "14px", color: "#64748b" }}>
+                  Ardaygan weli natiijo lagama gelin xilligan ama sanadkan la doortay ({year}).
+                </p>
+              </div>
+            ) : (
+              <>
+                {showCelebration && (
+                  <div className="aca-celebrate-banner">
+                    <div className="aca-confetti" aria-hidden="true">
+                      {Array.from({ length: 30 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className="aca-confetti-piece"
+                          style={{
+                            left: `${Math.random() * 100}%`,
+                            background: [
+                              "#f97316",
+                              "#22a05f",
+                              "#2563eb",
+                              "#eab308",
+                              "#7c3aed",
+                              "#ec4899",
+                            ][i % 6],
+                            animationDelay: `${Math.random() * 2}s`,
+                            animationDuration: `${2.5 + Math.random() * 2}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="aca-celebrate-banner-inner">
+                      <div className="aca-celebrate-trophy">🏆</div>
+                      <div className="aca-celebrate-banner-text">
+                        <h3 className="aca-celebrate-title">Hambalyo!</h3>
+                        <p className="aca-celebrate-sub">Horumar Wacan!</p>
+                        <p className="aca-celebrate-text">
+                          {student?.fullName || "Ardaygan"}, waxaad gaadhay
+                          celceliska <strong>{averagePct.toFixed(1)}%</strong> —
+                          waxaad ka mid tahay ardayda ugu fiican! Sii wad shaqadan
+                          wanaagsan.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
-            <div className="aca-summary-box">
-              <div className="aca-summary-item">
-                <span className="aca-summary-label">Total Marks</span>
-                <span className="aca-summary-value">
-                  {totalMarks.toFixed(0)} / {totalMax.toFixed(0)}
-                </span>
-              </div>
-              <div className="aca-summary-item">
-                <span className="aca-summary-label">Average Percentage</span>
-                <span className="aca-summary-value">
-                  {averagePct.toFixed(1)}%
-                </span>
-              </div>
-              <div className="aca-summary-item">
-                <span className="aca-summary-label">Overall Grade</span>
-                <span
-                  className="aca-summary-value"
-                  style={{ color: overall.letter === "F" ? "#dc2626" : "#16a34a" }}
-                >
-                  {overall.label}
-                </span>
-              </div>
-            </div>
+                <div className="aca-table-wrap">
+                  <table className="aca-table">
+                    <thead>
+                      <tr>
+                        <th>Subject</th>
+                        <th>Marks (out of {headerMax})</th>
+                        <th>Grade</th>
+                        <th>Remark</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {results.map((r) => {
+                        const max = Number(r.maxMarks) || 100;
+                        const marks = Number(r.marks) || 0;
+                        const pct = max > 0 ? (marks / max) * 100 : 0;
+                        const g = gradeFor(pct);
+                        return (
+                          <tr key={r.id}>
+                            <td style={{ fontWeight: 700, textTransform: "capitalize" }}>
+                              {r.subject}
+                            </td>
+                            <td>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 10,
+                                }}
+                              >
+                                <span>{pct.toFixed(1)}</span>
+                                <div className="aca-bar-track">
+                                  <div
+                                    className="aca-bar-fill"
+                                    style={{
+                                      width: `${Math.min(pct, 100)}%`,
+                                      background: g.color,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td>
+                              <span
+                                className="aca-grade-dot"
+                                style={{ color: g.color }}
+                              >
+                                {g.letter}
+                              </span>
+                            </td>
+                            <td>{g.remark}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="aca-summary-box">
+                  <div className="aca-summary-item">
+                    <span className="aca-summary-label">Total Marks</span>
+                    <span className="aca-summary-value">
+                      {totalMarks.toFixed(0)} / {totalMax.toFixed(0)}
+                    </span>
+                  </div>
+                  <div className="aca-summary-item">
+                    <span className="aca-summary-label">Average Percentage</span>
+                    <span className="aca-summary-value">
+                      {averagePct.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="aca-summary-item">
+                    <span className="aca-summary-label">Overall Grade</span>
+                    <span
+                      className="aca-summary-value"
+                      style={{ color: overall.letter === "F" ? "#dc2626" : "#16a34a" }}
+                    >
+                      {overall.label}
+                    </span>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -566,7 +580,7 @@ export default function Academics() {
           </div>
         </div>
 
-       <div className="home-footer-contact">
+        <div className="home-footer-contact">
           <a href="tel:+252617390261">+252 61 7390261</a>
           <a href="mailto:risingstar0261@gmail.com">risingstar0261@gmail.com</a>
           <span>Mogadishu, Somalia</span>
