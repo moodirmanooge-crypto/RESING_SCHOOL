@@ -48,6 +48,34 @@ function ResultsStyles() {
   );
 }
 
+// PART-TIME classes run Thursday & Friday (same rule already used for
+// timetablePartTime/attendancePartTime/Exams.jsx). An exam message doc is
+// tagged with studentType when it's created (see Exams.jsx); older exam
+// docs that predate that tag fall back to reading the day-of-week off the
+// exam's own Exam Date.
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+function isPartTimeDay(dayName) {
+  return dayName === "Thursday" || dayName === "Friday";
+}
+function getDayName(dateStr) {
+  if (!dateStr) return "";
+  const dateObj = new Date(`${dateStr}T00:00:00`);
+  return WEEKDAYS[dateObj.getDay()];
+}
+function isPartTimeExam(exam) {
+  if (!exam) return false;
+  if (exam.studentType) return exam.studentType === "Part Time";
+  return isPartTimeDay(getDayName(exam.examDate));
+}
+
 export default function Results() {
   const [classes, setClasses] = useState([]);
   const [exams, setExams] = useState([]);
@@ -164,14 +192,19 @@ export default function Results() {
     try {
       setLoading(true);
 
+      const examObj = exams.find((e) => e.id === examId) || null;
+      const partTime = isPartTimeExam(examObj);
+      const studentCollectionName = partTime ? "partTimeStudents" : "students";
+      const resultsCollectionName = partTime ? "resultsPartTime" : "results";
+
       const studentsSnap = await getDocs(
-        query(collection(db, "students"), where("className", "==", className))
+        query(collection(db, studentCollectionName), where("className", "==", className))
       );
       const studentList = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setStudents(studentList);
 
       const resultsSnap = await getDocs(
-        query(collection(db, "results"), where("examId", "==", examId))
+        query(collection(db, resultsCollectionName), where("examId", "==", examId))
       );
       const existing = {};
       resultsSnap.docs.forEach((d) => {
@@ -308,6 +341,12 @@ export default function Results() {
       // laga soo qaatay messages document-kii macallinku abuuray marka
       // uu Exams.jsx ka dhigay "Send Exam".
       const examTypeName = exam.examType || "";
+      // FULL-TIME results go to "results", PART-TIME results go to their
+      // own "resultsPartTime" collection — same pattern already used for
+      // students/timetable/attendance.
+      const partTime = isPartTimeExam(exam);
+      const resultsCollectionName = partTime ? "resultsPartTime" : "results";
+      const studentTypeLabel = partTime ? "Part Time" : "Full Time";
 
       const resultsForPdf = [];
 
@@ -321,7 +360,7 @@ export default function Results() {
         });
 
         // eslint-disable-next-line no-await-in-loop
-        await setDoc(doc(db, "results", `${selectedExam}_${student.id}`), {
+        await setDoc(doc(db, resultsCollectionName, `${selectedExam}_${student.id}`), {
           examId: selectedExam,
           examName: exam.examName || "",
           examType: examTypeName,
@@ -329,6 +368,7 @@ export default function Results() {
           className: selectedClass,
           studentId: student.id,
           studentName: student.fullName,
+          studentType: studentTypeLabel,
           marks: scoreValue,
           maxMarks,
           teacherId,
@@ -374,6 +414,7 @@ export default function Results() {
         examDate: exam.examDate || "",
         className: selectedClass,
         subject: subjectName,
+        studentType: studentTypeLabel,
         isLatestExam: true,
         fileUrl: pdfUrl,
         adminFileUrl: adminPdfUrl,
@@ -394,6 +435,7 @@ export default function Results() {
           examName: exam.examName || "",
           examType: examTypeName,
           subject: subjectName,
+          studentType: studentTypeLabel,
           teacherId,
           teacherName,
           fileUrl: adminPdfUrl,
@@ -477,7 +519,7 @@ export default function Results() {
                   <option value="">Select Exam</option>
                   {exams.map((e, i) => (
                     <option key={e.id} value={e.id}>
-                      {e.examType || e.examName || "Exam"} ({e.subject || "no subject"}){i === 0 ? " - Ugu dambeeyay" : ""}
+                      {e.examType || e.examName || "Exam"} ({e.subject || "no subject"}) — {isPartTimeExam(e) ? "Part Time" : "Full Time"}{i === 0 ? " - Ugu dambeeyay" : ""}
                     </option>
                   ))}
                 </select>

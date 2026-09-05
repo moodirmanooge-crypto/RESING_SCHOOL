@@ -476,16 +476,26 @@ export default function AllIdCards() {
     setCreateLookupError("");
   }
 
-  // Looks up `students/{studentId}` in Firestore and loads fullName,
-  // className (grade), and studentPhoto straight into the preview — no
-  // manual typing or photo upload involved. Used by both the "Fetch"
-  // button (preview-only) and handleCreateCard (fetch-then-save).
+  // Looks up a student by ID and loads fullName, className (grade), and
+  // studentPhoto straight into the preview — no manual typing or photo
+  // upload involved. Used by both the "Fetch" button (preview-only) and
+  // handleCreateCard (fetch-then-save).
+  //
+  // Checks `students/{studentId}` FIRST (full-time). If no matching doc
+  // exists there, falls back to `partTimeStudents/{studentId}` (part-time)
+  // — same two-collection pattern already used for dashboards/timetables —
+  // so part-time students' ID cards can be created exactly like full-time
+  // students' always could.
   async function fetchStudentById(rawId) {
     const studentSnap = await getDoc(doc(db, "students", rawId));
-    if (!studentSnap.exists()) {
-      return null;
+    if (studentSnap.exists()) {
+      return { ...studentSnap.data(), studentType: studentSnap.data().studentType || "Full Time" };
     }
-    return studentSnap.data();
+    const partTimeSnap = await getDoc(doc(db, "partTimeStudents", rawId));
+    if (partTimeSnap.exists()) {
+      return { ...partTimeSnap.data(), studentType: partTimeSnap.data().studentType || "Part Time" };
+    }
+    return null;
   }
 
   async function handleFetchStudent() {
@@ -500,7 +510,7 @@ export default function AllIdCards() {
       const studentData = await fetchStudentById(rawId);
       if (!studentData) {
         setCreateLookup(null);
-        setCreateLookupError(`Student ID "${rawId}" lama helin students collection-ka. Fadlan hubi ID-ga.`);
+        setCreateLookupError(`Student ID "${rawId}" lama helin students ama partTimeStudents collection-yada. Fadlan hubi ID-ga.`);
         return;
       }
       setCreateLookup(studentData);
@@ -531,7 +541,7 @@ export default function AllIdCards() {
       const studentData = await fetchStudentById(rawId);
       if (!studentData) {
         setCreateLookup(null);
-        setCreateLookupError(`Student ID "${rawId}" lama helin students collection-ka. Fadlan hubi ID-ga.`);
+        setCreateLookupError(`Student ID "${rawId}" lama helin students ama partTimeStudents collection-yada. Fadlan hubi ID-ga.`);
         setCreating(false);
         return;
       }
@@ -569,6 +579,7 @@ export default function AllIdCards() {
         fullName: (studentData.fullName || "").trim(),
         studentId: rawId,
         grade: studentData.className || "",
+        studentType: studentData.studentType || "Full Time",
         issueDate: issueDateStr,
         expireDate: expireDateStr,
         studentPhoto: studentData.studentPhoto || "",
@@ -1657,7 +1668,7 @@ export default function AllIdCards() {
 
                 {createLookup && !createLookupError && (
                   <div style={{ fontSize: 12.5, color: "#16a34a", background: "#F0FDF4", border: "1px solid rgba(22,163,74,0.25)", borderRadius: 8, padding: "8px 10px" }}>
-                    Waa la helay: {createLookup.fullName} — Grade {createLookup.className || "—"}
+                    Waa la helay: {createLookup.fullName} — Grade {createLookup.className || "—"} ({createLookup.studentType || "Full Time"})
                   </div>
                 )}
 

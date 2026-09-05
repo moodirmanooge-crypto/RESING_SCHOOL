@@ -325,8 +325,8 @@ export default function Attendance() {
       setTeachers(teacherMap);
 
       const attSnap = await getDocs(collection(db, "attendance"));
-      const list = attSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+      const fullTimeList = attSnap.docs
+        .map((d) => ({ id: d.id, ...d.data(), sourceCollection: "attendance" }))
         .filter(
           (r) =>
             r.className &&
@@ -335,7 +335,24 @@ export default function Attendance() {
             String(r.studentId).trim() !== "" &&
             r.date
         );
-      setRecords(list);
+
+      // Part-time attendance (Thursday/Friday classes) lives in its own
+      // collection — same shape as "attendance", so it's merged straight
+      // into the same `records` list and flows through every filter,
+      // stat, and edit path below exactly like full-time records do.
+      const attPartTimeSnap = await getDocs(collection(db, "attendancePartTime"));
+      const partTimeList = attPartTimeSnap.docs
+        .map((d) => ({ id: d.id, ...d.data(), sourceCollection: "attendancePartTime" }))
+        .filter(
+          (r) =>
+            r.className &&
+            String(r.className).trim() !== "" &&
+            r.studentId &&
+            String(r.studentId).trim() !== "" &&
+            r.date
+        );
+
+      setRecords([...fullTimeList, ...partTimeList]);
     } catch (err) {
       console.log(err);
       alert(err.message);
@@ -570,9 +587,20 @@ export default function Attendance() {
       setIsSaving(true);
       const batch = writeBatch(db);
 
+      // Each record remembers which collection it was loaded from
+      // (attendance vs attendancePartTime), so an edit to a part-time
+      // record is written back to attendancePartTime and never to the
+      // full-time collection — even if the two collections happen to
+      // share the same doc ID pattern.
+      const recordById = {};
+      records.forEach((r) => {
+        recordById[r.id] = r;
+      });
+
       changeKeys.forEach((recId) => {
         const newStatus = pendingChanges[recId];
-        const ref = doc(db, "attendance", recId);
+        const sourceCollection = recordById[recId]?.sourceCollection || "attendance";
+        const ref = doc(db, sourceCollection, recId);
         batch.update(ref, {
           status: newStatus,
           updatedAt: new Date(),

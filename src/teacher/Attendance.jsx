@@ -59,6 +59,20 @@ const WEEKDAYS = [
   "Saturday",
 ];
 
+// PART-TIME classes run Thursday & Friday (see teachers/{id}.classes[].days,
+// and the timetablePartTime collection). Every other day is FULL-TIME.
+// This one function is the single source of truth for which student
+// collection ("students" vs "partTimeStudents") and which attendance
+// collection ("attendance" vs "attendancePartTime") a given date belongs to.
+function isPartTimeDay(dayName) {
+  return dayName === "Thursday" || dayName === "Friday";
+}
+
+function getDayName(dateStr) {
+  const dateObj = new Date(`${dateStr}T00:00:00`);
+  return WEEKDAYS[dateObj.getDay()];
+}
+
 export default function Attendance() {
   const [classes, setClasses] = useState([]);
   const [teacherClassEntries, setTeacherClassEntries] = useState([]);
@@ -238,8 +252,13 @@ export default function Attendance() {
     try {
       setLoading(true);
 
+      const dayName = getDayName(dateStr);
+      const partTime = isPartTimeDay(dayName);
+      const studentCollectionName = partTime ? "partTimeStudents" : "students";
+      const attendanceCollectionName = partTime ? "attendancePartTime" : "attendance";
+
       const snap = await getDocs(
-        query(collection(db, "students"), where("className", "==", className))
+        query(collection(db, studentCollectionName), where("className", "==", className))
       );
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
@@ -256,7 +275,7 @@ export default function Attendance() {
       }
 
       const existingSnap = await getDocs(
-        query(collection(db, "attendance"), ...constraints)
+        query(collection(db, attendanceCollectionName), ...constraints)
       );
 
       const sessionNumbers = new Set();
@@ -312,6 +331,11 @@ export default function Attendance() {
     sessionNumber
   ) => {
     try {
+      const dayName = getDayName(dateStr);
+      const attendanceCollectionName = isPartTimeDay(dayName)
+        ? "attendancePartTime"
+        : "attendance";
+
       const constraints = [
         where("className", "==", className),
         where("date", "==", dateStr),
@@ -321,7 +345,7 @@ export default function Attendance() {
         constraints.push(where("subject", "==", subject));
       }
       const existingSnap = await getDocs(
-        query(collection(db, "attendance"), ...constraints)
+        query(collection(db, attendanceCollectionName), ...constraints)
       );
       applySessionData(students, existingSnap.docs, sessionNumber);
     } catch (err) {
@@ -377,17 +401,21 @@ export default function Attendance() {
 
       const sessionNumberToSave = selectedSessionNumber || 1;
       const timeLabel = new Date().toLocaleTimeString();
+      const dayName = getDayName(date);
+      const partTime = isPartTimeDay(dayName);
+      const attendanceCollectionName = partTime ? "attendancePartTime" : "attendance";
 
       for (const student of students) {
         const docId = selectedSubject
           ? `${selectedClass}_${selectedSubject}_${student.id}_${date}_s${sessionNumberToSave}`
           : `${selectedClass}_${student.id}_${date}_s${sessionNumberToSave}`;
 
-        await setDoc(doc(db, "attendance", docId), {
+        await setDoc(doc(db, attendanceCollectionName, docId), {
           studentId: student.id,
           studentName: student.fullName,
           className: selectedClass,
           subject: selectedSubject || null,
+          studentType: partTime ? "Part Time" : "Full Time",
           teacherId,
           date,
           sessionNumber: sessionNumberToSave,

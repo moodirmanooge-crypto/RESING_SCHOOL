@@ -25,6 +25,28 @@ import MobileBottomNav from "./MobileBottomNav";
 // Nuucyada Exam-ka ee macallinku dooran karo
 const examTypes = ["Monthly One", "Term", "Monthly Two", "Final"];
 
+// PART-TIME classes run Thursday & Friday (same rule already used for
+// timetablePartTime/attendancePartTime). Every other day is FULL-TIME.
+// The exam's own Exam Date decides which type it belongs to — no extra
+// picker needed.
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+];
+function isPartTimeDay(dayName) {
+  return dayName === "Thursday" || dayName === "Friday";
+}
+function getDayName(dateStr) {
+  if (!dateStr) return "";
+  const dateObj = new Date(`${dateStr}T00:00:00`);
+  return WEEKDAYS[dateObj.getDay()];
+}
+
 function ExamsStyles() {
   return (
     <style>{`
@@ -174,6 +196,8 @@ export default function Exams() {
       await uploadBytes(storageRef, examFile);
       const pdfUrl = await getDownloadURL(storageRef);
 
+      const partTime = isPartTimeDay(getDayName(examDate));
+
       await addDoc(collection(db, "messages"), {
         senderName: teacherName,
         senderRole: "Teacher",
@@ -185,6 +209,7 @@ export default function Exams() {
         examDate,
         className: selectedClass,
         subject,
+        studentType: partTime ? "Part Time" : "Full Time",
         fileUrl: pdfUrl,
         fileName: examFile.name,
         read: false,
@@ -350,6 +375,7 @@ export default function Exams() {
                         Fasalka {exam.className || "—"} • {exam.subject || "—"} &nbsp;•&nbsp;
                         Exam Date: {exam.examDate || "—"} &nbsp;•&nbsp; Sent:{" "}
                         {formatDate(exam.createdAt)}
+                        {exam.studentType && <> &nbsp;•&nbsp; {exam.studentType}</>}
                       </div>
                     </div>
                   </a>
