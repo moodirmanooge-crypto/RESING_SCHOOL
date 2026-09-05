@@ -30,9 +30,6 @@ const SCHOOL_INFO = {
 
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 
-// Fulltime -> collection "timetable" (sida hore, waxba kama beddelin xogtiisa)
-// Part time -> collection cusub "timetablePartTime", si aysan waligood
-// isugu qarxin ama isu dul saarin xogta fulltime-ka.
 const STUDENT_TYPES = [
   { key: "fulltime", label: "Full Time", collectionName: "timetable" },
   { key: "parttime", label: "Part Time", collectionName: "timetablePartTime" },
@@ -48,13 +45,25 @@ function cleanClassName(val) {
     .toUpperCase();
 }
 
-const DAYS = [
+// Maalmaha Full Time (5 maalmood)
+const FULLTIME_DAYS = [
   { key: "Saturday", label: "Saturday" },
   { key: "Sunday", label: "Sunday" },
   { key: "Monday", label: "Monday" },
   { key: "Tuesday", label: "Tuesday" },
   { key: "Wednesday", label: "Wednesday" },
 ];
+
+// Maalmaha Part Time (Thursday iyo Friday kaliya)
+const PARTTIME_DAYS = [
+  { key: "Thursday", label: "Thursday" },
+  { key: "Friday", label: "Friday" },
+];
+
+const DAYS_BY_TYPE = {
+  fulltime: FULLTIME_DAYS,
+  parttime: PARTTIME_DAYS,
+};
 
 function emptySession() {
   return {
@@ -226,8 +235,9 @@ function PrintStyles() {
 function ClassPrintTable({ cls, type, timetableByType, studentTypeLabel }) {
   const norm = cleanClassName(cls);
   const docs = timetableByType[type] || {};
+  const activeDays = DAYS_BY_TYPE[type] || FULLTIME_DAYS;
 
-  const dayData = DAYS.map((d) => {
+  const dayData = activeDays.map((d) => {
     const key = `${norm}__${d.key}`;
     const sessions = [...(docs[key]?.sessions || [])].sort((a, b) =>
       (a.startTime || "").localeCompare(b.startTime || "")
@@ -381,10 +391,6 @@ function PrintPreviewModal({ selected, onToggle, onSelectAll, onClose, onPrint }
             {allSelected ? "Ka saar Dhammaan" : "Xulo Dhammaan (Full Time + Part Time)"}
           </button>
 
-          {/* Halkan waxaa lagu tusayaa magaca fasalka mar walba oo tick-gu
-              taagan yahay — labo checkbox (Full Time / Part Time) oo
-              fasal kasta leeyahay, si macalinku u dooran karo mid, kale,
-              ama labadaba isku mar hal fasal. */}
           <div
             style={{
               display: "grid",
@@ -494,18 +500,18 @@ export default function Timetable() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [teachers, setTeachers] = useState([]);
-  // Xogta labada nooc (Full Time + Part Time) waxay isku mar ku jirtaa
-  // halkan — { fulltime: { "1__Saturday": {...} }, parttime: {...} } —
-  // si macalinku uu ugu daawan/daabaco karo labadaba isku mar, iyada oo
-  // aan loo baahnayn in mar walba dib loo soo qaado xogta marka toggle-ka
-  // la beddelo.
   const [timetableByType, setTimetableByType] = useState({ fulltime: {}, parttime: {} });
   const [selectedClass, setSelectedClass] = useState(null);
-  const [activeDay, setActiveDay] = useState(DAYS[0].key);
+
+  // ---- Full Time / Part Time toggle ----
+  const [studentType, setStudentType] = useState("fulltime");
+  
+  // Maalmaha firfircoon senario-ga hadda la joogo
+  const currentDays = DAYS_BY_TYPE[studentType] || FULLTIME_DAYS;
+  const [activeDay, setActiveDay] = useState(FULLTIME_DAYS[0].key);
+
   const [draftSessions, setDraftSessions] = useState([]);
 
-  // ---- Full Time / Part Time toggle (gudaha bogga tafatirka) ----
-  const [studentType, setStudentType] = useState("fulltime");
   const activeCollectionName =
     STUDENT_TYPES.find((t) => t.key === studentType)?.collectionName || "timetable";
   const activeTypeLabel =
@@ -513,11 +519,16 @@ export default function Timetable() {
   const timetableDocs = timetableByType[studentType] || {};
 
   // ---- Daawo & Daabac (Preview & Print) ----
-  // selectedForPrint hadda waa liis walxo ah { cls, type } — si fasal
-  // kastaa loogu doorto Full Time, Part Time, ama labadaba.
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [selectedForPrint, setSelectedForPrint] = useState([]);
   const [classesToPrint, setClassesToPrint] = useState([]);
+
+  // Marka studentType uu beddelmo, hubi in activeDay uusana ku jirin maalin hore
+  useEffect(() => {
+    if (!currentDays.some((d) => d.key === activeDay)) {
+      setActiveDay(currentDays[0].key);
+    }
+  }, [studentType, currentDays, activeDay]);
 
   function togglePrintClass(cls, type) {
     setSelectedForPrint((prev) => {
@@ -563,11 +574,6 @@ export default function Timetable() {
     };
   }, [classesToPrint]);
 
-  // Marka bogga la furo, xogta LABADA nooc (Full Time + Part Time) waxaa
-  // hal mar la soo qaadaa, si toggle-ka Full Time/Part Time uu si degdeg
-  // ah u shaqeeyo, oo Daawo & Daabac-na uu awoodo inuu isla mar u
-  // muujiyo labada nooc — la'aanteed waxaa loo baahnaan lahaa in xogta
-  // labaad la sugo marka la daabacayo.
   useEffect(() => {
     loadAllData();
   }, []);
@@ -948,8 +954,9 @@ export default function Timetable() {
                 {activeTypeLabel}
               </div>
 
+              {/* Maalmaha halkan lagu soo saaro waxay ku xiran yihiin nooca (Full Time / Part Time) */}
               <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-                {DAYS.map((d) => {
+                {currentDays.map((d) => {
                   const norm = cleanClassName(selectedClass);
                   const key = `${norm}__${d.key}`;
                   const hasData = (timetableDocs[key]?.sessions || []).length > 0;
