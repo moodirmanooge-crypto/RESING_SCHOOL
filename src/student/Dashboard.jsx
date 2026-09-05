@@ -74,6 +74,15 @@ const DAYS = [
   { key: "Wednesday", label: "Wednesday" },
 ];
 
+// FULL-TIME class timetable runs Saturday–Wednesday.
+const FULL_TIME_DAYS = DAYS;
+
+// PART-TIME class timetable runs Thursday & Friday only.
+const PART_TIME_DAYS = [
+  { key: "Thursday", label: "Thursday" },
+  { key: "Friday", label: "Friday" },
+];
+
 function ResponsiveStyles() {
   return (
     <style>{`
@@ -272,7 +281,8 @@ export default function StudentDashboard() {
   const [timetableByDay, setTimetableByDay] = useState({});
   const [examTimetableByDay, setExamTimetableByDay] = useState({});
   const [examWeek, setExamWeek] = useState(null);
-  const [activeTimetableDay, setActiveTimetableDay] = useState(DAYS[0].key);
+  const [timetableDays, setTimetableDays] = useState(FULL_TIME_DAYS);
+  const [activeTimetableDay, setActiveTimetableDay] = useState(FULL_TIME_DAYS[0].key);
   const [activeExamDay, setActiveExamDay] = useState(DAYS[0].key);
   const [teacherNames, setTeacherNames] = useState({});
   const [certificate, setCertificate] = useState(null);
@@ -342,16 +352,20 @@ export default function StudentDashboard() {
           setTeacherNames({});
         }
 
-        // FULL-TIME students read ONLY from "timetable", PART-TIME students read ONLY from "timetablePartTime"
+        // FULL-TIME students read ONLY from "timetable" (Saturday–Wednesday),
+        // PART-TIME students read ONLY from "timetablePartTime" (Thursday & Friday).
         const timetableCollectionName = isPartTime
           ? "timetablePartTime"
           : "timetable";
+        const activeDaysForType = isPartTime ? PART_TIME_DAYS : FULL_TIME_DAYS;
+        setTimetableDays(activeDaysForType);
+        setActiveTimetableDay(activeDaysForType[0].key);
 
         if (className) {
           try {
             const ttMap = {};
             await Promise.all(
-              DAYS.map(async (d) => {
+              activeDaysForType.map(async (d) => {
                 const snap = await getDoc(
                   doc(db, timetableCollectionName, `${className}__${d.key}`)
                 );
@@ -725,7 +739,7 @@ export default function StudentDashboard() {
                       downloadTimetableImage({
                         className: student?.className,
                         studentType: student?.studentType,
-                        dayLabel: DAYS.find((d) => d.key === activeTimetableDay)?.label,
+                        dayLabel: timetableDays.find((d) => d.key === activeTimetableDay)?.label,
                       })
                     }
                     style={styles.downloadBtn}
@@ -736,7 +750,7 @@ export default function StudentDashboard() {
               </div>
 
               <div className="rs-day-tabs">
-                {DAYS.map((d) => {
+                {timetableDays.map((d) => {
                   const isActive = d.key === activeTimetableDay;
                   const hasData = (timetableByDay[d.key]?.sessions || []).length > 0;
                   return (
