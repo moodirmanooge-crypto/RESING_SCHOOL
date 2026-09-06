@@ -201,20 +201,22 @@ export default function ManualStudentIdCard({ card }) {
         />
 
         {/* GRADE value — sits in the gap between the word "GRADE" (ends ~56.7%)
-            and the right green dash, which ID_Front.png now has shifted
-            further right (starts ~70.7%) to give multi-character grades
-            like "F4" enough room without touching "GRADE". Font size now
-            matches the template's own "GRADE" letter size (previously much
-            smaller). */}
+            and the right edge of the card. Widened (left starts right after
+            the printed word, right margin trimmed) so longer values — not
+            just short grades like "8"/"F4", but a private student's level
+            such as "Secondary school" — fit on one line instead of
+            overlapping the "GRADE" label. maxFontPx lowered a bit from the
+            old short-grade-only size so long text isn't forced tiny by
+            FitText's shrink-to-fit only after already colliding visually. */}
         <FitText
           text={gradeText}
           top={`${POS.grade}%`}
           left="57.1%"
-          right="29.8%"
-          maxFontPx={CARD_W * 0.08}
-          minFontPx={CARD_W * 0.032}
+          right="4%"
+          maxFontPx={CARD_W * 0.052}
+          minFontPx={CARD_W * 0.024}
           color="#1e2a78"
-          align="center"
+          align="left"
         />
 
         {/* ID No value — on the "ID No:#" line. */}

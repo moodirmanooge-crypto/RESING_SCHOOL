@@ -74,10 +74,7 @@ const DAYS = [
   { key: "Wednesday", label: "Wednesday" },
 ];
 
-// FULL-TIME class timetable runs Saturday–Wednesday.
 const FULL_TIME_DAYS = DAYS;
-
-// PART-TIME class timetable runs Thursday & Friday only.
 const PART_TIME_DAYS = [
   { key: "Thursday", label: "Thursday" },
   { key: "Friday", label: "Friday" },
@@ -270,6 +267,7 @@ async function downloadCertificateImage(fullName) {
 export default function StudentDashboard() {
   const navigate = useNavigate();
   const studentId = localStorage.getItem("studentId");
+  const storedStudentType = localStorage.getItem("studentType"); // fulltime, parttime, ama private
 
   const [student, setStudent] = useState(null);
   const [attendance, setAttendance] = useState([]);
@@ -296,30 +294,34 @@ export default function StudentDashboard() {
     const load = async () => {
       try {
         let className = null;
-        let studentSnap = await getDoc(doc(db, "students", studentId));
-        let isPartTimeCollection = false;
-
-        if (!studentSnap.exists()) {
-          studentSnap = await getDoc(doc(db, "partTimeStudents", studentId));
-          isPartTimeCollection = true;
-        }
-
-        let isPartTime = false;
+        let studentSnap = null;
         let studentTypeLabel = "Full Time";
 
-        if (studentSnap.exists()) {
+        // Ka baadh collection-yada adigoo isticmaalaya localStorage studentType ama si tartiib ah u raadi
+        if (storedStudentType === "private") {
+          studentSnap = await getDoc(doc(db, "PrivateStudent", studentId));
+          studentTypeLabel = "Private";
+        } else if (storedStudentType === "parttime") {
+          studentSnap = await getDoc(doc(db, "partTimeStudents", studentId));
+          studentTypeLabel = "Part Time";
+        } else {
+          // Default ama fulltime
+          studentSnap = await getDoc(doc(db, "students", studentId));
+          if (!studentSnap.exists()) {
+            studentSnap = await getDoc(doc(db, "partTimeStudents", studentId));
+            if (studentSnap.exists()) studentTypeLabel = "Part Time";
+            else {
+              studentSnap = await getDoc(doc(db, "PrivateStudent", studentId));
+              if (studentSnap.exists()) studentTypeLabel = "Private";
+            }
+          }
+        }
+
+        let isPartTime = studentTypeLabel === "Part Time";
+        let isPrivate = studentTypeLabel === "Private";
+
+        if (studentSnap && studentSnap.exists()) {
           const sData = studentSnap.data();
-          const rawType =
-            sData.studentType ||
-            sData.type ||
-            (isPartTimeCollection ? "Part Time" : "Full Time");
-
-          isPartTime =
-            isPartTimeCollection ||
-            String(rawType).toLowerCase().includes("part");
-
-          studentTypeLabel = isPartTime ? "Part Time" : "Full Time";
-
           const data = {
             id: studentSnap.id,
             ...sData,
@@ -329,14 +331,19 @@ export default function StudentDashboard() {
           className = data.className;
         }
 
-        try {
-          const attQ = query(
-            collection(db, "attendance"),
-            where("studentId", "==", studentId)
-          );
-          const attSnap = await getDocs(attQ);
-          setAttendance(attSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        } catch (e) {
+        // Attendance-ka lagama soo saaro ardayda Private-ka ah
+        if (!isPrivate) {
+          try {
+            const attQ = query(
+              collection(db, "attendance"),
+              where("studentId", "==", studentId)
+            );
+            const attSnap = await getDocs(attQ);
+            setAttendance(attSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+          } catch (e) {
+            setAttendance([]);
+          }
+        } else {
           setAttendance([]);
         }
 
@@ -352,8 +359,6 @@ export default function StudentDashboard() {
           setTeacherNames({});
         }
 
-        // FULL-TIME students read ONLY from "timetable" (Saturday–Wednesday),
-        // PART-TIME students read ONLY from "timetablePartTime" (Thursday & Friday).
         const timetableCollectionName = isPartTime
           ? "timetablePartTime"
           : "timetable";
@@ -487,11 +492,12 @@ export default function StudentDashboard() {
       unsubscribeBroadcast();
       unsubscribeIndividual();
     };
-  }, [studentId, navigate]);
+  }, [studentId, navigate, storedStudentType]);
 
   const logout = () => {
     localStorage.removeItem("studentId");
     localStorage.removeItem("studentName");
+    localStorage.removeItem("studentType");
     navigate("/student-login");
   };
 
@@ -512,6 +518,7 @@ export default function StudentDashboard() {
       : null;
 
   const isFreeStudent = String(student?.feeType || "").toLowerCase() === "free";
+  const isPrivateStudent = String(student?.studentType || "").toLowerCase() === "private";
 
   const sortedPayments = [...payments].sort((a, b) => {
     if (a.monthKey && b.monthKey) return b.monthKey.localeCompare(a.monthKey);
@@ -537,9 +544,13 @@ export default function StudentDashboard() {
       latestPayment?.status === "Paid");
 
   const isClass8 = String(student?.className || "").toUpperCase() === "8";
-  const visibleNavItems = NAV_ITEMS.filter(
-    (item) => item.key !== "certificate" || isClass8
-  );
+  
+  // Halkan ayaa laga reebayaa Attendance-ka haddii uu yahay Private student
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.key === "certificate" && !isClass8) return false;
+    if (item.key === "attendance" && isPrivateStudent) return false;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -611,6 +622,8 @@ export default function StudentDashboard() {
                       ...styles.studentTypeBadge,
                       ...(student.studentType === "Part Time"
                         ? styles.studentTypeBadgePartTime
+                        : student.studentType === "Private"
+                        ? styles.studentTypeBadgePrivate
                         : styles.studentTypeBadgeFullTime),
                     }}
                   >
@@ -629,7 +642,7 @@ export default function StudentDashboard() {
             <section className="rs-grid">
               <StatCard
                 label="Attendance rate"
-                value={attendanceRate !== null ? `${attendanceRate}%` : "No data"}
+                value={isPrivateStudent ? "N/A" : attendanceRate !== null ? `${attendanceRate}%` : "No data"}
                 accent={COLORS.accent}
               />
               <StatCard
@@ -723,6 +736,8 @@ export default function StudentDashboard() {
                             ...styles.studentTypeBadge,
                             ...(student.studentType === "Part Time"
                               ? styles.studentTypeBadgePartTime
+                              : student.studentType === "Private"
+                              ? styles.studentTypeBadgePrivate
                               : styles.studentTypeBadgeFullTime),
                           }}
                         >
@@ -906,7 +921,7 @@ export default function StudentDashboard() {
             </section>
           )}
 
-          {tab === "attendance" && (
+          {tab === "attendance" && !isPrivateStudent && (
             <section className="rs-panel" style={styles.panel}>
               <div style={styles.panelTitle}>Attendance — all classes</div>
               {attendance.length === 0 ? (
@@ -1063,7 +1078,7 @@ export default function StudentDashboard() {
         </main>
       </div>
 
-      <nav className="rs-bottom-nav">
+<nav className="rs-bottom-nav">
         {visibleNavItems.map((item) => (
           <button
             key={item.key}
@@ -1222,6 +1237,11 @@ const styles = {
     background: "rgba(245,166,35,0.12)",
     color: COLORS.warn,
     border: `1px solid rgba(245,166,35,0.35)`,
+  },
+  studentTypeBadgePrivate: {
+    background: "rgba(109,93,240,0.12)",
+    color: "#8b6cf5",
+    border: `1px solid rgba(109,93,240,0.35)`,
   },
   h1: { fontSize: 28, margin: 0, fontWeight: 700 },
   classPill: {

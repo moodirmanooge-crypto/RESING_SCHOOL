@@ -80,7 +80,7 @@ export default function LoginForm({ role }) {
 
       let found = false;
 
-      // ---- Student / Parent: raadi labada collection (full time + part time) ----
+      // ---- Student / Parent: raadi collections-ka (full time + part time + PrivateStudent) ----
       if (role === "Student" || role === "Parent") {
         // 1) Fulltime students
         const fullSnap = await getDocs(collection(db, "students"));
@@ -115,7 +115,7 @@ export default function LoginForm({ role }) {
           }
         });
 
-        // 2) Part time students — halkan lagu daray
+        // 2) Part time students
         if (!found) {
           const partSnap = await getDocs(collection(db, "partTimeStudents"));
 
@@ -145,6 +145,41 @@ export default function LoginForm({ role }) {
                 localStorage.setItem("studentId", item.id);
                 localStorage.setItem("parentName", data.parentName || "Parent");
                 localStorage.setItem("studentType", "parttime");
+              }
+            }
+          });
+        }
+
+        // 3) Private Students (P001, P002, iwm.) — Halkan ayaa lagu daray
+        if (!found) {
+          const privateSnap = await getDocs(collection(db, "PrivateStudent"));
+
+          privateSnap.forEach((item) => {
+            const data = item.data();
+
+            if (role === "Student") {
+              if (
+                (data.studentId === username.trim() ||
+                  item.id === username.trim()) &&
+                data.parentPassword === password.trim()
+              ) {
+                found = true;
+                localStorage.setItem("studentId", item.id);
+                localStorage.setItem("studentName", data.fullName || data.name || "Student");
+                localStorage.setItem("studentType", "private");
+              }
+            }
+
+            if (role === "Parent") {
+              if (
+                (data.studentId === username.trim() ||
+                  data.parentPhone === username.trim()) &&
+                data.parentPassword === password.trim()
+              ) {
+                found = true;
+                localStorage.setItem("studentId", item.id);
+                localStorage.setItem("parentName", data.parentName || "Parent");
+                localStorage.setItem("studentType", "private");
               }
             }
           });

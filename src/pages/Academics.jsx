@@ -172,7 +172,7 @@ export default function Academics() {
         return null;
       }
 
-      // Marka hore ka raadi 'students' kadibna 'partTimeStudents'
+      // Marka hore ka raadi 'students' kadibna 'partTimeStudents' (Private)
       let match = await findStudentInCollection("students", idInput);
       if (!match) {
         match = await findStudentInCollection("partTimeStudents", idInput);
@@ -187,9 +187,9 @@ export default function Academics() {
       foundStudentData = match.data;
       finalStudentId = match.id || match.data.studentId || idInput;
 
-      // Password check
+      // Password check (Taageeraya labada field ee kala ah 'password' ama 'parentPassword')
       const dbPassword = String(
-        foundStudentData.parentPassword || foundStudentData.password || ""
+        foundStudentData.password || foundStudentData.parentPassword || ""
       );
       if (dbPassword !== password.trim()) {
         setError("Password-ku waa khalad. Fadlan isku day mar kale.");
