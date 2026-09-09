@@ -51,6 +51,7 @@ export default function Dashboard() {
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter(
           (s) =>
+            !s.pendingDeletion &&
             s.studentId &&
             String(s.studentId).trim() !== "" &&
             s.fullName &&
@@ -58,8 +59,15 @@ export default function Dashboard() {
         );
       setStudents(studentData);
 
+      // Liiska ID-yada ardayda jira ee la ogolyahay (aan pendingDeletion ahayn)
+      const validStudentIds = new Set(studentData.map((s) => s.studentId));
+
       const paymentsSnap = await getDocs(collection(db, "payments"));
-      setPayments(paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const paymentData = paymentsSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        // Marnaba soo aqrin payment-ka ardayda aan jirin (la tirtiray ama aan collection-ka students ku jirin)
+        .filter((p) => p.studentId && validStudentIds.has(p.studentId));
+      setPayments(paymentData);
     } catch (err) {
       console.log(err);
     } finally {
@@ -69,7 +77,15 @@ export default function Dashboard() {
 
   const stats = useMemo(() => {
     const monthKey = currentMonthKey();
-    const monthPayments = payments.filter((p) => p.monthKey === monthKey);
+
+    // Ardayda Free ah waa in aan lagu darin xisaabinta lacagaha ee guud
+    const feePayingStudentIds = new Set(
+      students.filter((s) => s.feeType !== "Free").map((s) => s.studentId)
+    );
+
+    const monthPayments = payments.filter(
+      (p) => p.monthKey === monthKey && feePayingStudentIds.has(p.studentId)
+    );
 
     // 1. Today's Payments
     const todaysPaymentsList = monthPayments.filter((p) => isToday(p.createdAt));
@@ -99,6 +115,25 @@ export default function Dashboard() {
       (s) => !paidStudentIds.has(s.studentId)
     );
 
+    // 5. Wadarta Guud ee Lacagta la Qaaday (dhammaan waqtiyada, ma aha bishan oo kaliya)
+    const allTimePaymentsList = payments
+      .filter((p) => feePayingStudentIds.has(p.studentId))
+      .slice()
+      .sort((a, b) => (b.monthKey || "").localeCompare(a.monthKey || ""));
+    const allTimeCollected = allTimePaymentsList.reduce(
+      (sum, p) => sum + Number(p.paidAmount || 0),
+      0
+    );
+
+    // 6. Wadarta Guud ee Lacagta ay Ardaydu ku Diiwaan Gashan yihiin (Monthly Fee guud)
+    const totalRegisteredFees = payableStudents.reduce(
+      (sum, s) => sum + Number(s.monthlyFee || 0),
+      0
+    );
+
+    // 7. Tirada Ardayda Lacag-bixiya (kuwa aan Free ahayn ee lacagta bille laga qaadanayo)
+    const feePayingStudentsCount = payableStudents.length;
+
     return {
       todaysCollection,
       todaysPaymentsList,
@@ -108,6 +143,11 @@ export default function Dashboard() {
       paidStudentsList,
       studentsRemaining: remainingStudentsList.length,
       remainingStudentsList,
+      allTimeCollected,
+      allTimePaymentsList,
+      totalRegisteredFees,
+      feePayingStudentsCount,
+      feePayingStudentsList: payableStudents,
     };
   }, [students, payments]);
 
@@ -153,9 +193,67 @@ export default function Dashboard() {
 
   return (
     <div>
-      <header style={{ marginBottom: 28 }}>
-        <h1 style={styles.title}>Cashier Dashboard</h1>
-        <p style={styles.subtitle}>Overview of today's payment activity</p>
+      <header style={styles.headerRow}>
+        <div>
+          <h1 style={styles.title}>Cashier Dashboard</h1>
+          <p style={styles.subtitle}>Overview of today's payment activity</p>
+        </div>
+
+        {!loading && (
+          <div style={styles.summaryRow}>
+            <div
+              style={{ ...styles.summaryPill, cursor: "pointer" }}
+              onClick={() =>
+                setSelectedCategory({
+                  id: "allTime",
+                  icon: "🏦",
+                  label: "Wadarta Guud ee La Qaaday",
+                  value: `$${stats.allTimeCollected}`,
+                  list: stats.allTimePaymentsList,
+                  type: "payment",
+                })
+              }
+              title="Gudaha kaga dhufo si aad u aragto diiwaanka lacagaha ka dhisay wadartan"
+            >
+              <span style={styles.summaryLabel}>Wadarta Guud ee La Qaaday</span>
+              <span style={styles.summaryValue}>${stats.allTimeCollected}</span>
+            </div>
+            <div
+              style={{ ...styles.summaryPill, cursor: "pointer" }}
+              onClick={() =>
+                setSelectedCategory({
+                  id: "feePaying",
+                  icon: "🧑‍🎓",
+                  label: "Ardayda Lacag Laga Qaadanayo",
+                  value: stats.feePayingStudentsCount,
+                  list: stats.feePayingStudentsList,
+                  type: "student",
+                })
+              }
+              title="Gudaha kaga dhufo si aad u aragto liiska ardayda"
+            >
+              <span style={styles.summaryLabel}>Ardayda Lacag Laga Qaadanayo</span>
+              <span style={styles.summaryValue}>{stats.feePayingStudentsCount}</span>
+            </div>
+            <div
+              style={{ ...styles.summaryPill, cursor: "pointer" }}
+              onClick={() =>
+                setSelectedCategory({
+                  id: "registered",
+                  icon: "📋",
+                  label: "Wadarta Ku Diiwaan Gashan",
+                  value: `$${stats.totalRegisteredFees}`,
+                  list: stats.feePayingStudentsList,
+                  type: "student",
+                })
+              }
+              title="Gudaha kaga dhufo si aad u aragto liiska ardayda"
+            >
+              <span style={styles.summaryLabel}>Wadarta Ku Diiwaan Gashan</span>
+              <span style={styles.summaryValue}>${stats.totalRegisteredFees}</span>
+            </div>
+          </div>
+        )}
       </header>
 
       {loading ? (
@@ -259,8 +357,21 @@ function DetailModal({ category, onClose }) {
                     {/* Status or Date Column */}
                     <td style={modalStyles.td}>
                       {category.type === "payment" ? (
-                        <span style={modalStyles.dateText}>{formatDate(item.createdAt)}</span>
-                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={modalStyles.dateText}>{formatDate(item.createdAt)}</span>
+                          {item.monthLabel && (
+                            <span
+                              style={{
+                                ...modalStyles.dateText,
+                                fontWeight: 700,
+                                color: theme.colors.brand,
+                              }}
+                            >
+                              Bisha: {item.monthLabel}
+                            </span>
+                          )}
+                        </div>
+                      ) : category.id === "paid" || category.id === "remaining" ? (
                         <span
                           style={{
                             ...modalStyles.badge,
@@ -270,6 +381,8 @@ function DetailModal({ category, onClose }) {
                         >
                           {category.id === "paid" ? "Paid" : "Not Paid"}
                         </span>
+                      ) : (
+                        <span style={modalStyles.dateText}>—</span>
                       )}
                     </td>
                   </tr>
@@ -284,6 +397,14 @@ function DetailModal({ category, onClose }) {
 }
 
 const styles = {
+  headerRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 16,
+    marginBottom: 28,
+  },
   title: {
     fontFamily: theme.font.display,
     fontWeight: 800,
@@ -295,6 +416,37 @@ const styles = {
     color: theme.colors.inkMuted,
     fontSize: 14,
     marginTop: 6,
+  },
+  summaryRow: {
+    display: "flex",
+    gap: 12,
+    flexWrap: "wrap",
+  },
+  summaryPill: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "10px 20px",
+    borderRadius: theme.radius.md,
+    background: theme.colors.card,
+    border: `1px solid ${theme.colors.border}`,
+    boxShadow: theme.shadow.card,
+    minWidth: 150,
+  },
+  summaryLabel: {
+    fontSize: 11.5,
+    color: theme.colors.inkMuted,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  summaryValue: {
+    fontFamily: theme.font.display,
+    fontWeight: 800,
+    fontSize: 20,
+    color: theme.colors.brand,
+    marginTop: 2,
+    fontVariantNumeric: "tabular-nums",
   },
   grid: {
     display: "grid",
