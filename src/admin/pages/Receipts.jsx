@@ -92,6 +92,7 @@ const cardStyle = {
 
 export default function Receipts() {
   const [receipts, setReceipts] = useState([]);
+  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
@@ -101,7 +102,27 @@ export default function Receipts() {
 
   useEffect(() => {
     fetchReceipts();
+    fetchStudents();
   }, []);
+
+  async function fetchStudents() {
+    try {
+      const snap = await getDocs(collection(db, "students"));
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter(
+          (s) =>
+            !s.pendingDeletion &&
+            s.studentId &&
+            String(s.studentId).trim() !== "" &&
+            s.fullName &&
+            String(s.fullName).trim() !== ""
+        );
+      setStudents(list);
+    } catch (err) {
+      console.error("Khalad ayaa dhacay markii ardayda la soo qaadanayay:", err);
+    }
+  }
 
   async function fetchReceipts() {
     try {
@@ -139,6 +160,29 @@ export default function Receipts() {
     () => filtered.reduce((sum, r) => sum + (Number(r.paidAmount) || 0), 0),
     [filtered]
   );
+
+  // Isku qaabka Cashier Dashboard-ka: ardayda Free ah waa in aan lagu darin
+  const overview = useMemo(() => {
+    const feePayingStudentIds = new Set(
+      students.filter((s) => s.feeType !== "Free").map((s) => s.studentId)
+    );
+    const payableStudents = students.filter((s) => s.feeType !== "Free");
+
+    const allTimeCollected = receipts
+      .filter((r) => feePayingStudentIds.has(r.studentId))
+      .reduce((sum, r) => sum + (Number(r.paidAmount) || 0), 0);
+
+    const totalRegisteredFees = payableStudents.reduce(
+      (sum, s) => sum + Number(s.monthlyFee || 0),
+      0
+    );
+
+    return {
+      allTimeCollected,
+      feePayingStudentsCount: payableStudents.length,
+      totalRegisteredFees,
+    };
+  }, [students, receipts]);
 
   function askDeleteOne(receipt) {
     setConfirmTarget({ type: "one", receipt });
@@ -255,6 +299,40 @@ export default function Receipts() {
                 <div style={{ fontSize: 16, fontWeight: 800, color: "#16a34a" }}>
                   ${totalCollected.toLocaleString()}
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 14,
+              flexWrap: "wrap",
+              marginBottom: 20,
+            }}
+          >
+            <div style={{ ...cardStyle, padding: "14px 22px", minWidth: 180 }}>
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", fontWeight: 600, whiteSpace: "nowrap" }}>
+                Wadarta Guud ee La Qaaday
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#16a34a", marginTop: 2 }}>
+                ${overview.allTimeCollected.toLocaleString()}
+              </div>
+            </div>
+            <div style={{ ...cardStyle, padding: "14px 22px", minWidth: 180 }}>
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", fontWeight: 600, whiteSpace: "nowrap" }}>
+                Ardayda Lacag Laga Qaadanayo
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 2 }}>
+                {overview.feePayingStudentsCount}
+              </div>
+            </div>
+            <div style={{ ...cardStyle, padding: "14px 22px", minWidth: 180 }}>
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", fontWeight: 600, whiteSpace: "nowrap" }}>
+                Wadarta Ku Diiwaan Gashan
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 2 }}>
+                ${overview.totalRegisteredFees.toLocaleString()}
               </div>
             </div>
           </div>
