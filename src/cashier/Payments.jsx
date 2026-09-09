@@ -70,12 +70,17 @@ export default function Payments() {
         );
       setStudents(studentData);
 
+      // Liiska ID-yada ardayda jira ee la ogolyahay (aan pendingDeletion ahayn)
+      const validStudentIds = new Set(studentData.map((s) => s.studentId));
+
       const paymentsSnap = await getDocs(collection(db, "payments"));
       const byStudent = {};
       paymentsSnap.docs.forEach((d) => {
         const data = d.data();
         const sid = data.studentId;
         if (!sid) return;
+        // Marnaba soo aqrin payment-ka ardayda aan jirin ama la tirtiray
+        if (!validStudentIds.has(sid)) return;
         if (!byStudent[sid]) byStudent[sid] = [];
         byStudent[sid].push(data);
       });
@@ -90,7 +95,12 @@ export default function Payments() {
     }
   };
 
+  const isFreeStudent = (student) => student.feeType === "Free";
+
   const filtered = students.filter((s) => {
+    // Ardayda Free ah marnaba yaanay ka soo muuqan liiska Payments
+    if (isFreeStudent(s)) return false;
+
     const text = search.toLowerCase();
     return (
       (s.studentId || "").toLowerCase().includes(text) ||
@@ -99,8 +109,6 @@ export default function Payments() {
       (s.feeCategory || "").toLowerCase().includes(text)
     );
   });
-
-  const isFreeStudent = (student) => student.feeType === "Free";
 
   function getStudentMonthState(studentId) {
     const records = paymentsByStudent[studentId] || [];
