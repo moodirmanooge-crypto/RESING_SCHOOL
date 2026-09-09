@@ -16,8 +16,8 @@ const ARABIC_NAME_LINE2 = "الأساسية والثانوية";
 
 const SCHOOL_LOCATION = "Muqdisho - Soomaaliya";
 const ARABIC_LOCATION = "مقديشو - الصومال";
-const SCHOOL_PHONES = "858516 / 0615860629 / 0617636461 / 0617536461";
-const SCHOOL_EMAIL = "israpp@hotmail.com";
+const SCHOOL_PHONES = "0615860629 / 0616274790 ";
+const SCHOOL_EMAIL = "resingstarschools.com";
 
 const USD_TO_SOS_RATE = 28;
 
