@@ -1,3 +1,4 @@
+//src/cashier/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../firebase/firebase";
@@ -13,7 +14,7 @@ const ARABIC_NAME_LINE2 = "الأساسية والثانوية";
 
 const SCHOOL_LOCATION = "Muqdisho - Soomaaliya";
 const ARABIC_LOCATION = "مقديشو - الصومال";
-const SCHOOL_PHONES = "858516 / 0615860629 / 0617636461 / 0617536461";
+const SCHOOL_PHONES = " / 0617390261 / 061 6274790";
 const SCHOOL_EMAIL = "israpp@hotmail.com";
 
 const USD_TO_SOS_RATE = 28;

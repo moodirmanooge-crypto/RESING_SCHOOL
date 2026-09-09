@@ -1,3 +1,4 @@
+//src/admin/pages/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase/firebase";

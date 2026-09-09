@@ -78,6 +78,8 @@ export default function Students() {
   // Doorashooyinka Class-ka iyo Type-ka
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [selectedType, setSelectedType] = useState("ALL");
+  // Filter-ka Ardayda Free-ga ah iyo kuwa Lacagta Bixiya (ALL | Free | Paid)
+  const [feeFilter, setFeeFilter] = useState("ALL");
 
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editData, setEditData] = useState(null);
@@ -121,7 +123,7 @@ export default function Students() {
     }
   }
 
-  // Filter-ka Isku dhafka ah (Class + Type + Search)
+  // Filter-ka Isku dhafka ah (Class + Type + Fee + Search)
   const filteredStudents = students.filter((s) => {
     if (s.pendingDeletion) return false;
 
@@ -131,6 +133,12 @@ export default function Students() {
     const matchesType =
       selectedType === "ALL" || String(s.studentType) === String(selectedType);
 
+    const isFree = s.feeType === "Free";
+    const matchesFee =
+      feeFilter === "ALL" ||
+      (feeFilter === "Free" && isFree) ||
+      (feeFilter === "Paid" && !isFree);
+
     const q = search.toLowerCase().trim();
     const matchesSearch =
       !q ||
@@ -138,8 +146,13 @@ export default function Students() {
       (s.parentPassword || "").toLowerCase().includes(q) ||
       (s.fullName || "").toLowerCase().includes(q);
 
-    return matchesClass && matchesType && matchesSearch;
+    return matchesClass && matchesType && matchesFee && matchesSearch;
   });
+
+  // Tirada guud ee ardayda Free-ga ah iyo kuwa Lacagta Bixiya (aan la tirtirin)
+  const activeStudents = students.filter((s) => !s.pendingDeletion);
+  const freeStudentsCount = activeStudents.filter((s) => s.feeType === "Free").length;
+  const paidStudentsCount = activeStudents.filter((s) => s.feeType !== "Free").length;
 
   function openEdit(student) {
     setSelectedStudent(student);
@@ -504,12 +517,46 @@ export default function Students() {
           </div>
 
           <div style={listCard}>
-            <h3 style={{ color: "#fff", margin: "0 0 16px", fontSize: 17 }}>
-              Student List{" "}
-              <span style={{ color: "#8b87ad", fontWeight: 400, fontSize: 14 }}>
-                ({filteredStudents.length})
-              </span>
-            </h3>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                gap: 12,
+                marginBottom: 16,
+              }}
+            >
+              <h3 style={{ color: "#fff", margin: 0, fontSize: 17 }}>
+                Student List{" "}
+                <span style={{ color: "#8b87ad", fontWeight: 400, fontSize: 14 }}>
+                  ({filteredStudents.length})
+                </span>
+              </h3>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  onClick={() => setFeeFilter(feeFilter === "Free" ? "ALL" : "Free")}
+                  style={{
+                    ...feePillBtn,
+                    ...(feeFilter === "Free" ? feePillBtnActiveFree : {}),
+                  }}
+                >
+                  🆓 Free Students
+                  <span style={feePillCount}>{freeStudentsCount}</span>
+                </button>
+                <button
+                  onClick={() => setFeeFilter(feeFilter === "Paid" ? "ALL" : "Paid")}
+                  style={{
+                    ...feePillBtn,
+                    ...(feeFilter === "Paid" ? feePillBtnActivePaid : {}),
+                  }}
+                >
+                  💰 Paid Students
+                  <span style={feePillCount}>{paidStudentsCount}</span>
+                </button>
+              </div>
+            </div>
 
             {loading ? (
               <p style={{ color: "#8b87ad" }}>Loading...</p>
@@ -904,6 +951,40 @@ const tag = {
   borderRadius: 20,
   border: "1px solid rgba(139,108,245,0.25)",
   whiteSpace: "nowrap",
+};
+
+const feePillBtn = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  background: "rgba(255,255,255,0.03)",
+  color: "#e5e3f7",
+  border: "1.5px solid rgba(139,108,245,0.25)",
+  padding: "9px 16px",
+  borderRadius: 999,
+  cursor: "pointer",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const feePillBtnActiveFree = {
+  background: "rgba(251,191,36,0.15)",
+  borderColor: "rgba(251,191,36,0.5)",
+  color: "#fbbf24",
+};
+
+const feePillBtnActivePaid = {
+  background: "rgba(16,185,129,0.15)",
+  borderColor: "rgba(16,185,129,0.5)",
+  color: "#10b981",
+};
+
+const feePillCount = {
+  background: "rgba(255,255,255,0.12)",
+  padding: "2px 9px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
 };
 
 const iconBtnExport = {

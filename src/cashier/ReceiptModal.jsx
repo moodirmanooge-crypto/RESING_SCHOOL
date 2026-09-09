@@ -1,3 +1,4 @@
+//src/cashier/ReceiptModal.jsx
 import { useEffect, useState } from "react";
 import {
   doc,
@@ -18,8 +19,8 @@ const ARABIC_NAME_LINE2 = "الأساسية والثانوية";
 
 const SCHOOL_LOCATION = "Muqdisho - Soomaaliya";
 const ARABIC_LOCATION = "مقديشو - الصومال";
-const SCHOOL_PHONES = "858516 / 0615860629 / 0617636461 / 0617536461";
-const SCHOOL_EMAIL = "israpp@hotmail.com";
+const SCHOOL_PHONES = "0617390261 / 0616";
+const SCHOOL_EMAIL = "resingstarschools.com";
 
 // 1 USD = 28 So Sh (Somali Shilling)
 const USD_TO_SOS_RATE = 28;
@@ -182,6 +183,16 @@ export default function ReceiptModal({ payment, onClose }) {
 
     const prepareReceipt = async () => {
       try {
+        // Haddii lacagta bulk-ka (Save All) mar hore u qorsheeyay receiptNo oo
+        // horeba loo kaydiyay "receipts" collection-ka, kaliya isticmaal — ha dib u abuurin.
+        if (payment.receiptNo) {
+          if (!cancelled) {
+            setReceiptNo(payment.receiptNo);
+            setLoading(false);
+          }
+          return;
+        }
+
         const no = await getNextReceiptNumber();
         if (cancelled) return;
         setReceiptNo(no);

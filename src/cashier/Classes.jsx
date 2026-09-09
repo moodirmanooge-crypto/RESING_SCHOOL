@@ -9,6 +9,8 @@ import {
   where,
   onSnapshot,
   getDocs,
+  runTransaction,
+  setDoc,
 } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -18,6 +20,52 @@ import { theme } from "./theme.js";
 import ReceiptModal from "./ReceiptModal.jsx";
 
 const SCHOOL_NAME = "Rising Star School";
+
+const academicYearLabel = (dateObj) => {
+  const y = dateObj.getFullYear();
+  const m = dateObj.getMonth() + 1;
+  if (m >= 9) return `${y}/${y + 1}`;
+  return `${y - 1}/${y}`;
+};
+
+// Isla counter-ka "counters/receiptCounter" ee ReceiptModal.jsx isticmaalo —
+// si aad arday kasta uu u helo rasiid gaar ah oo lambar taxane ah, xataa marka
+// lagu kaydiyo "Save All & PDF Report".
+const getNextReceiptNumber = async () => {
+  const counterRef = doc(db, "counters", "receiptCounter");
+
+  const nextNumber = await runTransaction(db, async (transaction) => {
+    const counterDoc = await transaction.get(counterRef);
+    const current = counterDoc.exists() ? Number(counterDoc.data().value || 0) : 0;
+    const next = current + 1;
+    transaction.set(counterRef, { value: next }, { merge: true });
+    return next;
+  });
+
+  return String(nextNumber).padStart(3, "0");
+};
+
+const saveReceiptRecord = async (receiptNo, payment, paidDate) => {
+  try {
+    const receiptRef = doc(collection(db, "receipts"), receiptNo);
+    await setDoc(receiptRef, {
+      receiptNo,
+      studentId: payment.studentId || null,
+      studentName: payment.studentName || "",
+      className: payment.className || "",
+      studentPhone: payment.studentPhone || "",
+      monthLabel: payment.monthLabel || "",
+      paidAmount: payment.paidAmount ?? 0,
+      paymentMethod: payment.paymentMethod || "",
+      evcNumber: payment.evcNumber || "",
+      academicYear: academicYearLabel(paidDate),
+      paidAt: paidDate,
+      createdAt: serverTimestamp(),
+    });
+  } catch (err) {
+    console.error("Khalad ayaa dhacay markii rasiidka la kaydinayay:", err);
+  }
+};
 
 const baseClasses = [
   "1",
@@ -263,6 +311,10 @@ export default function Classes() {
           fullName: data.studentName || data.fullName,
           ...mainData,
           ...data,
+          // Ardayga xaqiiqda ahaan "Free" ku qoran collection-ka students/
+          // partTimeStudents, feeType-kiisu waa inuusan marnaba isbedelin,
+          // xitaa haddii "cashier" collection-ku sido xaalad kale (Paid/Unpaid).
+          feeType: mainData.feeType === "Free" ? "Free" : data.feeType,
         };
 
         const actualClass = getNormalizedClassName(merged);
@@ -300,7 +352,9 @@ export default function Classes() {
 
   const currentClassStudents = useMemo(() => {
     if (!selectedClass) return [];
-    const list = students.filter((s) => (s.className || "Unknown") === selectedClass);
+    const list = students.filter(
+      (s) => (s.className || "Unknown") === selectedClass && s.feeType !== "Free"
+    );
     const q = search.trim().toLowerCase();
     if (!q) return list;
     return list.filter(
@@ -771,6 +825,22 @@ export default function Classes() {
       });
 
       await batch.commit();
+
+      // Arday kasta oo la bixiyay wuxuu hadda helayaa rasiid gaar ah oo si
+      // toos ah loogu kaydiyay "receipts" collection-ka — kama go'do in la
+      // daawado ama la print-gareeyo modal-ka.
+      for (const item of newReceipts) {
+        try {
+          const no = await getNextReceiptNumber();
+          const paidDate = item.createdAt?.seconds
+            ? new Date(item.createdAt.seconds * 1000)
+            : new Date();
+          await saveReceiptRecord(no, item, paidDate);
+          item.receiptNo = no;
+        } catch (err) {
+          console.log(err);
+        }
+      }
 
       setAmounts({});
       setMonthsSelected({});
