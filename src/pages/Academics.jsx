@@ -16,6 +16,9 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
+import { Hash, User, Building2, BarChart3, Award, GraduationCap } from "lucide-react";
+
+const SCHOOL_NAME = "RISING STAR SCHOOL";
 
 const NAV_LINKS = [
   { label: "Home", to: "/" },
@@ -46,15 +49,17 @@ function gradeFor(pct) {
   if (pct >= 55) return { letter: "C", color: "#d97706", remark: "Wanaagsan" };
   if (pct >= 50) return { letter: "C-", color: "#ea580c", remark: "Wanaagsan" };
   if (pct >= 40) return { letter: "D", color: "#dc2626", remark: "Ku dadaal" };
+  if (pct >= 30) return { letter: "E", color: "#b91c1c", remark: "U baahan taageero dheeraad ah" };
   return { letter: "F", color: "#991b1b", remark: "U baahan taageero dheeraad ah" };
 }
 
-function overallGradeFor(pct) {
-  if (pct >= 80) return { letter: "A", label: "Aan (A)" };
-  if (pct >= 65) return { letter: "B", label: "Fiican (B)" };
-  if (pct >= 50) return { letter: "C", label: "Gudbay (C)" };
-  if (pct >= 40) return { letter: "D", label: "Ku dadaal (D)" };
-  return { letter: "F", label: "Dib u fadhi (F)" };
+// Go'aanka ugu dambeeya: Celceliska (average) haddii uu yahay D ama ka sarreeya
+// (A/B/B-/C+/C/C-/D) waa la GUDBAY; haddii uu yahay E ama F waa la DHACAY.
+function verdictFor(letter) {
+  if (letter === "E" || letter === "F") {
+    return { label: "Ku Dhacay", color: "#dc2626" };
+  }
+  return { label: "Gudbay", color: "#16a34a" };
 }
 
 export default function Academics() {
@@ -276,11 +281,11 @@ export default function Academics() {
   const totalMarks = results.reduce((sum, r) => sum + (Number(r.marks) || 0), 0);
   const totalMax = results.reduce((sum, r) => sum + (Number(r.maxMarks) || 0), 0);
   const averagePct = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
-  const overall = overallGradeFor(averagePct);
-  const headerMax = results.reduce(
-    (max, r) => Math.max(max, Number(r.maxMarks) || 0),
-    0
-  ) || 100;
+  const averageGrade = gradeFor(averagePct);
+  const verdict = verdictFor(averageGrade.letter);
+  const halfway = Math.ceil(results.length / 2);
+  const resultsColLeft = results.slice(0, halfway);
+  const resultsColRight = results.slice(halfway);
 
   return (
     <div className="aca-page">
@@ -416,31 +421,21 @@ export default function Academics() {
         )}
 
         {student && (
-          <div className="aca-results-card">
-            <div className="aca-student-banner">
-              <div className="aca-student-info">
-                <span className="aca-student-name">
-                  {student.fullName || "—"}
-                </span>
-                <span className="aca-student-meta">
-                  Student ID: {student.studentId} &nbsp;•&nbsp; Class:{" "}
-                  {student.className || student.studentType || "—"} &nbsp;•&nbsp; {year}
-                </span>
-              </div>
-              <button className="aca-logout-btn" onClick={resetLookup}>
-                Log Out
-              </button>
-            </div>
-
+          <div className="report-card-wrap">
             {results.length === 0 ? (
-              <div style={{ padding: "40px 20px", textAlign: "center", color: "#475569" }}>
-                <div style={{ fontSize: "45px", marginBottom: "12px" }}>📭</div>
-                <h3 style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "8px", color: "#1e293b" }}>
-                  Lama helin imtixaankaaga
-                </h3>
-                <p style={{ fontSize: "14px", color: "#64748b" }}>
-                  Ardaygan weli natiijo lagama gelin xilligan ama sanadkan la doortay ({year}).
-                </p>
+              <div className="aca-results-card">
+                <div style={{ padding: "40px 20px", textAlign: "center", color: "#475569" }}>
+                  <div style={{ fontSize: "45px", marginBottom: "12px" }}>📭</div>
+                  <h3 style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "8px", color: "#1e293b" }}>
+                    Lama helin imtixaankaaga
+                  </h3>
+                  <p style={{ fontSize: "14px", color: "#64748b" }}>
+                    Ardaygan weli natiijo lagama gelin xilligan ama sanadkan la doortay ({year}).
+                  </p>
+                  <button className="aca-logout-btn" onClick={resetLookup} style={{ marginTop: 18 }}>
+                    Log Out
+                  </button>
+                </div>
               </div>
             ) : (
               <>
@@ -483,85 +478,124 @@ export default function Academics() {
                   </div>
                 )}
 
-                <div className="aca-table-wrap">
-                  <table className="aca-table">
-                    <thead>
-                      <tr>
-                        <th>Subject</th>
-                        <th>Marks (out of {headerMax})</th>
-                        <th>Grade</th>
-                        <th>Remark</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {results.map((r) => {
-                        const max = Number(r.maxMarks) || 100;
-                        const marks = Number(r.marks) || 0;
-                        const pct = max > 0 ? (marks / max) * 100 : 0;
-                        const g = gradeFor(pct);
-                        return (
-                          <tr key={r.id}>
-                            <td style={{ fontWeight: 700, textTransform: "capitalize" }}>
-                              {r.subject}
-                            </td>
-                            <td>
-                              <div
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 10,
-                                }}
-                              >
-                                <span>{pct.toFixed(1)}</span>
-                                <div className="aca-bar-track">
-                                  <div
-                                    className="aca-bar-fill"
-                                    style={{
-                                      width: `${Math.min(pct, 100)}%`,
-                                      background: g.color,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <span
-                                className="aca-grade-dot"
-                                style={{ color: g.color }}
-                              >
-                                {g.letter}
-                              </span>
-                            </td>
-                            <td>{g.remark}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="report-card">
+                  <div className="report-card-header">
+                    <div className="report-card-header-left">
+                      <GraduationCap size={38} className="report-card-header-icon" />
+                      <div>
+                        <h2 className="report-card-title">WARQADDA NATIJAADA</h2>
+                        <p className="report-card-subtitle">STUDENT REPORT CARD</p>
+                      </div>
+                    </div>
+                    <div className="report-card-ribbon">
+                      <GraduationCap size={20} />
+                      <span>Waxbarasho Mustaqbal Wanaagsan</span>
+                    </div>
+                  </div>
+
+                  <div className="report-info-card">
+                    <div className="report-info-row">
+                      <span className="report-info-icon"><Hash size={18} /></span>
+                      <span className="report-info-label">Rool Lambar</span>
+                      <span className="report-info-colon">:</span>
+                      <span className="report-info-value">{student.studentId}</span>
+                    </div>
+                    <div className="report-info-row">
+                      <span className="report-info-icon"><User size={18} /></span>
+                      <span className="report-info-label">M. Ardayga</span>
+                      <span className="report-info-colon">:</span>
+                      <span className="report-info-value">{student.fullName || "—"}</span>
+                    </div>
+                    <div className="report-info-row">
+                      <span className="report-info-icon"><Building2 size={18} /></span>
+                      <span className="report-info-label">Dugsiga</span>
+                      <span className="report-info-colon">:</span>
+                      <span className="report-info-value">{SCHOOL_NAME}</span>
+                    </div>
+                    <div className="report-info-row">
+                      <span className="report-info-icon"><BarChart3 size={18} /></span>
+                      <span className="report-info-label">Celceliska</span>
+                      <span className="report-info-colon">:</span>
+                      <span className="report-info-value">{averageGrade.letter}</span>
+                    </div>
+                    <div className="report-info-row">
+                      <span className="report-info-icon"><Award size={18} /></span>
+                      <span className="report-info-label">Go'aan</span>
+                      <span className="report-info-colon">:</span>
+                      <span className="report-info-value" style={{ color: verdict.color }}>{verdict.label}</span>
+                    </div>
+                  </div>
+
+                  <div className="report-subjects-grid">
+                    <table className="report-subjects-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>MAADADA</th>
+                          <th>DARAJO</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultsColLeft.map((r, i) => {
+                          const max = Number(r.maxMarks) || 100;
+                          const marks = Number(r.marks) || 0;
+                          const pct = max > 0 ? (marks / max) * 100 : 0;
+                          const g = gradeFor(pct);
+                          return (
+                            <tr key={r.id}>
+                              <td className="report-subj-num">{i + 1}</td>
+                              <td className="report-subj-name">{r.subject}</td>
+                              <td>
+                                <span className="grade-pill" style={{ "--pill-color": g.color }}>{g.letter}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+
+                    <table className="report-subjects-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>MAADADA</th>
+                          <th>DARAJO</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resultsColRight.map((r, i) => {
+                          const max = Number(r.maxMarks) || 100;
+                          const marks = Number(r.marks) || 0;
+                          const pct = max > 0 ? (marks / max) * 100 : 0;
+                          const g = gradeFor(pct);
+                          return (
+                            <tr key={r.id}>
+                              <td className="report-subj-num">{halfway + i + 1}</td>
+                              <td className="report-subj-name">{r.subject}</td>
+                              <td>
+                                <span className="grade-pill" style={{ "--pill-color": g.color }}>{g.letter}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="report-footer-grid">
+                    <div className="report-quote-box">
+                      <GraduationCap size={22} />
+                      <p>"Aqoontu waa iftiin, waa furaha mustaqbalka."</p>
+                    </div>
+                    <div className="report-encourage-box">
+                      <BarChart3 size={22} />
+                      <p>Ku dadaal horumar ka wanaagsan!</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="aca-summary-box">
-                  <div className="aca-summary-item">
-                    <span className="aca-summary-label">Total Marks</span>
-                    <span className="aca-summary-value">
-                      {totalMarks.toFixed(0)} / {totalMax.toFixed(0)}
-                    </span>
-                  </div>
-                  <div className="aca-summary-item">
-                    <span className="aca-summary-label">Average Percentage</span>
-                    <span className="aca-summary-value">
-                      {averagePct.toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="aca-summary-item">
-                    <span className="aca-summary-label">Overall Grade</span>
-                    <span
-                      className="aca-summary-value"
-                      style={{ color: overall.letter === "F" ? "#dc2626" : "#16a34a" }}
-                    >
-                      {overall.label}
-                    </span>
-                  </div>
+                <div className="report-card-actions">
+                  <button className="aca-logout-btn" onClick={resetLookup}>Log Out</button>
                 </div>
               </>
             )}

@@ -482,3 +482,257 @@
     padding: 20px 18px;
   }
 }
+/* ========================================================= */
+/* Report Card — "WARQADDA NATIJAADA" student results design   */
+/* ========================================================= */
+.report-card-wrap {
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.report-card {
+  position: relative;
+  background: #f4f7fc;
+  border-radius: 20px;
+  padding-bottom: 22px;
+  box-shadow: 0 16px 40px rgba(30, 58, 138, 0.16);
+  overflow: hidden;
+}
+
+.report-card-header {
+  position: relative;
+  background: linear-gradient(120deg, #1e3a8a 0%, #2563eb 100%);
+  padding: 22px 26px 40px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  color: #fff;
+}
+
+.report-card-header-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.report-card-header-icon {
+  flex-shrink: 0;
+  opacity: 0.95;
+}
+
+.report-card-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.report-card-subtitle {
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #bfdbfe;
+}
+
+.report-card-ribbon {
+  flex-shrink: 0;
+  background: #fff;
+  color: #1e3a8a;
+  border-radius: 0 0 10px 10px;
+  padding: 12px 14px 16px;
+  min-width: 118px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
+}
+
+.report-info-card {
+  position: relative;
+  background: #fff;
+  margin: -22px 18px 22px;
+  border-radius: 16px;
+  padding: 8px 20px;
+  box-shadow: 0 10px 24px rgba(30, 58, 138, 0.1);
+}
+
+.report-info-row {
+  display: grid;
+  grid-template-columns: 40px auto 14px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(30, 58, 138, 0.08);
+}
+
+.report-info-row:last-child {
+  border-bottom: none;
+}
+
+.report-info-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #dbeafe;
+  color: #1e40af;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.report-info-label {
+  font-weight: 800;
+  font-size: 14.5px;
+  color: #1e293b;
+  white-space: nowrap;
+}
+
+.report-info-colon {
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.report-info-value {
+  font-weight: 800;
+  font-size: 15px;
+  color: #1d4ed8;
+}
+
+.report-subjects-grid {
+  margin: 0 18px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 8px 20px rgba(30, 58, 138, 0.08);
+}
+
+.report-subjects-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.report-subjects-table thead tr {
+  background: linear-gradient(120deg, #1e3a8a, #2563eb);
+}
+
+.report-subjects-table th {
+  color: #fff;
+  text-align: left;
+  padding: 10px 10px;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+.report-subjects-table th:first-child {
+  width: 30px;
+  text-align: center;
+}
+
+.report-subjects-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid rgba(30, 58, 138, 0.06);
+}
+
+.report-subjects-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.report-subj-num {
+  text-align: center;
+  font-weight: 800;
+  color: #1e3a8a;
+}
+
+.report-subj-name {
+  font-weight: 700;
+  color: #1e293b;
+  text-transform: capitalize;
+}
+
+.grade-pill {
+  --pill-color: #16a34a;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 12.5px;
+  color: var(--pill-color);
+  background: #f1f5f9;
+  background: color-mix(in srgb, var(--pill-color) 16%, #fff);
+}
+
+.report-footer-grid {
+  margin: 0 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.report-quote-box,
+.report-encourage-box {
+  border-radius: 14px;
+  padding: 16px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.report-quote-box {
+  background: #e0ecff;
+  color: #1e3a8a;
+}
+
+.report-quote-box p {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.report-encourage-box {
+  background: linear-gradient(120deg, #1e3a8a, #2563eb);
+  color: #fff;
+}
+
+.report-encourage-box p {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.report-card-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+@media (max-width: 560px) {
+  .report-card-header {
+    flex-direction: column;
+  }
+  .report-card-ribbon {
+    align-self: flex-end;
+    border-radius: 10px;
+  }
+  .report-subjects-grid,
+  .report-footer-grid {
+    grid-template-columns: 1fr;
+  }
+}
