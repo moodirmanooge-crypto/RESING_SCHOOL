@@ -3,7 +3,7 @@ import "../styles/home.css";
 import logo from "../assets/logo.png";
 import galleryPhoto from "../admin/assets/student.png";
 import { Link } from "react-router-dom";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { collection, getCountFromServer, doc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase/firebase";
 import {
@@ -21,6 +21,9 @@ import {
   TrendingUp,
   Trophy,
   User,
+  Menu,
+  X,
+  Sparkles,
 } from "lucide-react";
 
 // Admin contact info — waxaa loo isticmaalaa qaybta "Contact" iyo "Need Help?"
@@ -131,8 +134,94 @@ const ABOUT_STATS = [
 
 const GALLERY_PREVIEW = [galleryPhoto, galleryPhoto, galleryPhoto, galleryPhoto, galleryPhoto];
 
+/* ---------------------------------------------------------- */
+/* Small motion helpers                                        */
+/* ---------------------------------------------------------- */
+
+// Reveals children with a fade/slide-up the first time they scroll into view.
+function Reveal({ as: Tag = "div", className = "", delay = 0, children, ...rest }) {
+  const ref = useRef(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <Tag
+      ref={ref}
+      className={`reveal ${inView ? "in-view" : ""} ${className}`.trim()}
+      style={{ transitionDelay: `${delay}ms` }}
+      {...rest}
+    >
+      {children}
+    </Tag>
+  );
+}
+
+// Parses a stat string like "800+" or "100%" into a number + suffix,
+// then counts up to it once it scrolls into view.
+function AnimatedStat({ value, className = "" }) {
+  const ref = useRef(null);
+  const [display, setDisplay] = useState(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    const match = String(value).match(/^(\d+)(.*)$/);
+    if (!match) {
+      setDisplay(value);
+      return;
+    }
+    const target = parseInt(match[1], 10);
+    const suffix = match[2] || "";
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return;
+        observer.disconnect();
+
+        const duration = 1200;
+        const start = performance.now();
+
+        function tick(now) {
+          const progress = Math.min((now - start) / duration, 1);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          setDisplay(`${Math.round(target * eased)}${suffix}`);
+          if (progress < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      },
+      { threshold: 0.4 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [value]);
+
+  return (
+    <span ref={ref} className={className}>
+      {display ?? "0"}
+    </span>
+  );
+}
+
 export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const menuRef = useRef(null);
 
   const [statsData, setStatsData] = useState({
@@ -185,6 +274,16 @@ export default function Home() {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Navbar shrinks + gains a blurred background once the page scrolls.
+  useEffect(() => {
+    function handleScroll() {
+      setScrolled(window.scrollY > 12);
+    }
+    handleScroll();
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
@@ -247,27 +346,40 @@ export default function Home() {
     { icon: Trophy, value: "98%", label: "Pass Rate" },
   ];
 
+  const closeNav = useCallback(() => setNavOpen(false), []);
+
   return (
     <div className="home">
       {/* ---------- Top Nav ---------- */}
-      <header className="home-nav">
-        <Link to="/" className="brand">
-          <img src={logo} className="brand-logo" alt="Rising Star School logo" />
+      <header className={`home-nav ${scrolled ? "is-scrolled" : ""}`}>
+        <Link to="/" className="brand" onClick={closeNav}>
+          <span className="brand-logo-ring">
+            <img src={logo} className="brand-logo" alt="Rising Star School logo" />
+          </span>
           <div className="brand-text">
             <span className="brand-name">RISING STAR SCHOOL</span>
             <span className="brand-tagline">RISING STAR PRIMARY &amp; SECONDARY SCHOOL</span>
           </div>
         </Link>
 
-        <nav className="home-nav-links">
+        <nav className={`home-nav-links ${navOpen ? "is-open" : ""}`}>
           {NAV_LINKS.map((l) => (
-            <Link key={l.to} to={l.to} className="home-nav-link">
+            <Link key={l.to} to={l.to} className="home-nav-link" onClick={closeNav}>
               {l.label}
             </Link>
           ))}
         </nav>
 
         <div className="header-actions">
+          <button
+            type="button"
+            className="nav-toggle-btn"
+            aria-label={navOpen ? "Close menu" : "Open menu"}
+            onClick={() => setNavOpen((v) => !v)}
+          >
+            {navOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+
           <div className="menu-wrap" ref={menuRef}>
             <button
               type="button"
@@ -302,14 +414,38 @@ export default function Home() {
 
       {/* ---------- Hero Banner ---------- */}
       <section className="hero-banner">
+        <span className="hero-blob hero-blob-a" aria-hidden="true" />
+        <span className="hero-blob hero-blob-b" aria-hidden="true" />
+
         <div className="hero-banner-inner">
           <span className="hero-badge">
-            <Award size={14} /> Excellence in Education
+            <Sparkles size={14} /> Excellence in Education
           </span>
           <h1 className="hero-title">
-            NURTURING MINDS,
-            <br />
-            <span className="hero-title-accent">BUILDING FUTURES</span>
+            <span className="hero-title-line">
+              {["NURTURING", "MINDS,"].map((word, i) => (
+                <span
+                  key={word}
+                  className="hero-title-word"
+                  style={{ animationDelay: `${0.25 + i * 0.1}s` }}
+                >
+                  {word}
+                  {i === 0 ? "\u00A0" : ""}
+                </span>
+              ))}
+            </span>
+            <span className="hero-title-line">
+              {["BUILDING", "FUTURES"].map((word, i) => (
+                <span
+                  key={word}
+                  className="hero-title-word hero-title-accent"
+                  style={{ animationDelay: `${0.45 + i * 0.1}s` }}
+                >
+                  {word}
+                  {i === 0 ? "\u00A0" : ""}
+                </span>
+              ))}
+            </span>
           </h1>
           <p className="hero-lede">
             Providing quality education in a safe, caring and inspiring
@@ -349,12 +485,22 @@ export default function Home() {
               <span>Sawirka bogga hore ayaa la sugayaa</span>
             </div>
           )}
+
+          <div className="hero-photo-badge">
+            <span className="hero-photo-badge-icon">
+              <Trophy size={16} />
+            </span>
+            <div>
+              <div className="hero-photo-badge-value">98% Pass Rate</div>
+              <div className="hero-photo-badge-label">Consistently top-performing</div>
+            </div>
+          </div>
         </div>
       </section>
 
       {/* ---------- Feature strip + Stats ---------- */}
       <section className="feature-stats-row">
-        <div className="feature-strip-card">
+        <Reveal className="feature-strip-card">
           {FEATURE_STRIP.map((f) => {
             const Icon = f.icon;
             return (
@@ -367,20 +513,22 @@ export default function Home() {
               </div>
             );
           })}
-        </div>
+        </Reveal>
 
-        <div className="stats-dark-card">
+        <Reveal className="stats-dark-card" delay={120}>
           {HERO_STATS.map((s) => {
             const Icon = s.icon;
             return (
               <div className="stat-mini-box" key={s.label}>
                 <Icon size={22} />
-                <span className="stat-mini-value">{s.value}</span>
+                <span className="stat-mini-value">
+                  <AnimatedStat value={s.value} />
+                </span>
                 <span className="stat-mini-label">{s.label}</span>
               </div>
             );
           })}
-        </div>
+        </Reveal>
       </section>
 
       {/* ---------- Portals ---------- */}
@@ -389,7 +537,7 @@ export default function Home() {
           {PORTALS.map((p) => {
             const Icon = p.icon;
             return (
-              <div className={`portal-box portal-${p.color}`} key={p.key}>
+              <Reveal as="div" className={`portal-box portal-${p.color}`} key={p.key}>
                 <span className="portal-icon-circle">
                   <Icon size={26} />
                 </span>
@@ -398,7 +546,7 @@ export default function Home() {
                 <Link to={p.to} className="portal-btn">
                   {p.key === "admission" ? "Apply Now" : "Login"} <span>➜</span>
                 </Link>
-              </div>
+              </Reveal>
             );
           })}
         </div>
@@ -406,7 +554,7 @@ export default function Home() {
 
       {/* ---------- About Our School ---------- */}
       <section className="about-section-wrap">
-        <div className="about-preview-card">
+        <Reveal as="div" className="about-preview-card">
           <h2 className="about-preview-title">About Our School</h2>
           <p className="about-preview-text">
             At Rising Star School, we are dedicated to nurturing young
@@ -419,7 +567,9 @@ export default function Home() {
             {ABOUT_STATS.map((s) => (
               <div className="about-stat-box" key={s.label}>
                 <span className="about-stat-icon">{s.icon}</span>
-                <span className="about-stat-value">{s.value}</span>
+                <span className="about-stat-value">
+                  <AnimatedStat value={s.value} />
+                </span>
                 <span className="about-stat-label">{s.label}</span>
               </div>
             ))}
@@ -428,13 +578,15 @@ export default function Home() {
           <h3 className="gallery-preview-title">Gallery</h3>
           <div className="gallery-preview-grid">
             {GALLERY_PREVIEW.map((img, i) => (
-              <img key={i} src={img} alt="" className="gallery-preview-img" />
+              <div className="gallery-preview-frame" key={i}>
+                <img src={img} alt="" className="gallery-preview-img" />
+              </div>
             ))}
           </div>
           <Link to="/gallery" className="view-more-btn">
             View More Photos <span>➜</span>
           </Link>
-        </div>
+        </Reveal>
       </section>
 
       {/* ---------- Footer ---------- */}
