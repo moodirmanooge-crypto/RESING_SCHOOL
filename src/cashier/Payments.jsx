@@ -43,33 +43,91 @@ function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
   return key;
 }
 
+// Rasiidyada hore (ka hor saxitaanka) ma sitaan "monthBreakdown" — waxay
+// kaliya haystaan hal "monthLabel" oo qoraal ah sida "September 2026".
+// Tan waxay u rogaysaa "2026-09" haddii ay tahay hal-bil oo qoraalkeedu
+// cad yahay; haddii kale (rasiid dhowr bilood ku daboolaya) waa la iska
+// dhaafaa xisaabinta bil-bil ah.
+//
+// FIIRO GAAR AH: halkan si ula kac ah looga fogaaday "new Date(...)" +
+// ".toISOString()" — habkaasi wuxuu keenaa khalad saacadda/goobta
+// (timezone) ah: Soomaaliya (UTC+3) wuxuu "September 2026" u rogi lahaa
+// "2026-08" (bishii ka horeysay!). Halkan waxaa lagu beddelayaa magaca
+// bisha lambar isla markiiba, iyada oo aan la isticmaalin Date/timezone.
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+function parseMonthLabelToKey(label) {
+  if (!label) return null;
+  const match = /^([A-Za-z]+)\s+(\d{4})$/.exec(String(label).trim());
+  if (!match) return null;
+  const monthIndex = MONTH_NAMES.indexOf(match[1].toLowerCase());
+  if (monthIndex === -1) return null;
+  return `${match[2]}-${String(monthIndex + 1).padStart(2, "0")}`;
+}
+
 // Dhammaan xogta "la bixiyay / lama bixin" waxay ka imanayaan collection-ka
-// "receipts" oo KELIYA — haddii arday aanu lahayn rasiid bil gaar ah,
-// marnaba looma tirinayo mid la bixiyay ee bishaas. Rasiid dambe wuxuu
-// had iyo jeer sitaa wadarta ugu dambeysa ee bil kasta uu taabtay, sidaas
-// darteed waxaa loo baahan yahay in la qaato rasiidka UGU DAMBEEYA.
-function buildMonthStatusFromReceipts(receipts) {
+// "receipts" oo KELIYA. Waxay taageeraysaa labada nooc ee rasiid: kuwa
+// cusub ee leh "monthBreakdown" (wadarta ugu dambeysa ee bil kasta —
+// rasiidka ugu dambeeya ayaa la isticmaalaa), iyo kuwa hore ee leh kaliya
+// "monthLabel" + "paidAmount" (dhammaantood waa la isku daraa). Halkan
+// waxaa laga soo saarayaa kaliya WADARTA la bixiyay bil kasta —
+// Paid/Partial/Not Paid waxaa go'aaminaya bogga isticmaalaya (marka la
+// barbardhigo monthlyFee-ga ardayga), ma aha xogta rasiidka qudhiisa.
+function buildMonthPaidFromReceipts(receipts) {
   const byStudent = {};
+  const legacyBySidMonth = {};
+
   receipts.forEach((r) => {
     const sid = r.studentId;
     if (!sid) return;
     const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
-    if (breakdown.length === 0) return;
-    const ts = r.createdAt?.seconds || 0;
-    if (!byStudent[sid]) byStudent[sid] = {};
-    breakdown.forEach((m) => {
-      const existing = byStudent[sid][m.monthKey];
+
+    if (breakdown.length > 0) {
+      const ts = r.createdAt?.seconds || 0;
+      if (!byStudent[sid]) byStudent[sid] = {};
+      breakdown.forEach((m) => {
+        const existing = byStudent[sid][m.monthKey];
+        if (!existing || ts >= existing._ts) {
+          byStudent[sid][m.monthKey] = {
+            paidAmount: Number(m.paidAmount) || 0,
+            createdAt: r.createdAt || null,
+            _ts: ts,
+          };
+        }
+      });
+    } else {
+      const key = parseMonthLabelToKey(r.monthLabel);
+      if (!key) return;
+      if (!legacyBySidMonth[sid]) legacyBySidMonth[sid] = {};
+      legacyBySidMonth[sid][key] =
+        (legacyBySidMonth[sid][key] || 0) + (Number(r.paidAmount) || 0);
+      if (!byStudent[sid]) byStudent[sid] = {};
+      const ts = r.createdAt?.seconds || 0;
+      const existing = byStudent[sid][key];
       if (!existing || ts >= existing._ts) {
-        byStudent[sid][m.monthKey] = {
-          paidAmount: Number(m.paidAmount) || 0,
-          remaining: Number(m.remaining) || 0,
-          status: m.status,
-          createdAt: r.createdAt || null,
+        byStudent[sid][key] = {
+          ...(byStudent[sid][key] || {}),
+          createdAt: r.createdAt || existing?.createdAt || null,
           _ts: ts,
         };
       }
+    }
+  });
+
+  Object.entries(legacyBySidMonth).forEach(([sid, months]) => {
+    if (!byStudent[sid]) byStudent[sid] = {};
+    Object.entries(months).forEach(([key, legacyAmt]) => {
+      const existing = byStudent[sid][key] || {};
+      byStudent[sid][key] = {
+        ...existing,
+        paidAmount: (existing.paidAmount || 0) + legacyAmt,
+      };
     });
   });
+
   return byStudent;
 }
 
@@ -109,7 +167,7 @@ export default function Payments() {
         // Marnaba soo aqrin rasiidka ardayda aan jirin ama la tirtiray
         .filter((r) => r.studentId && validStudentIds.has(r.studentId));
 
-      setMonthStatusByStudent(buildMonthStatusFromReceipts(receiptData));
+      setMonthStatusByStudent(buildMonthPaidFromReceipts(receiptData));
     } catch (err) {
       console.log(err);
     } finally {
@@ -132,20 +190,23 @@ export default function Payments() {
     );
   });
 
-  function getStudentMonthState(studentId) {
+  // Xaaladda "la bixiyay/lama bixin" waxaa go'aaminaya in la barbardhigo
+  // wadarta la bixiyay (receipts) iyo monthlyFee-ga ardaygan gaarka ah.
+  function getStudentMonthState(studentId, fee) {
     const months = monthStatusByStudent[studentId] || {};
     const fullyPaidSet = new Set();
     const partialMap = {};
     Object.entries(months).forEach(([monthKey, m]) => {
-      if (m.status === "Paid") fullyPaidSet.add(monthKey);
-      else if (m.paidAmount > 0) partialMap[monthKey] = m.paidAmount;
+      const paid = Number(m.paidAmount) || 0;
+      if (fee > 0 && paid >= fee) fullyPaidSet.add(monthKey);
+      else if (paid > 0) partialMap[monthKey] = paid;
     });
     return { months, fullyPaidSet, partialMap };
   }
 
   const paidThisMonthCount = students.filter((s) => {
     if (isFreeStudent(s)) return false;
-    const { fullyPaidSet } = getStudentMonthState(s.studentId);
+    const { fullyPaidSet } = getStudentMonthState(s.studentId, Number(s.monthlyFee || 0));
     return fullyPaidSet.has(currentMonthKey());
   }).length;
 
@@ -222,7 +283,8 @@ export default function Payments() {
                 const free = isFreeStudent(student);
                 const fee = Number(student.monthlyFee || 0);
                 const { fullyPaidSet, partialMap, months } = getStudentMonthState(
-                  student.studentId
+                  student.studentId,
+                  fee
                 );
                 const paidThisMonth = !free && fullyPaidSet.has(currentMonthKey());
                 const thisMonthRecord = months[currentMonthKey()];

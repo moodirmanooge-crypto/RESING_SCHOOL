@@ -30,36 +30,98 @@ function formatDate(ts) {
   });
 }
 
+// Rasiidyada hore (ka hor saxitaanka) ma sitaan "monthBreakdown" — waxay
+// kaliya haystaan hal "monthLabel" oo qoraal ah sida "September 2026".
+// Tan waxay u rogaysaa "2026-09" haddii ay tahay hal-bil oo qoraalkeedu
+// cad yahay; haddii kale (tusaale rasiid dhowr bilood ku daboolaya) waa
+// la iska dhaafaa xisaabinta bil-bil ah (wuxuu wali ku jiraa wadarta
+// guud ee lacagta, ee ma lagu tirin karo bil gaar ah).
+//
+// FIIRO GAAR AH: halkan si ula kac ah looga fogaaday "new Date(...)" +
+// ".toISOString()" — habkaasi wuxuu keenaa khalad saacadda/goobta
+// (timezone) ah: Soomaaliya (UTC+3) wuxuu "September 2026" u rogi lahaa
+// "2026-08" (bishii ka horeysay!) maadaama toISOString() uu ku beddelo
+// UTC, taasoo dib u dhaqaajisa bisha marka la joogo goob UTC-ka ka
+// sarreysa. Halkan waxaa lagu beddelayaa magaca bisha lambar isla
+// markiiba, iyada oo aan la isticmaalin Date/timezone gabi ahaanba.
+const MONTH_NAMES = [
+  "january", "february", "march", "april", "may", "june",
+  "july", "august", "september", "october", "november", "december",
+];
+
+function parseMonthLabelToKey(label) {
+  if (!label) return null;
+  const match = /^([A-Za-z]+)\s+(\d{4})$/.exec(String(label).trim());
+  if (!match) return null;
+  const monthIndex = MONTH_NAMES.indexOf(match[1].toLowerCase());
+  if (monthIndex === -1) return null;
+  return `${match[2]}-${String(monthIndex + 1).padStart(2, "0")}`;
+}
+
 // Dhammaan xogta "la bixiyay / lama bixin" ee Cashier-ka (Dashboard,
 // Reports, Payments) waxay ka imanayaan collection-ka "receipts" oo
 // KELIYA — haddii arday lacag u lahaa aanu weli lahayn rasiid, marnaba
-// looma tirinayo mid la bixiyay. Rasiid kasta wuxuu sitaa
-// "monthBreakdown" (liis bilo ah, mid kasta oo leh wadarta la bixiyay
-// ilaa iyo hadda iyo xaaladdiisa). Maadaama rasiid dambe uu had iyo
-// jeer sido wadarta ugu dambeysa (ma aha kaliya lacagtan la geliyay),
-// waxaa loo baahan yahay in loo qaato rasiidka UGU DAMBEEYA ee taabtay
-// bil gaar ah si loo helo xaaladdeeda saxda ah ee hadda.
-function buildMonthStatusFromReceipts(receipts) {
+// looma tirinayo mid la bixiyay. Waxay taageeraysaa labada nooc ee
+// rasiid: kuwa cusub ee leh "monthBreakdown" (wadarta ugu dambeysa ee
+// bil kasta — rasiidka ugu dambeeya ayaa la isticmaalaa), iyo kuwa hore
+// ee leh kaliya "monthLabel" + "paidAmount" (dhammaantood waa la isku
+// daraa, maadaama midkoodna aanu ahayn wadar guud). Halkan waxaa laga
+// soo saarayaa kaliya WADARTA la bixiyay bil kasta — Paid/Partial/Not
+// Paid waxaa go'aaminaya bogga isticmaalaya (marka la barbardhigo
+// monthlyFee-ga ardayga), ma aha xogta rasiidka qudhiisa.
+function buildMonthPaidFromReceipts(receipts) {
   const byStudent = {};
+  const legacyBySidMonth = {};
+
   receipts.forEach((r) => {
     const sid = r.studentId;
     if (!sid) return;
     const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
-    if (breakdown.length === 0) return;
-    const ts = r.createdAt?.seconds || 0;
-    if (!byStudent[sid]) byStudent[sid] = {};
-    breakdown.forEach((m) => {
-      const existing = byStudent[sid][m.monthKey];
+
+    if (breakdown.length > 0) {
+      const ts = r.createdAt?.seconds || 0;
+      if (!byStudent[sid]) byStudent[sid] = {};
+      breakdown.forEach((m) => {
+        const existing = byStudent[sid][m.monthKey];
+        if (!existing || ts >= existing._ts) {
+          byStudent[sid][m.monthKey] = {
+            paidAmount: Number(m.paidAmount) || 0,
+            createdAt: r.createdAt || null,
+            _ts: ts,
+          };
+        }
+      });
+    } else {
+      const key = parseMonthLabelToKey(r.monthLabel);
+      if (!key) return;
+      if (!legacyBySidMonth[sid]) legacyBySidMonth[sid] = {};
+      legacyBySidMonth[sid][key] =
+        (legacyBySidMonth[sid][key] || 0) + (Number(r.paidAmount) || 0);
+      if (!byStudent[sid]) byStudent[sid] = {};
+      const ts = r.createdAt?.seconds || 0;
+      const existing = byStudent[sid][key];
       if (!existing || ts >= existing._ts) {
-        byStudent[sid][m.monthKey] = {
-          paidAmount: Number(m.paidAmount) || 0,
-          remaining: Number(m.remaining) || 0,
-          status: m.status,
+        byStudent[sid][key] = {
+          ...(byStudent[sid][key] || {}),
+          createdAt: r.createdAt || existing?.createdAt || null,
           _ts: ts,
         };
       }
+    }
+  });
+
+  // Ku dar wadarta rasiidyada hore (legacy) ee la isku daray kor.
+  Object.entries(legacyBySidMonth).forEach(([sid, months]) => {
+    if (!byStudent[sid]) byStudent[sid] = {};
+    Object.entries(months).forEach(([key, legacyAmt]) => {
+      const existing = byStudent[sid][key] || {};
+      byStudent[sid][key] = {
+        ...existing,
+        paidAmount: (existing.paidAmount || 0) + legacyAmt,
+      };
     });
   });
+
   return byStudent;
 }
 
@@ -127,18 +189,19 @@ export default function Dashboard() {
       0
     );
 
-    // Xaaladda ugu dambeysa ee bil kasta, arday kasta — collection-ka "receipts" oo keliya.
-    const monthStatus = buildMonthStatusFromReceipts(feeReceipts);
+    // Wadarta la bixiyay bil kasta, arday kasta — collection-ka "receipts" oo keliya.
+    const monthPaid = buildMonthPaidFromReceipts(feeReceipts);
 
     // 2. Monthly Payments — wadarta la bixiyay ee bishan (xisaabinta ugu dambeysa ee bil kasta).
     let monthlyCollection = 0;
     const paidStudentIds = new Set();
     const monthlyPaymentsList = [];
     payableStudents.forEach((s) => {
-      const m = monthStatus[s.studentId]?.[monthKey];
+      const m = monthPaid[s.studentId]?.[monthKey];
       if (m) {
         monthlyCollection += m.paidAmount;
-        if (m.status === "Paid") paidStudentIds.add(s.studentId);
+        const fee = Number(s.monthlyFee || 0);
+        if (fee > 0 && m.paidAmount >= fee) paidStudentIds.add(s.studentId);
         monthlyPaymentsList.push({
           studentId: s.studentId,
           studentName: s.fullName,
