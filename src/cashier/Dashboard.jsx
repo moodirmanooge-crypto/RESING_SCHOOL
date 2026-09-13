@@ -30,9 +30,42 @@ function formatDate(ts) {
   });
 }
 
+// Dhammaan xogta "la bixiyay / lama bixin" ee Cashier-ka (Dashboard,
+// Reports, Payments) waxay ka imanayaan collection-ka "receipts" oo
+// KELIYA — haddii arday lacag u lahaa aanu weli lahayn rasiid, marnaba
+// looma tirinayo mid la bixiyay. Rasiid kasta wuxuu sitaa
+// "monthBreakdown" (liis bilo ah, mid kasta oo leh wadarta la bixiyay
+// ilaa iyo hadda iyo xaaladdiisa). Maadaama rasiid dambe uu had iyo
+// jeer sido wadarta ugu dambeysa (ma aha kaliya lacagtan la geliyay),
+// waxaa loo baahan yahay in loo qaato rasiidka UGU DAMBEEYA ee taabtay
+// bil gaar ah si loo helo xaaladdeeda saxda ah ee hadda.
+function buildMonthStatusFromReceipts(receipts) {
+  const byStudent = {};
+  receipts.forEach((r) => {
+    const sid = r.studentId;
+    if (!sid) return;
+    const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
+    if (breakdown.length === 0) return;
+    const ts = r.createdAt?.seconds || 0;
+    if (!byStudent[sid]) byStudent[sid] = {};
+    breakdown.forEach((m) => {
+      const existing = byStudent[sid][m.monthKey];
+      if (!existing || ts >= existing._ts) {
+        byStudent[sid][m.monthKey] = {
+          paidAmount: Number(m.paidAmount) || 0,
+          remaining: Number(m.remaining) || 0,
+          status: m.status,
+          _ts: ts,
+        };
+      }
+    });
+  });
+  return byStudent;
+}
+
 export default function Dashboard() {
   const [students, setStudents] = useState([]);
-  const [payments, setPayments] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // State-ka Modal-ka lagu muujinayo liiska
@@ -62,12 +95,12 @@ export default function Dashboard() {
       // Liiska ID-yada ardayda jira ee la ogolyahay (aan pendingDeletion ahayn)
       const validStudentIds = new Set(studentData.map((s) => s.studentId));
 
-      const paymentsSnap = await getDocs(collection(db, "payments"));
-      const paymentData = paymentsSnap.docs
+      const receiptsSnap = await getDocs(collection(db, "receipts"));
+      const receiptData = receiptsSnap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
-        // Marnaba soo aqrin payment-ka ardayda aan jirin (la tirtiray ama aan collection-ka students ku jirin)
-        .filter((p) => p.studentId && validStudentIds.has(p.studentId));
-      setPayments(paymentData);
+        // Marnaba soo aqrin rasiidka ardayda aan jirin (la tirtiray ama aan collection-ka students ku jirin)
+        .filter((r) => r.studentId && validStudentIds.has(r.studentId));
+      setReceipts(receiptData);
     } catch (err) {
       console.log(err);
     } finally {
@@ -82,30 +115,42 @@ export default function Dashboard() {
     const feePayingStudentIds = new Set(
       students.filter((s) => s.feeType !== "Free").map((s) => s.studentId)
     );
-
-    const monthPayments = payments.filter(
-      (p) => p.monthKey === monthKey && feePayingStudentIds.has(p.studentId)
-    );
-
-    // 1. Today's Payments
-    const todaysPaymentsList = monthPayments.filter((p) => isToday(p.createdAt));
-    const todaysCollection = todaysPaymentsList.reduce(
-      (sum, p) => sum + Number(p.paidAmount || 0),
-      0
-    );
-
-    // 2. Monthly Payments
-    const monthlyCollection = monthPayments.reduce(
-      (sum, p) => sum + Number(p.paidAmount || 0),
-      0
-    );
-
-    // 3. Paid Students
-    const paidStudentIds = new Set(
-      monthPayments.filter((p) => p.status === "Paid").map((p) => p.studentId)
-    );
     const payableStudents = students.filter((s) => s.feeType !== "Free");
 
+    const feeReceipts = receipts.filter((r) => feePayingStudentIds.has(r.studentId));
+
+    // 1. Today's Payments — lacagta dhabta ah ee la helay maanta (receipt.paidAmount
+    // waa lacagta dhab ahaan la geliyay dhaqdhaqaaqaan, ma aha wadar guud oo bille ah).
+    const todaysPaymentsList = feeReceipts.filter((r) => isToday(r.createdAt));
+    const todaysCollection = todaysPaymentsList.reduce(
+      (sum, r) => sum + Number(r.paidAmount || 0),
+      0
+    );
+
+    // Xaaladda ugu dambeysa ee bil kasta, arday kasta — collection-ka "receipts" oo keliya.
+    const monthStatus = buildMonthStatusFromReceipts(feeReceipts);
+
+    // 2. Monthly Payments — wadarta la bixiyay ee bishan (xisaabinta ugu dambeysa ee bil kasta).
+    let monthlyCollection = 0;
+    const paidStudentIds = new Set();
+    const monthlyPaymentsList = [];
+    payableStudents.forEach((s) => {
+      const m = monthStatus[s.studentId]?.[monthKey];
+      if (m) {
+        monthlyCollection += m.paidAmount;
+        if (m.status === "Paid") paidStudentIds.add(s.studentId);
+        monthlyPaymentsList.push({
+          studentId: s.studentId,
+          studentName: s.fullName,
+          className: s.className,
+          paidAmount: m.paidAmount,
+          monthLabel: monthKey,
+          createdAt: null,
+        });
+      }
+    });
+
+    // 3. Paid Students
     const paidStudentsList = payableStudents.filter((s) =>
       paidStudentIds.has(s.studentId)
     );
@@ -115,15 +160,9 @@ export default function Dashboard() {
       (s) => !paidStudentIds.has(s.studentId)
     );
 
-    // 5. Wadarta Guud ee Lacagta la Qaaday (dhammaan waqtiyada, ma aha bishan oo kaliya)
-    const allTimePaymentsList = payments
-      .filter((p) => feePayingStudentIds.has(p.studentId))
-      .slice()
-      .sort((a, b) => (b.monthKey || "").localeCompare(a.monthKey || ""));
-    const allTimeCollected = allTimePaymentsList.reduce(
-      (sum, p) => sum + Number(p.paidAmount || 0),
-      0
-    );
+    // 5. Wadarta Guud ee Lacagta la Qaaday (bishan oo kaliya, si ay ula jaanqaado Monthly Collection)
+    const allTimeCollected = monthlyCollection;
+    const allTimePaymentsList = monthlyPaymentsList;
 
     // 6. Wadarta Guud ee Lacagta ay Ardaydu ku Diiwaan Gashan yihiin (Monthly Fee guud)
     const totalRegisteredFees = payableStudents.reduce(
@@ -138,7 +177,7 @@ export default function Dashboard() {
       todaysCollection,
       todaysPaymentsList,
       monthlyCollection,
-      monthlyPaymentsList: monthPayments,
+      monthlyPaymentsList,
       studentsPaid: paidStudentsList.length,
       paidStudentsList,
       studentsRemaining: remainingStudentsList.length,
@@ -149,7 +188,7 @@ export default function Dashboard() {
       feePayingStudentsCount,
       feePayingStudentsList: payableStudents,
     };
-  }, [students, payments]);
+  }, [students, receipts]);
 
   // Kaliya 4-ta kaard ee aad rabto ayaan halkan ku reebnay
   const STATS = [

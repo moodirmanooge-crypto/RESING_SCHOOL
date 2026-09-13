@@ -55,6 +55,14 @@ const saveReceiptRecord = async (receiptNo, payment, paidDate) => {
       className: payment.className || "",
       studentPhone: payment.studentPhone || "",
       monthLabel: payment.monthLabel || "",
+      // Lambarrada bilaha saxda ah ee rasiidkan uu daboolayo, iyo xaaladda
+      // saxda ah ee bil kasta (wadarta la bixiyay ilaa iyo hadda, iyo
+      // "Paid"/"Not Paid") — kani wuxuu u oggolaanayaa Reports, Dashboard,
+      // iyo Payments inay si sax ah uga soo akhriyaan xaaladda "la
+      // bixiyay"/"lama bixin" collection-ka "receipts" oo keliya, iyaga oo
+      // aan u baahnayn inay kala saaraan qoraalka monthLabel ama isku
+      // xisaabiyaan tirooyin ka yimaada rasiidyo badan.
+      monthBreakdown: Array.isArray(payment.monthBreakdown) ? payment.monthBreakdown : [],
       paidAmount: payment.paidAmount ?? 0,
       paymentMethod: payment.paymentMethod || "",
       evcNumber: payment.evcNumber || "",
@@ -668,6 +676,35 @@ export default function Classes() {
         creditBalanceAfter: newCreditBalance,
         createdAt: { seconds: Math.floor(Date.now() / 1000) },
       });
+
+      // Arday kasta oo la bixiyay — xitaa marka mid-mid loo kaydinayo (Save-ka
+      // hal arday), waa in isla si loo kaydiyaa "receipts" collection-ka,
+      // isla sida "Save All" u sameeyo — si Reports/Dashboard/Payments oo
+      // dhammi ay isku hallaan karaan "receipts" collection-ka oo keliya.
+      try {
+        const receiptNo = await getNextReceiptNumber();
+        const paidDate = new Date();
+        await saveReceiptRecord(
+          receiptNo,
+          {
+            studentId: student.studentId,
+            studentName: student.fullName,
+            className: student.className || "",
+            studentPhone: student.studentPhone || "",
+            monthLabel: receiptMonthLabel,
+            monthBreakdown: updates.map((u) => ({
+              monthKey: u.monthKey,
+              paidAmount: u.paidAmount,
+              remaining: u.remaining,
+              status: u.status,
+            })),
+            paidAmount: entered,
+          },
+          paidDate
+        );
+      } catch (err) {
+        console.log(err);
+      }
     } catch (err) {
       console.log(err);
       alert(err?.message || "Khalad aan la garanayn ayaa dhacay marka lacagta la kaydinayay.");
@@ -802,7 +839,14 @@ export default function Classes() {
           studentName: student.fullName,
           className: student.className || "",
           schoolName: SCHOOL_NAME,
+          studentPhone: student.studentPhone || "",
           monthLabel: receiptMonthLabel,
+          monthBreakdown: updates.map((u) => ({
+            monthKey: u.monthKey,
+            paidAmount: u.paidAmount,
+            remaining: u.remaining,
+            status: u.status,
+          })),
           paidAmount: entered,
           creditBalanceAfter: newCreditBalance,
           createdAt: { seconds: Math.floor(Date.now() / 1000) },

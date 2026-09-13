@@ -43,9 +43,39 @@ function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
   return key;
 }
 
+// Dhammaan xogta "la bixiyay / lama bixin" waxay ka imanayaan collection-ka
+// "receipts" oo KELIYA — haddii arday aanu lahayn rasiid bil gaar ah,
+// marnaba looma tirinayo mid la bixiyay ee bishaas. Rasiid dambe wuxuu
+// had iyo jeer sitaa wadarta ugu dambeysa ee bil kasta uu taabtay, sidaas
+// darteed waxaa loo baahan yahay in la qaato rasiidka UGU DAMBEEYA.
+function buildMonthStatusFromReceipts(receipts) {
+  const byStudent = {};
+  receipts.forEach((r) => {
+    const sid = r.studentId;
+    if (!sid) return;
+    const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
+    if (breakdown.length === 0) return;
+    const ts = r.createdAt?.seconds || 0;
+    if (!byStudent[sid]) byStudent[sid] = {};
+    breakdown.forEach((m) => {
+      const existing = byStudent[sid][m.monthKey];
+      if (!existing || ts >= existing._ts) {
+        byStudent[sid][m.monthKey] = {
+          paidAmount: Number(m.paidAmount) || 0,
+          remaining: Number(m.remaining) || 0,
+          status: m.status,
+          createdAt: r.createdAt || null,
+          _ts: ts,
+        };
+      }
+    });
+  });
+  return byStudent;
+}
+
 export default function Payments() {
   const [students, setStudents] = useState([]);
-  const [paymentsByStudent, setPaymentsByStudent] = useState({});
+  const [monthStatusByStudent, setMonthStatusByStudent] = useState({});
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
@@ -73,21 +103,13 @@ export default function Payments() {
       // Liiska ID-yada ardayda jira ee la ogolyahay (aan pendingDeletion ahayn)
       const validStudentIds = new Set(studentData.map((s) => s.studentId));
 
-      const paymentsSnap = await getDocs(collection(db, "payments"));
-      const byStudent = {};
-      paymentsSnap.docs.forEach((d) => {
-        const data = d.data();
-        const sid = data.studentId;
-        if (!sid) return;
-        // Marnaba soo aqrin payment-ka ardayda aan jirin ama la tirtiray
-        if (!validStudentIds.has(sid)) return;
-        if (!byStudent[sid]) byStudent[sid] = [];
-        byStudent[sid].push(data);
-      });
-      Object.keys(byStudent).forEach((sid) => {
-        byStudent[sid].sort((a, b) => (a.monthKey || "").localeCompare(b.monthKey || ""));
-      });
-      setPaymentsByStudent(byStudent);
+      const receiptsSnap = await getDocs(collection(db, "receipts"));
+      const receiptData = receiptsSnap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        // Marnaba soo aqrin rasiidka ardayda aan jirin ama la tirtiray
+        .filter((r) => r.studentId && validStudentIds.has(r.studentId));
+
+      setMonthStatusByStudent(buildMonthStatusFromReceipts(receiptData));
     } catch (err) {
       console.log(err);
     } finally {
@@ -111,15 +133,14 @@ export default function Payments() {
   });
 
   function getStudentMonthState(studentId) {
-    const records = paymentsByStudent[studentId] || [];
+    const months = monthStatusByStudent[studentId] || {};
     const fullyPaidSet = new Set();
     const partialMap = {};
-    records.forEach((r) => {
-      if (!r.monthKey) return;
-      if (r.status === "Paid") fullyPaidSet.add(r.monthKey);
-      else if (r.paidAmount) partialMap[r.monthKey] = r.paidAmount;
+    Object.entries(months).forEach(([monthKey, m]) => {
+      if (m.status === "Paid") fullyPaidSet.add(monthKey);
+      else if (m.paidAmount > 0) partialMap[monthKey] = m.paidAmount;
     });
-    return { records, fullyPaidSet, partialMap };
+    return { months, fullyPaidSet, partialMap };
   }
 
   const paidThisMonthCount = students.filter((s) => {
@@ -200,13 +221,11 @@ export default function Payments() {
               {filtered.map((student, i) => {
                 const free = isFreeStudent(student);
                 const fee = Number(student.monthlyFee || 0);
-                const { fullyPaidSet, partialMap, records } = getStudentMonthState(
+                const { fullyPaidSet, partialMap, months } = getStudentMonthState(
                   student.studentId
                 );
                 const paidThisMonth = !free && fullyPaidSet.has(currentMonthKey());
-                const thisMonthRecord = records.find(
-                  (r) => r.monthKey === currentMonthKey()
-                );
+                const thisMonthRecord = months[currentMonthKey()];
 
                 const nextUnpaid = findNextUnpaidMonth(
                   fullyPaidSet,

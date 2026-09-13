@@ -12,9 +12,39 @@ const monthLabel = (monthKey) => {
   return date.toLocaleString("default", { month: "long", year: "numeric" });
 };
 
+// Dhammaan xogta "la bixiyay / lama bixin" waxay ka imanayaan collection-ka
+// "receipts" oo KELIYA — haddii arday aanu lahayn rasiid bil gaar ah,
+// marnaba looma tirinayo mid la bixiyay ee bishaas. Rasiid dambe wuxuu
+// had iyo jeer sitaa wadarta ugu dambeysa ee bil kasta uu taabtay, sidaas
+// darteed waxaa loo baahan yahay in la qaato rasiidka UGU DAMBEEYA.
+function buildMonthStatusFromReceipts(receipts) {
+  const byStudent = {};
+  receipts.forEach((r) => {
+    const sid = r.studentId;
+    if (!sid) return;
+    const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
+    if (breakdown.length === 0) return;
+    const ts = r.createdAt?.seconds || 0;
+    if (!byStudent[sid]) byStudent[sid] = {};
+    breakdown.forEach((m) => {
+      const existing = byStudent[sid][m.monthKey];
+      if (!existing || ts >= existing._ts) {
+        byStudent[sid][m.monthKey] = {
+          paidAmount: Number(m.paidAmount) || 0,
+          remaining: Number(m.remaining) || 0,
+          status: m.status,
+          createdAt: r.createdAt || null,
+          _ts: ts,
+        };
+      }
+    });
+  });
+  return byStudent;
+}
+
 export default function Reports() {
   const [students, setStudents] = useState([]);
-  const [payments, setPayments] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
@@ -31,8 +61,8 @@ export default function Reports() {
       const studentsSnap = await getDocs(collection(db, "cashier"));
       setStudents(studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-      const paymentsSnap = await getDocs(collection(db, "payments"));
-      setPayments(paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const receiptsSnap = await getDocs(collection(db, "receipts"));
+      setReceipts(receiptsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.log(err);
     } finally {
@@ -40,29 +70,24 @@ export default function Reports() {
     }
   };
 
-  // Every month that has at least one payment, newest first. Current
-  // month is always included so a fresh month with no payments yet
-  // still shows up in the dropdown.
+  // Xaaladda ugu dambeysa ee bil kasta, arday kasta.
+  const monthStatus = useMemo(() => buildMonthStatusFromReceipts(receipts), [receipts]);
+
+  // Every month that has at least one receipt touching it, newest first.
+  // Current month is always included so a fresh month with no receipts
+  // yet still shows up in the dropdown.
   const availableMonths = useMemo(() => {
-    const set = new Set(payments.map((p) => p.monthKey).filter(Boolean));
+    const set = new Set();
+    Object.values(monthStatus).forEach((months) => {
+      Object.keys(months).forEach((k) => set.add(k));
+    });
     set.add(currentMonthKey());
     return Array.from(set).sort((a, b) => (a < b ? 1 : -1));
-  }, [payments]);
-
-  // Map studentId -> payment record for the selected month.
-  const paymentsForMonth = useMemo(() => {
-    const map = {};
-    payments
-      .filter((p) => p.monthKey === selectedMonth)
-      .forEach((p) => {
-        map[p.studentId] = p;
-      });
-    return map;
-  }, [payments, selectedMonth]);
+  }, [monthStatus]);
 
   const rows = useMemo(() => {
     return students.map((student) => {
-      const record = paymentsForMonth[student.studentId];
+      const record = monthStatus[student.studentId]?.[selectedMonth];
       const fee = Number(student.monthlyFee || 0);
       const paid = record ? Number(record.paidAmount || 0) : 0;
       const remaining = record ? Number(record.remaining || 0) : fee;
@@ -86,7 +111,7 @@ export default function Reports() {
         createdAt: record ? record.createdAt : null,
       };
     });
-  }, [students, paymentsForMonth]);
+  }, [students, monthStatus, selectedMonth]);
 
   const filteredRows = rows.filter((r) => {
     const text = search.toLowerCase();
