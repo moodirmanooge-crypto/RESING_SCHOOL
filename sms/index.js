@@ -172,6 +172,11 @@ exports.sendBulkSms = onRequest(
   {
     region: "us-central1",
     cors: true,
+    secrets: [
+      "HORMUUD_USERNAME",
+      "HORMUUD_PASSWORD",
+      "HORMUUD_SENDERID",
+    ],
   },
   async (req, res) => {
     res.set("Access-Control-Allow-Origin", "https://resingstarschools.com");
