@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { db } from "../../firebase/firebase";
+import { db, storage } from "../../firebase/firebase";
 import {
   collection,
   getDocs,
@@ -9,6 +9,7 @@ import {
   updateDoc,
   deleteDoc,
 } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import {
@@ -24,6 +25,8 @@ import {
   Clock,
   Save,
   Loader2,
+  Camera,
+  Phone,
 } from "lucide-react";
 
 const weekDays = [
@@ -35,6 +38,18 @@ const weekDays = [
   "Thursday",
   "Friday",
 ];
+
+// Same Full Time / Part Time day restriction AddTeacher.jsx uses: Full
+// Time teachers work the normal Sat–Wed week; Part-Time-only teachers are
+// restricted to Thursday/Friday.
+const fullTimeWeekDays = [
+  "Saturday",
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+];
+const partTimeWeekDays = ["Thursday", "Friday"];
 
 // ✅ Kaliya fasalada la ogol yahay (1-8 iyo F1-F4)
 const allowedClasses = [
@@ -52,7 +67,25 @@ const allowedClasses = [
   "F4",
 ];
 
-const emptySession = () => ({ startTime: "", endTime: "" });
+const emptySession = () => ({ startTime: "", endTime: "", label: "" });
+
+// Same logic as AddTeacher.jsx: continues numbering from the highest
+// number already used among a day's existing session labels (typed or
+// auto), rather than restarting from array position.
+function nextSessionLabel(existingSessions) {
+  let maxNum = 0;
+  existingSessions.forEach((s) => {
+    const match = (s.label || "").match(/(\d+)/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  if (maxNum === 0) {
+    maxNum = existingSessions.length;
+  }
+  return `Xiisadda #${maxNum + 1}`;
+}
 
 export default function Teachers() {
   const [teachers, setTeachers] = useState([]);
@@ -104,19 +137,100 @@ export default function Teachers() {
     )
   ).size;
 
+  // Photo editing state — separate from editData since it involves a File
+  // object (not serializable JSON like the rest of editData) and its own
+  // upload step on save, same pattern AddTeacher.jsx uses.
+  const [editPhotoFile, setEditPhotoFile] = useState(null);
+  const [editPhotoPreview, setEditPhotoPreview] = useState(null);
+  const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
   function openEdit(teacher) {
     setSelectedTeacher(teacher);
     setEditData({
       fullName: teacher.fullName || "",
       username: teacher.username || "",
       password: teacher.password || "",
+      // The rest of the fields AddTeacher.jsx originally collects — these
+      // were previously only saved on creation and never editable here.
+      phoneNumber: teacher.phoneNumber || teacher.phone || "",
+      parentName: teacher.parentName || teacher.matherName || "",
+      parentPhoneNumber: teacher.parentPhoneNumber || "",
+      employmentTypes: Array.isArray(teacher.employmentType)
+        ? teacher.employmentType
+        : teacher.employmentType
+        ? [teacher.employmentType]
+        : [],
       classes: JSON.parse(JSON.stringify(teacher.classes || [])),
     });
+    setEditPhotoFile(null);
+    setEditPhotoPreview(teacher.teacherPhoto || null);
+    setEditPhotoRemoved(false);
   }
 
   function closeEdit() {
     setSelectedTeacher(null);
     setEditData(null);
+    setEditPhotoFile(null);
+    setEditPhotoPreview(null);
+    setEditPhotoRemoved(false);
+  }
+
+  function handleEditPhotoChange(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Fadlan dooro sawir sax ah (jpg, png, iwm)");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Sawirku waa inuu ka yaraadaa 5MB");
+      return;
+    }
+    setEditPhotoFile(file);
+    setEditPhotoPreview(URL.createObjectURL(file));
+    setEditPhotoRemoved(false);
+  }
+
+  function removeEditPhoto() {
+    setEditPhotoFile(null);
+    setEditPhotoPreview(null);
+    setEditPhotoRemoved(true);
+  }
+
+  // Same Full Time / Part Time day-restriction behavior as AddTeacher.jsx:
+  // toggling employment type filters out any already-selected day that's
+  // no longer allowed for the new type, so a teacher edited down to
+  // Part-Time-only can't be left with a stray Monday session, etc.
+  function toggleEmploymentType(type) {
+    setEditData((prev) => {
+      const updated = prev.employmentTypes.includes(type)
+        ? prev.employmentTypes.filter((t) => t !== type)
+        : [...prev.employmentTypes, type];
+
+      const newAllowedDays = updated.includes("Full Time")
+        ? fullTimeWeekDays
+        : updated.includes("Part Time")
+        ? partTimeWeekDays
+        : fullTimeWeekDays;
+
+      const filteredClasses = prev.classes.map((block) => {
+        const filteredDays = (block.days || []).filter((d) =>
+          newAllowedDays.includes(d)
+        );
+        const filteredSessions = {};
+        filteredDays.forEach((d) => {
+          filteredSessions[d] = block.daySessions[d];
+        });
+        return {
+          ...block,
+          days: filteredDays,
+          daySessions: filteredSessions,
+        };
+      });
+
+      return { ...prev, employmentTypes: updated, classes: filteredClasses };
+    });
   }
 
   function updateClassBlock(index, field, value) {
@@ -138,7 +252,7 @@ export default function Teachers() {
       updated[index].days = [...days, day];
       updated[index].daySessions = {
         ...(updated[index].daySessions || {}),
-        [day]: [emptySession()],
+        [day]: [{ ...emptySession(), label: nextSessionLabel([]) }],
       };
     }
 
@@ -150,7 +264,7 @@ export default function Teachers() {
     const existing = updated[index].daySessions?.[day] || [];
     updated[index].daySessions = {
       ...updated[index].daySessions,
-      [day]: [...existing, emptySession()],
+      [day]: [...existing, { ...emptySession(), label: nextSessionLabel(existing) }],
     };
     setEditData({ ...editData, classes: updated });
   }
@@ -195,6 +309,52 @@ export default function Teachers() {
     });
   }
 
+  // Same validation AddTeacher.jsx runs before saving — previously missing
+  // here entirely, so editing a teacher could silently save a session with
+  // the end time before the start time, or two overlapping sessions on the
+  // same day, with no warning at all.
+  function validateSessions() {
+    for (let blockIdx = 0; blockIdx < editData.classes.length; blockIdx++) {
+      const block = editData.classes[blockIdx];
+      const blockLabel = `Fasalka #${blockIdx + 1} (${block.className || "fasal aan la dooran"}${
+        block.subject ? " - " + block.subject : ""
+      })`;
+
+      for (const day of block.days || []) {
+        const sessions = block.daySessions?.[day] || [];
+
+        for (const s of sessions) {
+          const sessionLabel = s.label ? ` — ${s.label}` : "";
+          if (!s.startTime || !s.endTime) {
+            alert(
+              `${blockLabel}: fadlan buuxi waqtiga bilowga iyo dhamaadka ee ${day}${sessionLabel}`
+            );
+            return false;
+          }
+          if (s.startTime >= s.endTime) {
+            alert(
+              `${blockLabel}: ${day}${sessionLabel} — waqtiga dhamaadka waa inuu ka dambeeyaa waqtiga bilowga`
+            );
+            return false;
+          }
+        }
+
+        const sorted = [...sessions].sort((a, b) =>
+          (a.startTime || "").localeCompare(b.startTime || "")
+        );
+        for (let i = 0; i < sorted.length - 1; i++) {
+          if (sorted[i].endTime > sorted[i + 1].startTime) {
+            alert(
+              `${blockLabel}: ${day} — xiisadaha waa isku dhacayaan waqti ahaan, fadlan wax ka beddel`
+            );
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
   async function saveEdit() {
     if (!editData.fullName.trim() || !editData.username.trim()) {
       alert("Fadlan buuxi Magaca iyo Username-ka");
@@ -204,14 +364,41 @@ export default function Teachers() {
       alert("Password waa inuu ugu yaraan 6 xaraf ahaadaa");
       return;
     }
+    if (!validateSessions()) {
+      return;
+    }
 
     try {
       setSaving(true);
+
+      // Upload a new photo if the admin picked one; otherwise keep the
+      // existing teacherPhoto unless it was explicitly removed.
+      let teacherPhotoUrl = selectedTeacher.teacherPhoto || "";
+      if (editPhotoFile) {
+        setUploadingPhoto(true);
+        const fileExt = editPhotoFile.name.split(".").pop();
+        const photoRef = ref(
+          storage,
+          `teacherPhotos/${editData.username.trim()}-${Date.now()}.${fileExt}`
+        );
+        await uploadBytes(photoRef, editPhotoFile);
+        teacherPhotoUrl = await getDownloadURL(photoRef);
+        setUploadingPhoto(false);
+      } else if (editPhotoRemoved) {
+        teacherPhotoUrl = "";
+      }
 
       const updatedFields = {
         fullName: editData.fullName,
         username: editData.username,
         password: editData.password,
+        phoneNumber: editData.phoneNumber,
+        phone: editData.phoneNumber,
+        parentName: editData.parentName,
+        matherName: editData.parentName,
+        parentPhoneNumber: editData.parentPhoneNumber,
+        employmentType: editData.employmentTypes,
+        teacherPhoto: teacherPhotoUrl,
         classes: editData.classes,
       };
 
@@ -227,6 +414,34 @@ export default function Teachers() {
         await updateDoc(doc(db, "teachers", oldId), updatedFields);
       }
 
+      // Keep teacher_id (used for ID card generation) in sync too — it's
+      // written alongside `teachers` on creation in AddTeacher.jsx, so an
+      // edit here should update it the same way, or the ID card would
+      // keep showing stale name/phone/photo after an edit.
+      try {
+        const teacherIdSnap = await getDocs(collection(db, "teacher_id"));
+        const hasTeacherIdDoc = teacherIdSnap.docs.some((d) => d.id === oldId);
+        if (hasTeacherIdDoc || newId !== oldId) {
+          if (newId !== oldId) {
+            const existingIdDoc = teacherIdSnap.docs.find((d) => d.id === oldId);
+            if (existingIdDoc) {
+              await setDoc(doc(db, "teacher_id", newId), {
+                ...existingIdDoc.data(),
+                ...updatedFields,
+                teacherUsername: newId,
+              });
+              await deleteDoc(doc(db, "teacher_id", oldId));
+            }
+          } else {
+            await updateDoc(doc(db, "teacher_id", oldId), updatedFields);
+          }
+        }
+      } catch (syncErr) {
+        // Non-fatal — the main teacher record is already saved above; the
+        // ID card copy just won't reflect this edit until next creation.
+        console.warn("Failed to sync teacher_id after edit:", syncErr);
+      }
+
       setTeachers((prev) =>
         prev.map((t) =>
           t.id === oldId ? { ...t, ...updatedFields, id: newId } : t
@@ -240,6 +455,7 @@ export default function Teachers() {
       alert(err.message);
     } finally {
       setSaving(false);
+      setUploadingPhoto(false);
     }
   }
 
@@ -499,6 +715,141 @@ export default function Teachers() {
                 </Field>
               </div>
 
+              {/* Sawirka Macalinka — matches AddTeacher.jsx's photo upload */}
+              <div style={{ marginBottom: 24 }}>
+                <label style={label}>Sawirka Macalinka</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <label
+                    htmlFor="editTeacherPhoto"
+                    style={{
+                      width: 84,
+                      height: 84,
+                      borderRadius: 14,
+                      border: "1.5px dashed rgba(139,108,245,0.4)",
+                      background: "rgba(255,255,255,0.02)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      overflow: "hidden",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {editPhotoPreview ? (
+                      <img
+                        src={editPhotoPreview}
+                        alt="Sawirka Macalinka"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                      />
+                    ) : (
+                      <Camera size={22} color="#8b6cf5" />
+                    )}
+                  </label>
+                  <input
+                    id="editTeacherPhoto"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleEditPhotoChange}
+                    style={{ display: "none" }}
+                  />
+                  {editPhotoPreview && (
+                    <button
+                      type="button"
+                      onClick={removeEditPhoto}
+                      style={{
+                        background: "rgba(239,68,68,0.12)",
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        color: "#f87171",
+                        borderRadius: 8,
+                        padding: "8px 14px",
+                        cursor: "pointer",
+                        fontWeight: 600,
+                        fontSize: 12.5,
+                      }}
+                    >
+                      Ka saar Sawirka
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div style={topGrid}>
+                <Field label="Numbarka Macalinka">
+                  <input
+                    style={input}
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="61xxxxxxx"
+                    value={editData.phoneNumber}
+                    onChange={(e) =>
+                      setEditData({
+                        ...editData,
+                        phoneNumber: e.target.value.replace(/[^0-9]/g, ""),
+                      })
+                    }
+                  />
+                </Field>
+
+                <Field label="Magaca Waalidka">
+                  <input
+                    style={input}
+                    value={editData.parentName}
+                    onChange={(e) =>
+                      setEditData({ ...editData, parentName: e.target.value })
+                    }
+                  />
+                </Field>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <Field label="Numbarka Waalidka">
+                  <input
+                    style={{ ...input, maxWidth: 420 }}
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    placeholder="61xxxxxxx"
+                    value={editData.parentPhoneNumber}
+                    onChange={(e) =>
+                      setEditData({
+                        ...editData,
+                        parentPhoneNumber: e.target.value.replace(/[^0-9]/g, ""),
+                      })
+                    }
+                  />
+                </Field>
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label style={label}>Nooca Shaqada</label>
+                <div style={{ display: "flex", gap: 10 }}>
+                  {["Full Time", "Part Time"].map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => toggleEmploymentType(type)}
+                      style={{
+                        padding: "9px 18px",
+                        borderRadius: 10,
+                        border: "1.5px solid rgba(139,108,245,0.35)",
+                        background: editData.employmentTypes.includes(type)
+                          ? "linear-gradient(90deg,#6d5df0,#8b6cf5)"
+                          : "rgba(255,255,255,0.02)",
+                        color: editData.employmentTypes.includes(type)
+                          ? "#fff"
+                          : "#b8b5d1",
+                        fontWeight: 700,
+                        fontSize: 13,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <hr
                 style={{
                   margin: "10px 0 22px",
@@ -559,7 +910,16 @@ export default function Teachers() {
                   <div style={{ marginTop: 18 }}>
                     <label style={label}>Maalmaha Toddobaadka</label>
                     <div style={dayRow}>
-                      {weekDays.map((day) => {
+                      {(editData.employmentTypes.includes("Full Time")
+                        ? fullTimeWeekDays
+                        : editData.employmentTypes.includes("Part Time")
+                        ? partTimeWeekDays
+                        : // Legacy records with no employmentType saved at
+                          // all: show every day rather than silently
+                          // hiding a Thursday/Friday selection they
+                          // already have.
+                          weekDays
+                      ).map((day) => {
                         const active = block.days.includes(day);
                         return (
                           <button
@@ -590,6 +950,26 @@ export default function Teachers() {
 
                       {block.days.map((day) => {
                         const sessions = block.daySessions?.[day] || [];
+                        // Display number = this session's rank by
+                        // startTime among today's sessions, not its
+                        // position in the array. Same fix as
+                        // AddTeacher.jsx: the array order is just
+                        // insertion order, while the system numbers
+                        // periods by actual time when it saves/displays
+                        // them elsewhere — sorting here keeps what the
+                        // admin sees ("Xiisadda #1"/"#2") in sync with
+                        // that, live as start times are typed/edited.
+                        const displayNumberBySessionIdx = {};
+                        sessions
+                          .map((_, i) => i)
+                          .sort((a, b) =>
+                            (sessions[a].startTime || "").localeCompare(
+                              sessions[b].startTime || ""
+                            )
+                          )
+                          .forEach((origIdx, rank) => {
+                            displayNumberBySessionIdx[origIdx] = rank + 1;
+                          });
                         return (
                           <div key={day} style={dayScheduleCard}>
                             <div style={dayScheduleHeader}>
@@ -608,9 +988,24 @@ export default function Teachers() {
 
                             {sessions.map((session, sIdx) => (
                               <div key={sIdx} style={sessionRow}>
-                                <span style={sessionLabel}>
-                                  Xiisadda #{sIdx + 1}
-                                </span>
+                                <div>
+                                  <label style={miniLabel}>Magaca Xiisadda</label>
+                                  <input
+                                    type="text"
+                                    style={sessionLabelInput}
+                                    placeholder={`Xiisadda #${displayNumberBySessionIdx[sIdx]}`}
+                                    value={session.label || ""}
+                                    onChange={(e) =>
+                                      updateSessionTime(
+                                        index,
+                                        day,
+                                        sIdx,
+                                        "label",
+                                        e.target.value
+                                      )
+                                    }
+                                  />
+                                </div>
 
                                 <div>
                                   <label style={miniLabel}>Waqtiga Bilowga</label>
@@ -1079,11 +1474,15 @@ const sessionRow = {
   flexWrap: "wrap",
 };
 
-const sessionLabel = {
-  fontSize: 12.5,
-  color: "#a9a6c4",
-  minWidth: 80,
-  marginBottom: 10,
+const sessionLabelInput = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1.5px solid rgba(139,108,245,0.3)",
+  background: "rgba(255,255,255,0.02)",
+  color: "#e5e3f7",
+  fontSize: 13.5,
+  minWidth: 110,
+  outline: "none",
 };
 
 const miniLabel = {

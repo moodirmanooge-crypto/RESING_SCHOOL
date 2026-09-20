@@ -54,6 +54,7 @@ const defaultClassOptions = [
 const emptySession = () => ({
   startTime: "",
   endTime: "",
+  label: "",
 });
 
 const emptyClassBlock = () => ({
@@ -72,6 +73,31 @@ function sortedBySessionTime(sessions) {
 
 function withSessionNumbers(sessions) {
   return sessions.map((s, i) => ({ ...s, sessionNumber: i + 1 }));
+}
+
+// Computes the label to pre-fill a NEWLY added session with, continuing
+// from the highest number already USED among this day's existing session
+// labels — whether that number came from auto-numbering or from the admin
+// manually typing a custom one (e.g. renaming "Xiisadda #1" to
+// "Xiisadda #6"). Without this, adding a new session after a manual
+// rename would restart counting from the array position instead of
+// picking up where the admin's own numbering left off. Falls back to
+// existingSessions.length only when none of the existing labels contain
+// any digit at all (e.g. every session still has its default blank/typed
+// label with no number in it).
+function nextSessionLabel(existingSessions) {
+  let maxNum = 0;
+  existingSessions.forEach((s) => {
+    const match = (s.label || "").match(/(\d+)/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > maxNum) maxNum = n;
+    }
+  });
+  if (maxNum === 0) {
+    maxNum = existingSessions.length;
+  }
+  return `Xiisadda #${maxNum + 1}`;
 }
 
 export default function AddTeacher() {
@@ -198,7 +224,7 @@ export default function AddTeacher() {
       updated[index].days = [...days, day];
       updated[index].daySessions = {
         ...updated[index].daySessions,
-        [day]: [emptySession()],
+        [day]: [{ ...emptySession(), label: nextSessionLabel([]) }],
       };
     }
 
@@ -210,7 +236,7 @@ export default function AddTeacher() {
     const existing = updated[index].daySessions[day] || [];
     updated[index].daySessions = {
       ...updated[index].daySessions,
-      [day]: [...existing, emptySession()],
+      [day]: [...existing, { ...emptySession(), label: nextSessionLabel(existing) }],
     };
     setClassBlocks(updated);
   };
@@ -247,20 +273,30 @@ export default function AddTeacher() {
   };
 
   const validateSessions = () => {
-    for (const block of classBlocks) {
+    for (let blockIdx = 0; blockIdx < classBlocks.length; blockIdx++) {
+      const block = classBlocks[blockIdx];
+      // Identifies this block in every alert below: "Fasalka #3 (Class 8 -
+      // Social Studies)" — so when there are many blocks (as in a long
+      // schedule), the admin can jump straight to the right one instead of
+      // having to guess from the day name alone.
+      const blockLabel = `Fasalka #${blockIdx + 1} (${block.className || "fasal aan la dooran"}${
+        block.subject ? " - " + block.subject : ""
+      })`;
+
       for (const day of block.days) {
         const sessions = block.daySessions[day] || [];
 
         for (const s of sessions) {
+          const sessionLabel = s.label ? ` — ${s.label}` : "";
           if (!s.startTime || !s.endTime) {
             alert(
-              `Fadlan buuxi waqtiga bilowga iyo dhamaadka ee ${day} (${block.className || "fasal"})`
+              `${blockLabel}: fadlan buuxi waqtiga bilowga iyo dhamaadka ee ${day}${sessionLabel}`
             );
             return false;
           }
           if (s.startTime >= s.endTime) {
             alert(
-              `${day}: waqtiga dhamaadka waa inuu ka dambeeyaa waqtiga bilowga`
+              `${blockLabel}: ${day}${sessionLabel} — waqtiga dhamaadka waa inuu ka dambeeyaa waqtiga bilowga`
             );
             return false;
           }
@@ -272,7 +308,7 @@ export default function AddTeacher() {
         for (let i = 0; i < sorted.length - 1; i++) {
           if (sorted[i].endTime > sorted[i + 1].startTime) {
             alert(
-              `${day}: xiisadaha waa isku dhacayaan waqti ahaan, fadlan wax ka beddel`
+              `${blockLabel}: ${day} — xiisadaha waa isku dhacayaan waqti ahaan, fadlan wax ka beddel`
             );
             return false;
           }
@@ -314,6 +350,7 @@ export default function AddTeacher() {
           id: `s_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
           startTime: s.startTime,
           endTime: s.endTime,
+          label: s.label || "",
           teacherId: teacherUsername,
           teacherName: teacherFullName,
           subject: subject,
@@ -359,6 +396,7 @@ export default function AddTeacher() {
             sessionNumber: s.sessionNumber,
             startTime: s.startTime,
             endTime: s.endTime,
+            label: s.label || "",
             teacherId: s.teacherId,
             teacherName: s.teacherName || s.teacherId,
             subject: s.subject || "",
@@ -783,6 +821,30 @@ export default function AddTeacher() {
 
                   {block.days.map((day) => {
                     const sessions = block.daySessions[day] || [];
+                    // Display number = this session's rank by startTime
+                    // among today's sessions, NOT its position in the
+                    // array. The array order is just insertion order (the
+                    // order sessions were added in), while the system
+                    // itself numbers periods by actual time (see
+                    // sortedBySessionTime/withSessionNumbers above, used
+                    // when saving to the `timetable` collection). Without
+                    // this, adding a 9:00 session before an 8:00 session
+                    // would show "Xiisadda #1" on the 9:00 one here, but
+                    // the system would later save/display the 8:00 one as
+                    // period #1 everywhere else — a mismatch. Sorting here
+                    // too keeps what the admin sees in sync with what gets
+                    // saved, live as they type start times.
+                    const displayNumberBySessionIdx = {};
+                    sessions
+                      .map((_, i) => i)
+                      .sort((a, b) =>
+                        (sessions[a].startTime || "").localeCompare(
+                          sessions[b].startTime || ""
+                        )
+                      )
+                      .forEach((origIdx, rank) => {
+                        displayNumberBySessionIdx[origIdx] = rank + 1;
+                      });
                     return (
                       <div key={day} style={dayScheduleCard}>
                         <div style={dayScheduleHeader}>
@@ -801,9 +863,24 @@ export default function AddTeacher() {
 
                         {sessions.map((session, sIdx) => (
                           <div key={sIdx} style={sessionRow}>
-                            <span style={sessionLabel}>
-                              Xiisadda #{sIdx + 1}
-                            </span>
+                            <div>
+                              <label style={miniLabel}>Magaca Xiisadda</label>
+                              <input
+                                type="text"
+                                style={sessionLabelInput}
+                                placeholder={`Xiisadda #${displayNumberBySessionIdx[sIdx]}`}
+                                value={session.label || ""}
+                                onChange={(e) =>
+                                  updateSessionTime(
+                                    index,
+                                    day,
+                                    sIdx,
+                                    "label",
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
 
                             <div>
                               <label style={miniLabel}>Waqtiga Bilowga</label>
@@ -1077,11 +1154,15 @@ const sessionRow = {
   flexWrap: "wrap",
 };
 
-const sessionLabel = {
-  fontSize: 12.5,
-  color: "#a9a6c4",
-  minWidth: 80,
-  marginBottom: 10,
+const sessionLabelInput = {
+  padding: "8px 10px",
+  borderRadius: 8,
+  border: "1.5px solid rgba(139,108,245,0.3)",
+  background: "rgba(255,255,255,0.02)",
+  color: "#e5e3f7",
+  fontSize: 13.5,
+  minWidth: 110,
+  outline: "none",
 };
 
 const miniLabel = {
