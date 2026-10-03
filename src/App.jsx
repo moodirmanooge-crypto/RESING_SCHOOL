@@ -69,6 +69,8 @@ import ReceiptModal from "./cashier/ReceiptModal";
 import ExamCards from "./admin/pages/ExamCards";
 import ExamPayments from "./cashier/ExamPayments";
 import Receipts from "./admin/pages/Receipts";
+import AdminRecycleBin from "./admin/pages/RecycleBin";
+import CashierRecycleBin from "./cashier/RecycleBin";
 import AllIdCards from "./admin/pages/AllIdCards";
 
 // PUBLIC
@@ -92,6 +94,7 @@ function App() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/library" element={<Library />} />
         <Route path="/admin/receipts" element={<Receipts />} />
+        <Route path="/admin/recycle-bin" element={<AdminRecycleBin />} />
         <Route path="/admin-login" element={<Login role="Admin" />} />
         <Route path="/teacher-login" element={<Login role="Teacher" />} />
         <Route path="/student-login" element={<Login role="Student" />} />
@@ -233,6 +236,7 @@ function App() {
           <Route path="reports" element={<CashierReports />} />
           <Route path="profile" element={<CashierProfile />} />
           <Route path="receipts" element={<CashierReceipts />} />
+          <Route path="recycle-bin" element={<CashierRecycleBin />} />
         </Route>
 
       </Routes>

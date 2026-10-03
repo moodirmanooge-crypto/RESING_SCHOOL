@@ -1,7 +1,10 @@
 //src/admin/pages/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
-import { db } from "../../firebase/firebase";
+import {
+  loadFeeLedger,
+  deleteReceiptsCascade,
+  localMonthKey,
+} from "../../utils/feeLedger.js";
 import { Search, Printer, X, Receipt as ReceiptIcon, Trash2 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
@@ -94,6 +97,7 @@ const cardStyle = {
 export default function Receipts() {
   const [receipts, setReceipts] = useState([]);
   const [students, setStudents] = useState([]);
+  const [monthPaid, setMonthPaid] = useState({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(null);
@@ -103,33 +107,17 @@ export default function Receipts() {
 
   useEffect(() => {
     fetchReceipts();
-    fetchStudents();
   }, []);
-
-  async function fetchStudents() {
-    try {
-      const snap = await getDocs(collection(db, "students"));
-      const list = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter(
-          (s) =>
-            !s.pendingDeletion &&
-            s.studentId &&
-            String(s.studentId).trim() !== "" &&
-            s.fullName &&
-            String(s.fullName).trim() !== ""
-        );
-      setStudents(list);
-    } catch (err) {
-      console.error("Khalad ayaa dhacay markii ardayda la soo qaadanayay:", err);
-    }
-  }
 
   async function fetchReceipts() {
     try {
       setLoading(true);
-      const snap = await getDocs(collection(db, "receipts"));
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Isla xogta Cashier-ka (utils/feeLedger.js): ardayda jira ee lacag
+      // bixiya (Full Time + Part Time), rasiidyo aan labanlaabnayn
+      const ledger = await loadFeeLedger();
+      setStudents(ledger.payableStudents);
+      setMonthPaid(ledger.monthPaid);
+      const list = [...ledger.receipts];
       list.sort((a, b) => {
         const at = a.createdAt?.seconds || 0;
         const bt = b.createdAt?.seconds || 0;
@@ -163,15 +151,15 @@ export default function Receipts() {
   );
 
   // Isku qaabka Cashier Dashboard-ka: ardayda Free ah waa in aan lagu darin
+  // "Wadarta Guud ee La Qaaday" = lacagta bishan (isla tirada Cashier Dashboard)
   const overview = useMemo(() => {
-    const feePayingStudentIds = new Set(
-      students.filter((s) => s.feeType !== "Free").map((s) => s.studentId)
-    );
-    const payableStudents = students.filter((s) => s.feeType !== "Free");
+    const payableStudents = students;
+    const monthKey = localMonthKey();
 
-    const allTimeCollected = receipts
-      .filter((r) => feePayingStudentIds.has(r.studentId))
-      .reduce((sum, r) => sum + (Number(r.paidAmount) || 0), 0);
+    const allTimeCollected = payableStudents.reduce(
+      (sum, s) => sum + (Number(monthPaid[s.studentId]?.[monthKey]?.paidAmount) || 0),
+      0
+    );
 
     const totalRegisteredFees = payableStudents.reduce(
       (sum, s) => sum + Number(s.monthlyFee || 0),
@@ -183,7 +171,7 @@ export default function Receipts() {
       feePayingStudentsCount: payableStudents.length,
       totalRegisteredFees,
     };
-  }, [students, receipts]);
+  }, [students, monthPaid]);
 
   function askDeleteOne(receipt) {
     setConfirmTarget({ type: "one", receipt });
@@ -201,8 +189,10 @@ export default function Receipts() {
       const receipt = confirmTarget.receipt;
       try {
         setDeletingId(receipt.id);
-        await deleteDoc(doc(db, "receipts", receipt.id));
+        // Backend-ka oo dhan: receipts + payments + receiptCashier + credit
+        await deleteReceiptsCascade([receipt], "admin");
         setReceipts((prev) => prev.filter((r) => r.id !== receipt.id));
+        fetchReceipts();
         if (selected?.id === receipt.id) setSelected(null);
         setConfirmTarget(null);
       } catch (err) {
@@ -215,8 +205,9 @@ export default function Receipts() {
       try {
         setDeletingAll(true);
         const idsToDelete = filtered.map((r) => r.id);
-        await Promise.all(idsToDelete.map((id) => deleteDoc(doc(db, "receipts", id))));
+        await deleteReceiptsCascade(filtered, "admin");
         setReceipts((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
+        fetchReceipts();
         if (selected && idsToDelete.includes(selected.id)) setSelected(null);
         setConfirmTarget(null);
       } catch (err) {

@@ -16,6 +16,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import TimePicker12 from "../components/TimePicker12";
 import {
   GraduationCap,
   User,
@@ -884,36 +885,20 @@ export default function AddTeacher() {
 
                             <div>
                               <label style={miniLabel}>Waqtiga Bilowga</label>
-                              <input
-                                type="time"
-                                style={timeInput}
+                              <TimePicker12
                                 value={session.startTime}
-                                onChange={(e) =>
-                                  updateSessionTime(
-                                    index,
-                                    day,
-                                    sIdx,
-                                    "startTime",
-                                    e.target.value
-                                  )
+                                onChange={(val) =>
+                                  updateSessionTime(index, day, sIdx, "startTime", val)
                                 }
                               />
                             </div>
 
                             <div>
                               <label style={miniLabel}>Waqtiga Dhamaadka</label>
-                              <input
-                                type="time"
-                                style={timeInput}
+                              <TimePicker12
                                 value={session.endTime}
-                                onChange={(e) =>
-                                  updateSessionTime(
-                                    index,
-                                    day,
-                                    sIdx,
-                                    "endTime",
-                                    e.target.value
-                                  )
+                                onChange={(val) =>
+                                  updateSessionTime(index, day, sIdx, "endTime", val)
                                 }
                               />
                             </div>

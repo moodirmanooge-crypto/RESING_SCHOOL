@@ -1,5 +1,5 @@
 // src/cashier/Classes.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   collection,
   doc,
@@ -10,7 +10,7 @@ import {
   onSnapshot,
   getDocs,
   runTransaction,
-  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -18,6 +18,19 @@ import autoTable from "jspdf-autotable";
 import { db } from "../firebase/firebase";
 import { theme } from "./theme.js";
 import ReceiptModal from "./ReceiptModal.jsx";
+import {
+  buildFeeLedger,
+  studentMonthState,
+  receiptMonthKeys,
+  purgeDuplicateReceipts,
+  localMonthKey,
+  monthKeyAdd as ledgerMonthKeyAdd,
+  toDateValue,
+  ledgerStartMonthKey,
+  tsSeconds,
+  LEDGER_START_SECONDS,
+} from "../utils/feeLedger.js";
+import { moveToRecycleBin, currentActor } from "../utils/recycleBin.js";
 
 const SCHOOL_NAME = "Rising Star School";
 
@@ -28,51 +41,80 @@ const academicYearLabel = (dateObj) => {
   return `${y - 1}/${y}`;
 };
 
-// Isla counter-ka "counters/receiptCounter" ee ReceiptModal.jsx isticmaalo —
-// si aad arday kasta uu u helo rasiid gaar ah oo lambar taxane ah, xataa marka
-// lagu kaydiyo "Save All & PDF Report".
-const getNextReceiptNumber = async () => {
-  const counterRef = doc(db, "counters", "receiptCounter");
+// Lambarka rasiidka (counters/receiptCounterV2): { value, series }.
+//  • value  = lambarkii ugu dambeeyay (001, 002, ...)
+//  • series = taxanaha; doc ID-ga rasiidku waa "V{series}-{lambar}" (V2-001).
+// Marka "Reset — Dhammaan System-ka" la sameeyo, value -> 0 iyo series + 1,
+// sidaas rasiidka xiga wuxuu noqdaa 001 (V3-001) mana qariyo rasiidyadii
+// Recycle Bin-ka ku jira (haddii dib loo soo celiyo). Isla counter-ka
+// ReceiptModal.jsx. Hal transaction ayaa qabsada "count" lambar oo isku xiga,
+// si rasiidka loogu daro ISLA batch-ka payments-ka.
+const RECEIPT_COUNTER_ID = "receiptCounterV2";
 
-  const nextNumber = await runTransaction(db, async (transaction) => {
+const reserveReceiptNumbers = async (count) => {
+  const counterRef = doc(db, "counters", RECEIPT_COUNTER_ID);
+
+  const { first, series } = await runTransaction(db, async (transaction) => {
     const counterDoc = await transaction.get(counterRef);
-    const current = counterDoc.exists() ? Number(counterDoc.data().value || 0) : 0;
-    const next = current + 1;
-    transaction.set(counterRef, { value: next }, { merge: true });
-    return next;
+    const data = counterDoc.exists() ? counterDoc.data() : {};
+    const current = Number(data.value || 0);
+    const ser = Number(data.series || 2);
+    transaction.set(counterRef, { value: current + count, series: ser }, { merge: true });
+    return { first: current + 1, series: ser };
   });
 
-  return String(nextNumber).padStart(3, "0");
+  return Array.from({ length: count }, (_, i) => {
+    const receiptNo = String(first + i).padStart(3, "0");
+    return { receiptNo, docId: `V${series}-${receiptNo}` };
+  });
 };
 
-const saveReceiptRecord = async (receiptNo, payment, paidDate) => {
-  try {
-    const receiptRef = doc(collection(db, "receipts"), receiptNo);
-    await setDoc(receiptRef, {
-      receiptNo,
-      studentId: payment.studentId || null,
-      studentName: payment.studentName || "",
-      className: payment.className || "",
-      studentPhone: payment.studentPhone || "",
-      monthLabel: payment.monthLabel || "",
-      // Lambarrada bilaha saxda ah ee rasiidkan uu daboolayo, iyo xaaladda
-      // saxda ah ee bil kasta (wadarta la bixiyay ilaa iyo hadda, iyo
-      // "Paid"/"Not Paid") — kani wuxuu u oggolaanayaa Reports, Dashboard,
-      // iyo Payments inay si sax ah uga soo akhriyaan xaaladda "la
-      // bixiyay"/"lama bixin" collection-ka "receipts" oo keliya, iyaga oo
-      // aan u baahnayn inay kala saaraan qoraalka monthLabel ama isku
-      // xisaabiyaan tirooyin ka yimaada rasiidyo badan.
-      monthBreakdown: Array.isArray(payment.monthBreakdown) ? payment.monthBreakdown : [],
-      paidAmount: payment.paidAmount ?? 0,
-      paymentMethod: payment.paymentMethod || "",
-      evcNumber: payment.evcNumber || "",
-      academicYear: academicYearLabel(paidDate),
-      paidAt: paidDate,
-      createdAt: serverTimestamp(),
-    });
-  } catch (err) {
-    console.error("Khalad ayaa dhacay markii rasiidka la kaydinayay:", err);
-  }
+// Xogta rasiidka (receipts collection) — waxaa lagu daraa batch-ka.
+const buildReceiptRecord = (receiptNo, payment, paidDate) => ({
+  receiptNo,
+  studentId: payment.studentId || null,
+  studentName: payment.studentName || "",
+  className: payment.className || "",
+  studentPhone: payment.studentPhone || "",
+  monthLabel: payment.monthLabel || "",
+  monthBreakdown: Array.isArray(payment.monthBreakdown) ? payment.monthBreakdown : [],
+  paidAmount: payment.paidAmount ?? 0,
+  monthlyFee: payment.monthlyFee ?? 0,
+  creditBalanceBefore: payment.creditBalanceBefore ?? 0,
+  creditBalanceAfter: payment.creditBalanceAfter ?? 0,
+  receiptCashierId: payment.receiptCashierId || "",
+  paymentMethod: payment.paymentMethod || "",
+  evcNumber: payment.evcNumber || "",
+  academicYear: academicYearLabel(paidDate),
+  paidAt: paidDate,
+  createdAt: serverTimestamp(),
+});
+
+// Marka lacag bishan la edit-gareeyo: rasiidkii hore ee bishan ka saar si
+// lacagtu aysan labanlaabmin (rasiid hal bil ah -> waa la tirtiraa; rasiid
+// bilo badan -> bishan ayaa laga saaraa breakdown-ka iyo lacagta).
+const removeMonthFromOldReceipts = (batch, studentReceipts, monthKey) => {
+  studentReceipts.forEach((r) => {
+    const keys = receiptMonthKeys(r);
+    if (!keys.includes(monthKey)) return;
+
+    if (keys.length <= 1) {
+      batch.delete(doc(db, "receipts", r.id));
+      if (r.receiptCashierId) batch.delete(doc(db, "receiptCashier", r.receiptCashierId));
+      return;
+    }
+
+    const bd = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
+    if (bd.length > 0) {
+      const entry = bd.find((m) => m.monthKey === monthKey);
+      const newBd = bd.filter((m) => m.monthKey !== monthKey);
+      const newPaid = Math.max((Number(r.paidAmount) || 0) - (Number(entry?.paidAmount) || 0), 0);
+      batch.update(doc(db, "receipts", r.id), {
+        monthBreakdown: newBd,
+        paidAmount: newPaid,
+      });
+    }
+  });
 };
 
 const baseClasses = [
@@ -94,7 +136,9 @@ const fullTimeOptions = baseClasses.map((c) => c);
 const partTimeOptions = baseClasses.map((c) => `${c} Part Time`);
 const classOptions = [...fullTimeOptions, ...partTimeOptions];
 
-const currentMonthKey = () => new Date().toISOString().slice(0, 7);
+// Waqtiga maxaliga ah (Soomaaliya UTC+3) — toISOString() (UTC) waxay keeni
+// jirtay in bilaha si khaldan loo xisaabiyo.
+const currentMonthKey = () => localMonthKey();
 
 const monthLabel = (key) => {
   if (!key) return "—";
@@ -110,9 +154,7 @@ function formatPaidDate(createdAt) {
 }
 
 function monthKeyAdd(key, n) {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(y, m - 1 + n, 1);
-  return d.toISOString().slice(0, 7);
+  return ledgerMonthKeyAdd(key, n);
 }
 
 function addMonthsToKey(monthKey, months) {
@@ -125,11 +167,12 @@ function addMonthsToKey(monthKey, months) {
 }
 
 function registrationMonthKey(student) {
-  const ts = student.createdAt;
-  if (ts?.seconds) {
-    return new Date(ts.seconds * 1000).toISOString().slice(0, 7);
-  }
-  return currentMonthKey();
+  // Bilow cusub: lacagta waxay ka bilaabataa bisha nidaamku dib u bilowday
+  // (ama bisha ardayga la diiwaangeliyay haddii ay ka dambeyso).
+  const startMonth = ledgerStartMonthKey();
+  const d = toDateValue(student.createdAt);
+  const reg = d ? localMonthKey(d) : currentMonthKey();
+  return reg > startMonth ? reg : startMonth;
 }
 
 function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
@@ -176,32 +219,14 @@ function distributePayment({ entered, monthlyFee, fullyPaidSet, partialMap, star
   return updates;
 }
 
-// Kalasoocida fasalka saxda ah
-function getNormalizedClassName(student) {
-  const rawClass = String(student.className || "").trim();
-  if (!rawClass) return "Unknown";
-
-  const isPartTime =
-    student.isPartTime === true ||
-    student.studyType === "Part Time" ||
-    student.sourceCollection === "partTimeStudents" ||
-    rawClass.toLowerCase().includes("part time");
-
-  const cleanBase = rawClass.replace(/part\s*time/i, "").trim();
-
-  if (isPartTime) {
-    return `${cleanBase} Part Time`;
-  }
-  return cleanBase;
-}
-
 export default function Classes() {
-  const [regularStudents, setRegularStudents] = useState({});
-  const [partTimeStudents, setPartTimeStudents] = useState({});
+  const [regularStudents, setRegularStudents] = useState([]);
+  const [partTimeStudents, setPartTimeStudents] = useState([]);
   const [cashierDocs, setCashierDocs] = useState([]);
-
-  const [paymentsByStudent, setPaymentsByStudent] = useState({});
+  const [paymentDocs, setPaymentDocs] = useState([]);
+  const [receiptDocs, setReceiptDocs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const purgedRef = useRef(new Set());
 
   const [selectedClass, setSelectedClass] = useState(null);
   const [search, setSearch] = useState("");
@@ -210,6 +235,7 @@ export default function Classes() {
   const [savingId, setSavingId] = useState(null);
   const [savingAll, setSavingAll] = useState(false);
   const [resettingAll, setResettingAll] = useState(false);
+  const [resetDialog, setResetDialog] = useState(false);
   const [editingIds, setEditingIds] = useState({});
   const [receiptPayment, setReceiptPayment] = useState(null);
   const [receiptQueue, setReceiptQueue] = useState([]);
@@ -225,45 +251,27 @@ export default function Classes() {
   useEffect(() => {
     setLoading(true);
 
-    // 1. Soo akhrinta collection-ka regular students[cite: 9]
+    const toList = (snap) => snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    // 1. Ardayda Full Time
     const unsubStudents = onSnapshot(
       collection(db, "students"),
-      (snap) => {
-        const map = {};
-        snap.docs.forEach((d) => {
-          const data = d.data();
-          const sId = data.studentId || d.id;
-          map[sId] = { ...data, sourceCollection: "students" };
-        });
-        setRegularStudents(map);
-      },
+      (snap) => setRegularStudents(toList(snap)),
       (err) => console.error("Error fetching students:", err)
     );
 
-    // 2. Soo akhrinta collection-ka partTimeStudents[cite: 9]
+    // 2. Ardayda Part Time
     const unsubPartTime = onSnapshot(
       collection(db, "partTimeStudents"),
-      (snap) => {
-        const map = {};
-        snap.docs.forEach((d) => {
-          const data = d.data();
-          const sId = data.studentId || d.id;
-          map[sId] = {
-            ...data,
-            isPartTime: true,
-            sourceCollection: "partTimeStudents",
-          };
-        });
-        setPartTimeStudents(map);
-      },
+      (snap) => setPartTimeStudents(toList(snap)),
       (err) => console.error("Error fetching partTimeStudents:", err)
     );
 
-    // 3. Soo akhrinta cashier docs[cite: 9]
+    // 3. Cashier docs (creditBalance, feeType Paid/Unpaid)
     const unsubCashier = onSnapshot(
       collection(db, "cashier"),
       (snap) => {
-        setCashierDocs(snap.docs);
+        setCashierDocs(toList(snap));
         setLoading(false);
       },
       (err) => {
@@ -272,25 +280,18 @@ export default function Classes() {
       }
     );
 
+    // 4. Payments (bil kasta)
     const unsubPayments = onSnapshot(
       collection(db, "payments"),
-      (paymentsSnap) => {
-        const byStudent = {};
-        paymentsSnap.docs.forEach((d) => {
-          const data = d.data();
-          const sid = data.studentId;
-          if (!sid) return;
-          if (!byStudent[sid]) byStudent[sid] = [];
-          byStudent[sid].push(data);
-        });
-        Object.keys(byStudent).forEach((sid) => {
-          byStudent[sid].sort((a, b) => (a.monthKey || "").localeCompare(b.monthKey || ""));
-        });
-        setPaymentsByStudent(byStudent);
-      },
-      (err) => {
-        console.error("Error fetching payments:", err);
-      }
+      (snap) => setPaymentDocs(toList(snap)),
+      (err) => console.error("Error fetching payments:", err)
+    );
+
+    // 5. Receipts — bil waa "la bixiyay" kaliya haddii rasiid daboolayo
+    const unsubReceipts = onSnapshot(
+      collection(db, "receipts"),
+      (snap) => setReceiptDocs(toList(snap)),
+      (err) => console.error("Error fetching receipts:", err)
     );
 
     return () => {
@@ -298,48 +299,33 @@ export default function Classes() {
       unsubPartTime();
       unsubCashier();
       unsubPayments();
+      unsubReceipts();
     };
   }, []);
 
-  // Isku dubaridka iyo sifeynta ardayda (Filter-garaynta sugan) oo laga hortagayo Unknown iyo Race Condition
-  const students = useMemo(() => {
-    const allStudentsMap = { ...regularStudents, ...partTimeStudents };
+  // Ledger-ka lacagaha — isla xisaabinta Dashboard/Reports/Admin ay isticmaalaan
+  const ledger = useMemo(
+    () =>
+      buildFeeLedger({
+        students: regularStudents,
+        partTimeStudents,
+        cashier: cashierDocs,
+        payments: paymentDocs,
+        receipts: receiptDocs,
+      }),
+    [regularStudents, partTimeStudents, cashierDocs, paymentDocs, receiptDocs]
+  );
 
-    return cashierDocs
-      .map((d) => {
-        const data = d.data();
-        const sid = data.studentId || d.id;
-        const mainData = allStudentsMap[sid];
+  // Rasiidyada labanlaaban (bug-gii hore) backend-ka ka tirtir hal mar
+  useEffect(() => {
+    const fresh = ledger.duplicateReceipts.filter((r) => !purgedRef.current.has(r.id));
+    if (fresh.length === 0) return;
+    fresh.forEach((r) => purgedRef.current.add(r.id));
+    purgeDuplicateReceipts(fresh);
+  }, [ledger]);
 
-        // Haddii uusan ardaygu ka jirin students ama partTimeStudents, iska reeb si uusan ugu soo bixin Unknown
-        if (!mainData) return null;
-
-        const merged = {
-          id: d.id,
-          fullName: data.studentName || data.fullName,
-          ...mainData,
-          ...data,
-          // Ardayga xaqiiqda ahaan "Free" ku qoran collection-ka students/
-          // partTimeStudents, feeType-kiisu waa inuusan marnaba isbedelin,
-          // xitaa haddii "cashier" collection-ku sido xaalad kale (Paid/Unpaid).
-          feeType: mainData.feeType === "Free" ? "Free" : data.feeType,
-        };
-
-        const actualClass = getNormalizedClassName(merged);
-
-        return {
-          ...merged,
-          className: actualClass,
-        };
-      })
-      .filter(
-        (s) =>
-          s !== null &&
-          !s.pendingDeletion &&
-          s.studentId &&
-          String(s.studentId).trim() !== ""
-      );
-  }, [regularStudents, partTimeStudents, cashierDocs]);
+  // Dhammaan ardayda jira (Full Time + Part Time), aan pendingDeletion ahayn
+  const students = ledger.allStudents;
 
   const classGroups = useMemo(() => {
     const groups = {};
@@ -383,14 +369,8 @@ export default function Classes() {
   };
 
   function getStudentMonthState(studentId) {
-    const records = paymentsByStudent[studentId] || [];
-    const fullyPaidSet = new Set();
-    const partialMap = {};
-    records.forEach((r) => {
-      if (!r.monthKey) return;
-      if (r.status === "Paid") fullyPaidSet.add(r.monthKey);
-      else if (r.paidAmount) partialMap[r.monthKey] = r.paidAmount;
-    });
+    const student = ledger.studentsById[studentId] || { studentId, monthlyFee: 0 };
+    const { records, fullyPaidSet, partialMap } = studentMonthState(ledger, student);
     return { records, fullyPaidSet, partialMap };
   }
 
@@ -398,16 +378,16 @@ export default function Classes() {
     const paidThisMonthCount = currentClassStudents.filter((s) => {
       if (isFreeStudent(s)) return false;
       const { fullyPaidSet } = getStudentMonthState(s.studentId);
-      return fullyPaidSet.has(currentMonthKey()) || s.feeType === "Paid";
+      return fullyPaidSet.has(currentMonthKey());
     }).length;
     return { total: currentClassStudents.length, paidThisMonthCount };
-  }, [currentClassStudents, paymentsByStudent]);
+  }, [currentClassStudents, ledger]);
 
   const startEdit = (student) => {
     const fee = Number(student.monthlyFee || 0);
     const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
     const thisMonthKey = currentMonthKey();
-    const paidThisMonth = fullyPaidSet.has(thisMonthKey) || student.feeType === "Paid";
+    const paidThisMonth = fullyPaidSet.has(thisMonthKey);
     const partialThisMonth = partialMap[thisMonthKey] || 0;
     const prefill = paidThisMonth ? fee : partialThisMonth;
 
@@ -423,7 +403,7 @@ export default function Classes() {
     const targets = currentClassStudents.filter((s) => {
       if (isFreeStudent(s)) return false;
       const { fullyPaidSet } = getStudentMonthState(s.studentId);
-      return fullyPaidSet.has(thisMonthKey) || s.feeType === "Paid";
+      return fullyPaidSet.has(thisMonthKey);
     });
 
     if (targets.length === 0) {
@@ -444,37 +424,146 @@ export default function Classes() {
     setEditingIds(nextEditing);
   };
 
-  async function resetClassPayments() {
-    if (!selectedClass) return;
-    const confirmReset = window.confirm(
-      `Ma weyddiisanaysaa in dhammaan lacagaha iyo rasiidhyada ardayda fasalka "${selectedClass}" laga dhigo Unpaid (Tir dhan)?`
-    );
-    if (!confirmReset) return;
+  // RESET / UNPAID ALL — scope: "class" (fasalkan) ama "system" (dhammaan).
+  // Xogtu backend-ka kama baxdo: waxaa loo raraa RECYCLE BIN (Cashier iyo
+  // Admin labaduba way ka soo celin karaan). Meelaha kale oo dhan (Classes,
+  // Dashboard, Payments, Reports, Receipts, Admin) way ka baxdaa isla markiiba.
+  // "system": lambarka rasiidka wuxuu dib uga bilaabmaa 001.
+  async function resetPayments(scope) {
+    const isSystem = scope === "system";
+    if (!isSystem && !selectedClass) return;
+
+    if (isSystem) {
+      const typed = window.prompt(
+        'DIGNIIN: Dhammaan lacagaha iyo rasiidyada FASALLADA OO DHAN waa la reset-gareynayaa, ' +
+          "lambarka rasiidkuna wuxuu ka bilaabmayaa 001. Xogtu waxay gelaysaa Recycle Bin.\n\n" +
+          'Si aad u xaqiijiso, qor: RESET'
+      );
+      if (String(typed || "").trim().toUpperCase() !== "RESET") return;
+    }
 
     try {
       setResettingAll(true);
-      const batch = writeBatch(db);
+      setResetDialog(false);
 
-      const studentDocIds = currentClassStudents.map((s) => s.id);
+      // Ardayda la saameynayo (Free-ga mooyee)
+      const scopeStudents = isSystem
+        ? ledger.payableStudents
+        : students.filter(
+            (s) => (s.className || "Unknown") === selectedClass && s.feeType !== "Free"
+          );
+      const scopeIds = new Set(scopeStudents.map((s) => s.studentId));
 
-      studentDocIds.forEach((id) => {
-        batch.update(doc(db, "cashier", id), {
-          creditBalance: 0,
-          feeType: "Unpaid",
+      const trash = [];
+      const writes = [];
+
+      // 1) Rasiidyada (kuwa muuqda oo keliya)
+      const scopeReceipts = ledger.receipts.filter((r) => scopeIds.has(r.studentId));
+      scopeReceipts.forEach((r) => {
+        trash.push({ col: "receipts", id: r.id, data: r });
+        writes.push({ type: "delete", col: "receipts", id: r.id });
+      });
+
+      // 2) Lacagaha bilaha
+      ledger.payments
+        .filter((p) => scopeIds.has(p.studentId) && p.id)
+        .forEach((p) => {
+          trash.push({ col: "payments", id: p.id, data: p });
+          writes.push({ type: "delete", col: "payments", id: p.id });
+        });
+
+      // 3) receiptCashier (bilowga cusub kadib)
+      const rcIds = new Set();
+      const rcDocs = [];
+      if (isSystem) {
+        const rcSnap = await getDocs(collection(db, "receiptCashier"));
+        rcSnap.docs.forEach((d) => rcDocs.push({ id: d.id, ...d.data() }));
+      } else {
+        const ids = Array.from(scopeIds);
+        for (let i = 0; i < ids.length; i += 10) {
+          const rcSnap = await getDocs(
+            query(collection(db, "receiptCashier"), where("studentId", "in", ids.slice(i, i + 10)))
+          );
+          rcSnap.docs.forEach((d) => rcDocs.push({ id: d.id, ...d.data() }));
+        }
+      }
+      const linkedRc = new Set(scopeReceipts.map((r) => r.receiptCashierId).filter(Boolean));
+      rcDocs.forEach((rc) => {
+        if (!scopeIds.has(rc.studentId)) return;
+        const isNew = tsSeconds(rc.createdAt) >= LEDGER_START_SECONDS;
+        if (!isNew && !linkedRc.has(rc.id)) return;
+        if (rcIds.has(rc.id)) return;
+        rcIds.add(rc.id);
+        trash.push({ col: "receiptCashier", id: rc.id, data: rc });
+        writes.push({ type: "delete", col: "receiptCashier", id: rc.id });
+      });
+
+      // 4) Cashier docs: credit 0, Unpaid (xaaladdii hore waa la kaydiyaa)
+      const cashierById = {};
+      cashierDocs.forEach((c) => {
+        cashierById[c.id] = c;
+      });
+      scopeStudents.forEach((s) => {
+        const prev = cashierById[s.id];
+        if (prev) {
+          trash.push({
+            col: "cashier",
+            id: s.id,
+            mode: "merge",
+            data: {
+              creditBalance: prev.creditBalance ?? 0,
+              feeType: prev.feeType ?? "",
+              creditUpdatedAt: prev.creditUpdatedAt ?? null,
+            },
+          });
+        }
+        writes.push({
+          type: "set",
+          merge: true,
+          col: "cashier",
+          id: s.id,
+          data: {
+            studentId: s.studentId,
+            creditBalance: 0,
+            creditUpdatedAt: new Date(),
+            feeType: "Unpaid",
+          },
         });
       });
 
-      const paymentsSnap = await getDocs(
-        query(collection(db, "payments"), where("className", "==", selectedClass))
-      );
-      paymentsSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+      // 5) System reset: lambarka rasiidka 001 ka bilow (taxane cusub)
+      let counterMeta = {};
+      if (isSystem) {
+        const counterRef = doc(db, "counters", RECEIPT_COUNTER_ID);
+        const counterSnap = await getDoc(counterRef);
+        const prev = counterSnap.exists() ? counterSnap.data() : {};
+        const prevSeries = Number(prev.series || 2);
+        counterMeta = {
+          previousCounter: { value: Number(prev.value || 0), series: prevSeries },
+        };
+        writes.push({
+          type: "set",
+          merge: true,
+          col: "counters",
+          id: RECEIPT_COUNTER_ID,
+          data: { value: 0, series: prevSeries + 1, resetAt: new Date() },
+        });
+      }
 
-      const receiptCashierSnap = await getDocs(
-        query(collection(db, "receiptCashier"), where("className", "==", selectedClass))
-      );
-      receiptCashierSnap.docs.forEach((docSnap) => batch.delete(docSnap.ref));
+      const totalAmount = scopeReceipts.reduce((sum, r) => sum + (Number(r.paidAmount) || 0), 0);
 
-      await batch.commit();
+      await moveToRecycleBin({
+        type: isSystem ? "systemReset" : "classReset",
+        label: isSystem
+          ? "Reset — Dhammaan System-ka (fasallada oo dhan)"
+          : `Reset — Fasalka ${selectedClass}`,
+        className: isSystem ? "ALL" : selectedClass,
+        actor: currentActor("cashier"),
+        trash,
+        writes,
+        totalAmount,
+        meta: { studentCount: scopeStudents.length, ...counterMeta },
+      });
 
       setAmounts({});
       setMonthsSelected({});
@@ -482,10 +571,16 @@ export default function Classes() {
       setReceiptQueue([]);
       setReceiptPayment(null);
 
-      alert(`Dhamaan xogta fasalka ${selectedClass} waa la Reset-gareeyay.`);
+      alert(
+        isSystem
+          ? `Dhammaan System-ka waa la Reset-gareeyay ($${totalAmount}, ${scopeReceipts.length} rasiid). ` +
+              "Xogtu waxay ku jirtaa Recycle Bin. Rasiidka xiga wuxuu noqonayaa N° 001."
+          : `Fasalka ${selectedClass} waa la Reset-gareeyay ($${totalAmount}, ${scopeReceipts.length} rasiid). ` +
+              "Xogtu waxay ku jirtaa Recycle Bin."
+      );
     } catch (err) {
       console.error(err);
-      alert("Khalad ayaa dhacay marka xogta la tirayay.");
+      alert("Khalad ayaa dhacay marka xogta la reset-gareynayay: " + (err?.message || ""));
     } finally {
       setResettingAll(false);
     }
@@ -538,105 +633,207 @@ export default function Classes() {
     docPdf.save(`Daqliga_${selectedClass}_${currentMonthKey()}.pdf`);
   };
 
-  async function savePayment(student) {
-    if (isFreeStudent(student)) return;
+  // Xisaabinta lacagta arday (isku mid Save iyo Save All)
+  function computeStudentPayment(student) {
+    const monthlyFee = Number(student.monthlyFee || 0);
+    if (monthlyFee <= 0) return null;
 
-    try {
-      const monthlyFee = Number(student.monthlyFee || 0);
-      if (monthlyFee <= 0) {
-        alert("Ardaygan Monthly Fee sax ah lama helin.");
-        return;
-      }
+    let entered = Number(amounts[student.id] || 0);
+    if (entered <= 0) {
+      entered = monthlyFee;
+    }
 
-      let entered = Number(amounts[student.id] || 0);
-      if (entered <= 0) {
-        entered = monthlyFee;
-      }
+    const isEditing = !!editingIds[student.id];
+    const thisMonthKey = currentMonthKey();
+    const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
 
-      const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
+    const workingFullyPaidSet = new Set(fullyPaidSet);
+    const workingPartialMap = { ...partialMap };
+    if (isEditing) {
+      workingFullyPaidSet.delete(thisMonthKey);
+      delete workingPartialMap[thisMonthKey];
+    }
 
-      const workingFullyPaidSet = new Set(fullyPaidSet);
-      const workingPartialMap = { ...partialMap };
-      if (editingIds[student.id]) {
-        workingFullyPaidSet.delete(currentMonthKey());
-        delete workingPartialMap[currentMonthKey()];
-      }
+    // Edit: lacagta cusub waxay bilaabataa bishan (ma aha bil hore).
+    const startKey = isEditing
+      ? thisMonthKey
+      : findNextUnpaidMonth(workingFullyPaidSet, registrationMonthKey(student));
 
-      const startKey = findNextUnpaidMonth(
-        workingFullyPaidSet,
-        registrationMonthKey(student)
-      );
+    const existingCredit = Number(student.creditBalance || 0);
+    const cashToDistribute = entered + existingCredit;
 
-      const existingCredit = Number(student.creditBalance || 0);
-      const cashToDistribute = entered + existingCredit;
+    let updates = distributePayment({
+      entered: cashToDistribute,
+      monthlyFee,
+      fullyPaidSet: new Set(workingFullyPaidSet),
+      partialMap: { ...workingPartialMap },
+      startKey,
+    });
 
-      let updates = distributePayment({
-        entered: cashToDistribute,
-        monthlyFee,
-        fullyPaidSet: new Set(workingFullyPaidSet),
-        partialMap: { ...workingPartialMap },
-        startKey,
+    if (updates.length === 0) {
+      updates = [{
+        monthKey: startKey,
+        paidAmount: entered,
+        remaining: Math.max(monthlyFee - entered, 0),
+        status: entered >= monthlyFee ? "Paid" : "Not Paid"
+      }];
+    }
+
+    const totalApplied = updates.reduce((sum, u) => {
+      const already = workingPartialMap[u.monthKey] || 0;
+      return sum + (u.paidAmount - already);
+    }, 0);
+    const newCreditBalance = Math.max(cashToDistribute - totalApplied, 0);
+
+    const receiptMonthLabel = (() => {
+      if (updates.length === 0) return monthLabel(startKey);
+      if (updates.length === 1) return monthLabel(updates[0].monthKey);
+
+      const names = updates.map((u) => {
+        const [, m] = u.monthKey.split("-");
+        const d = new Date(2000, Number(m) - 1, 1);
+        return d.toLocaleDateString("en-US", { month: "long" });
       });
+      const year = updates[updates.length - 1].monthKey.split("-")[0];
 
-      if (updates.length === 0) {
-        updates = [{
-          monthKey: startKey,
-          paidAmount: entered,
-          remaining: Math.max(monthlyFee - entered, 0),
-          status: entered >= monthlyFee ? "Paid" : "Not Paid"
-        }];
-      }
+      const joined =
+        names.length === 2
+          ? `${names[0]} and ${names[1]}`
+          : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
 
-      const totalApplied = updates.reduce((sum, u) => {
-        const already = workingPartialMap[u.monthKey] || 0;
-        return sum + (u.paidAmount - already);
-      }, 0);
-      const newCreditBalance = Math.max(cashToDistribute - totalApplied, 0);
+      return `${joined} ${year} (${updates.length} Months)`;
+    })();
 
-      setSavingId(student.id);
+    return {
+      monthlyFee,
+      entered,
+      isEditing,
+      thisMonthKey,
+      updates,
+      existingCredit,
+      newCreditBalance,
+      receiptMonthLabel,
+    };
+  }
 
-      const batch = writeBatch(db);
+  // Ku dar batch-ka: cashier, payments, receiptCashier, receipts (hal mar)
+  function addStudentPaymentToBatch(batch, student, calc, reserved, paidDate) {
+    const { receiptNo, docId: receiptDocId } = reserved;
+    const {
+      monthlyFee,
+      entered,
+      isEditing,
+      thisMonthKey,
+      updates,
+      existingCredit,
+      newCreditBalance,
+      receiptMonthLabel,
+    } = calc;
 
-      batch.update(doc(db, "cashier", student.id), {
+    // Edit: rasiidkii hore ee bishan ka saar (lacag labanlaab ma dhacdo)
+    if (isEditing) {
+      const studentReceipts = ledger.receipts.filter((r) => r.studentId === student.studentId);
+      removeMonthFromOldReceipts(batch, studentReceipts, thisMonthKey);
+    }
+
+    batch.set(
+      doc(db, "cashier", student.id),
+      {
+        studentId: student.studentId,
+        studentName: student.fullName,
         feeType: "Paid",
         creditBalance: newCreditBalance,
+        creditUpdatedAt: paidDate,
         className: student.className,
-      });
+      },
+      { merge: true }
+    );
 
-      updates.forEach((u) => {
-        const paymentDocId = `${student.studentId}_${u.monthKey}`;
-        batch.set(doc(db, "payments", paymentDocId), {
-          studentId: student.studentId,
-          studentName: student.fullName,
-          className: student.className || "",
-          schoolName: SCHOOL_NAME,
-          monthlyFee,
-          paidAmount: u.paidAmount,
-          remaining: u.remaining,
-          status: u.status,
-          monthKey: u.monthKey,
-          monthLabel: monthLabel(u.monthKey),
-          studentPhone: student.studentPhone || "",
-          parentPhone: student.parentPhone || "",
-          createdAt: serverTimestamp(),
-        });
-      });
-
-      const receiptCashierRef = doc(collection(db, "receiptCashier"));
-      batch.set(receiptCashierRef, {
+    updates.forEach((u) => {
+      const paymentDocId = `${student.studentId}_${u.monthKey}`;
+      batch.set(doc(db, "payments", paymentDocId), {
         studentId: student.studentId,
         studentName: student.fullName,
         className: student.className || "",
         schoolName: SCHOOL_NAME,
         monthlyFee,
-        paidAmount: entered,
-        monthsCovered: updates.map((u) => u.monthKey),
-        creditBalanceAfter: newCreditBalance,
+        paidAmount: u.paidAmount,
+        remaining: u.remaining,
+        status: u.status,
+        monthKey: u.monthKey,
+        monthLabel: monthLabel(u.monthKey),
         studentPhone: student.studentPhone || "",
         parentPhone: student.parentPhone || "",
+        receiptNo,
         createdAt: serverTimestamp(),
       });
+    });
 
+    const receiptCashierRef = doc(collection(db, "receiptCashier"));
+    batch.set(receiptCashierRef, {
+      studentId: student.studentId,
+      studentName: student.fullName,
+      className: student.className || "",
+      schoolName: SCHOOL_NAME,
+      monthlyFee,
+      paidAmount: entered,
+      monthsCovered: updates.map((u) => u.monthKey),
+      creditBalanceAfter: newCreditBalance,
+      studentPhone: student.studentPhone || "",
+      parentPhone: student.parentPhone || "",
+      receiptNo,
+      createdAt: serverTimestamp(),
+    });
+
+    const receiptPayload = {
+      studentId: student.studentId,
+      studentName: student.fullName,
+      className: student.className || "",
+      schoolName: SCHOOL_NAME,
+      studentPhone: student.studentPhone || "",
+      monthLabel: receiptMonthLabel,
+      monthBreakdown: updates.map((u) => ({
+        monthKey: u.monthKey,
+        paidAmount: u.paidAmount,
+        remaining: u.remaining,
+        status: u.status,
+      })),
+      paidAmount: entered,
+      monthlyFee,
+      creditBalanceBefore: existingCredit,
+      creditBalanceAfter: newCreditBalance,
+      receiptCashierId: receiptCashierRef.id,
+    };
+
+    batch.set(
+      doc(collection(db, "receipts"), receiptDocId),
+      buildReceiptRecord(receiptNo, receiptPayload, paidDate)
+    );
+
+    return {
+      ...receiptPayload,
+      receiptNo,
+      createdAt: { seconds: Math.floor(paidDate.getTime() / 1000) },
+    };
+  }
+
+  async function savePayment(student) {
+    if (isFreeStudent(student)) return;
+
+    try {
+      const calc = computeStudentPayment(student);
+      if (!calc) {
+        alert("Ardaygan Monthly Fee sax ah lama helin.");
+        return;
+      }
+
+      setSavingId(student.id);
+
+      const [reserved] = await reserveReceiptNumbers(1);
+      const paidDate = new Date();
+
+      const batch = writeBatch(db);
+      const receiptForModal = addStudentPaymentToBatch(batch, student, calc, reserved, paidDate);
       await batch.commit();
 
       setAmounts((prev) => ({ ...prev, [student.id]: "" }));
@@ -647,64 +844,8 @@ export default function Classes() {
         return next;
       });
 
-      const receiptMonthLabel = (() => {
-        if (updates.length === 0) return monthLabel(startKey);
-        if (updates.length === 1) return monthLabel(updates[0].monthKey);
-
-        const names = updates.map((u) => {
-          const [, m] = u.monthKey.split("-");
-          const d = new Date(2000, Number(m) - 1, 1);
-          return d.toLocaleDateString("en-US", { month: "long" });
-        });
-        const year = updates[updates.length - 1].monthKey.split("-")[0];
-
-        const joined =
-          names.length === 2
-            ? `${names[0]} and ${names[1]}`
-            : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-
-        return `${joined} ${year} (${updates.length} Months)`;
-      })();
-
-      setReceiptPayment({
-        studentId: student.studentId,
-        studentName: student.fullName,
-        className: student.className || "",
-        schoolName: SCHOOL_NAME,
-        monthLabel: receiptMonthLabel,
-        paidAmount: entered,
-        creditBalanceAfter: newCreditBalance,
-        createdAt: { seconds: Math.floor(Date.now() / 1000) },
-      });
-
-      // Arday kasta oo la bixiyay — xitaa marka mid-mid loo kaydinayo (Save-ka
-      // hal arday), waa in isla si loo kaydiyaa "receipts" collection-ka,
-      // isla sida "Save All" u sameeyo — si Reports/Dashboard/Payments oo
-      // dhammi ay isku hallaan karaan "receipts" collection-ka oo keliya.
-      try {
-        const receiptNo = await getNextReceiptNumber();
-        const paidDate = new Date();
-        await saveReceiptRecord(
-          receiptNo,
-          {
-            studentId: student.studentId,
-            studentName: student.fullName,
-            className: student.className || "",
-            studentPhone: student.studentPhone || "",
-            monthLabel: receiptMonthLabel,
-            monthBreakdown: updates.map((u) => ({
-              monthKey: u.monthKey,
-              paidAmount: u.paidAmount,
-              remaining: u.remaining,
-              status: u.status,
-            })),
-            paidAmount: entered,
-          },
-          paidDate
-        );
-      } catch (err) {
-        console.log(err);
-      }
+      // Rasiidka hore ayaa la kaydiyay — modal-ku kaliya wuu muujinayaa/print
+      setReceiptPayment(receiptForModal);
     } catch (err) {
       console.log(err);
       alert(err?.message || "Khalad aan la garanayn ayaa dhacay marka lacagta la kaydinayay.");
@@ -717,7 +858,7 @@ export default function Classes() {
     const targets = currentClassStudents.filter((s) => {
       if (isFreeStudent(s)) return false;
       const { fullyPaidSet } = getStudentMonthState(s.studentId);
-      const paidThisMonth = fullyPaidSet.has(currentMonthKey()) || s.feeType === "Paid";
+      const paidThisMonth = fullyPaidSet.has(currentMonthKey());
       return !paidThisMonth || editingIds[s.id];
     });
 
@@ -729,161 +870,44 @@ export default function Classes() {
     try {
       setSavingAll(true);
 
-      const batch = writeBatch(db);
+      const prepared = targets
+        .map((student) => ({ student, calc: computeStudentPayment(student) }))
+        .filter((x) => x.calc);
+
+      if (prepared.length === 0) {
+        alert("Ma jiro arday la kaydin karo.");
+        return;
+      }
+
+      const receiptNos = await reserveReceiptNumbers(prepared.length);
+      const paidDate = new Date();
+
       const newReceipts = [];
       const reportPaidList = [];
 
-      targets.forEach((student) => {
-        const monthlyFee = Number(student.monthlyFee || 0);
-        if (monthlyFee <= 0) return;
-
-        let entered = Number(amounts[student.id] || 0);
-        if (entered <= 0) {
-          entered = monthlyFee;
-        }
-
-        const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
-
-        const workingFullyPaidSet = new Set(fullyPaidSet);
-        const workingPartialMap = { ...partialMap };
-        if (editingIds[student.id]) {
-          workingFullyPaidSet.delete(currentMonthKey());
-          delete workingPartialMap[currentMonthKey()];
-        }
-
-        const startKey = findNextUnpaidMonth(
-          workingFullyPaidSet,
-          registrationMonthKey(student)
-        );
-
-        const existingCredit = Number(student.creditBalance || 0);
-        const cashToDistribute = entered + existingCredit;
-
-        let updates = distributePayment({
-          entered: cashToDistribute,
-          monthlyFee,
-          fullyPaidSet: new Set(workingFullyPaidSet),
-          partialMap: { ...workingPartialMap },
-          startKey,
-        });
-
-        if (updates.length === 0) {
-          updates = [{
-            monthKey: startKey,
-            paidAmount: entered,
-            remaining: Math.max(monthlyFee - entered, 0),
-            status: entered >= monthlyFee ? "Paid" : "Not Paid"
-          }];
-        }
-
-        const totalApplied = updates.reduce((sum, u) => {
-          const already = workingPartialMap[u.monthKey] || 0;
-          return sum + (u.paidAmount - already);
-        }, 0);
-        const newCreditBalance = Math.max(cashToDistribute - totalApplied, 0);
-
-        batch.update(doc(db, "cashier", student.id), {
-          feeType: "Paid",
-          creditBalance: newCreditBalance,
-          className: student.className,
-        });
-
-        updates.forEach((u) => {
-          const paymentDocId = `${student.studentId}_${u.monthKey}`;
-          batch.set(doc(db, "payments", paymentDocId), {
-            studentId: student.studentId,
-            studentName: student.fullName,
-            className: student.className || "",
-            schoolName: SCHOOL_NAME,
-            monthlyFee,
-            paidAmount: u.paidAmount,
-            remaining: u.remaining,
-            status: u.status,
-            monthKey: u.monthKey,
-            monthLabel: monthLabel(u.monthKey),
-            studentPhone: student.studentPhone || "",
-            parentPhone: student.parentPhone || "",
-            createdAt: serverTimestamp(),
-          });
-
-          reportPaidList.push({
-            studentId: student.studentId,
-            studentName: student.fullName,
-            className: student.className || "",
-            paidAmount: u.paidAmount,
-            status: u.status,
+      // ~6 qoraal arday kasta -> 50 arday batch kasta (xadka 500)
+      for (let i = 0; i < prepared.length; i += 50) {
+        const batch = writeBatch(db);
+        prepared.slice(i, i + 50).forEach(({ student, calc }, j) => {
+          const receipt = addStudentPaymentToBatch(
+            batch,
+            student,
+            calc,
+            receiptNos[i + j],
+            paidDate
+          );
+          newReceipts.push(receipt);
+          calc.updates.forEach((u) => {
+            reportPaidList.push({
+              studentId: student.studentId,
+              studentName: student.fullName,
+              className: student.className || "",
+              paidAmount: u.paidAmount,
+              status: u.status,
+            });
           });
         });
-
-        const receiptMonthLabel = (() => {
-          if (updates.length === 0) return monthLabel(startKey);
-          if (updates.length === 1) return monthLabel(updates[0].monthKey);
-
-          const names = updates.map((u) => {
-            const [, m] = u.monthKey.split("-");
-            const d = new Date(2000, Number(m) - 1, 1);
-            return d.toLocaleDateString("en-US", { month: "long" });
-          });
-          const year = updates[updates.length - 1].monthKey.split("-")[0];
-
-          const joined =
-            names.length === 2
-              ? `${names[0]} and ${names[1]}`
-              : `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
-
-          return `${joined} ${year} (${updates.length} Months)`;
-        })();
-
-        newReceipts.push({
-          studentId: student.studentId,
-          studentName: student.fullName,
-          className: student.className || "",
-          schoolName: SCHOOL_NAME,
-          studentPhone: student.studentPhone || "",
-          monthLabel: receiptMonthLabel,
-          monthBreakdown: updates.map((u) => ({
-            monthKey: u.monthKey,
-            paidAmount: u.paidAmount,
-            remaining: u.remaining,
-            status: u.status,
-          })),
-          paidAmount: entered,
-          creditBalanceAfter: newCreditBalance,
-          createdAt: { seconds: Math.floor(Date.now() / 1000) },
-        });
-
-        const receiptCashierRef = doc(collection(db, "receiptCashier"));
-        batch.set(receiptCashierRef, {
-          studentId: student.studentId,
-          studentName: student.fullName,
-          className: student.className || "",
-          schoolName: SCHOOL_NAME,
-          monthlyFee,
-          paidAmount: entered,
-          monthsCovered: updates.map((u) => u.monthKey),
-          creditBalanceAfter: newCreditBalance,
-          studentPhone: student.studentPhone || "",
-          parentPhone: student.parentPhone || "",
-          createdAt: serverTimestamp(),
-        });
-      });
-
-      await batch.commit();
-
-      // Arday kasta oo la bixiyay wuxuu hadda helayaa rasiid gaar ah oo si
-      // toos ah loogu kaydiyay "receipts" collection-ka — kama go'do in la
-      // daawado ama la print-gareeyo modal-ka.
-      for (const item of newReceipts) {
-        try {
-          const no = await getNextReceiptNumber();
-          const paidDate = item.createdAt?.seconds
-            ? new Date(item.createdAt.seconds * 1000)
-            : new Date();
-          await saveReceiptRecord(no, item, paidDate);
-          item.receiptNo = no;
-        } catch (err) {
-          console.log(err);
-        }
+        await batch.commit();
       }
 
       setAmounts({});
@@ -981,7 +1005,7 @@ export default function Classes() {
 
             <button
               type="button"
-              onClick={resetClassPayments}
+              onClick={() => setResetDialog(true)}
               disabled={resettingAll || savingAll}
               style={{
                 ...styles.resetAllBtn,
@@ -1050,7 +1074,7 @@ export default function Classes() {
                     const { fullyPaidSet, partialMap, records } = getStudentMonthState(student.studentId);
                     
                     const targetMonth = findNextUnpaidMonth(fullyPaidSet, registrationMonthKey(student));
-                    const isCurrentMonthPaid = fullyPaidSet.has(currentMonthKey()) || student.feeType === "Paid";
+                    const isCurrentMonthPaid = fullyPaidSet.has(currentMonthKey());
 
                     const isEditing = !!editingIds[student.id];
                     const locked = isCurrentMonthPaid && !isEditing;
@@ -1241,6 +1265,45 @@ export default function Classes() {
             />
           )}
 
+          {resetDialog && (
+            <div style={resetStyles.overlay} onClick={() => setResetDialog(false)}>
+              <div style={resetStyles.card} onClick={(e) => e.stopPropagation()}>
+                <h3 style={resetStyles.title}>🔄 Reset / Unpaid All</h3>
+                <p style={resetStyles.text}>
+                  Lacagaha iyo rasiidyada waxay ka baxayaan Cashier-ka iyo Admin-ka, laakiin
+                  backend-ka way ku jirayaan — <strong>Recycle Bin</strong> ayaad ka soo
+                  celin kartaa.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => resetPayments("class")}
+                  style={{ ...resetStyles.option, borderColor: theme.colors.brand }}
+                >
+                  <strong>Fasalkan oo keliya — {selectedClass}</strong>
+                  <span style={resetStyles.optionSub}>
+                    Ardayda fasalkan ayaa noqonaya Unpaid. Lambarka rasiidku wuu sii socdaa.
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => resetPayments("system")}
+                  style={{ ...resetStyles.option, borderColor: theme.colors.danger || "#E53E3E" }}
+                >
+                  <strong style={{ color: theme.colors.danger || "#E53E3E" }}>
+                    Dhammaan System-ka — fasallada oo dhan
+                  </strong>
+                  <span style={resetStyles.optionSub}>
+                    Arday kasta wuxuu noqonayaa Unpaid, lambarka rasiidkuna wuxuu ka
+                    bilaabmayaa 001.
+                  </span>
+                </button>
+                <button type="button" onClick={() => setResetDialog(false)} style={resetStyles.cancel}>
+                  Ka noqo
+                </button>
+              </div>
+            </div>
+          )}
+
           {profileStudent && (
             <StudentPaymentProfileModal
               student={profileStudent}
@@ -1364,7 +1427,7 @@ function StudentPaymentProfileModal({ student, paymentState, onClose }) {
   const creditBalance = Number(student.creditBalance || 0);
 
   const thisMonthKey = currentMonthKey();
-  const paidThisMonth = fullyPaidSet.has(thisMonthKey) || student.feeType === "Paid";
+  const paidThisMonth = fullyPaidSet.has(thisMonthKey);
   const partialThisMonth = partialMap[thisMonthKey] || 0;
   const thisMonthPaid = paidThisMonth ? fee : partialThisMonth;
   const thisMonthRemaining = Math.max(fee - thisMonthPaid, 0);
@@ -2091,5 +2154,57 @@ const profileStyles = {
     color: theme.colors.inkMuted,
     borderTop: `1px solid ${theme.colors.border}`,
     paddingTop: 12,
+  },
+};
+
+
+const resetStyles = {
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2100,
+    padding: 16,
+  },
+  card: {
+    background: "#FFFFFF",
+    borderRadius: 16,
+    padding: "22px 22px 18px",
+    width: 460,
+    maxWidth: "100%",
+    boxShadow: "0 20px 50px rgba(0,0,0,0.25)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  title: { margin: 0, fontSize: 19, fontWeight: 800, color: "#0F2E26" },
+  text: { margin: 0, fontSize: 13.5, color: "#4B5563", lineHeight: 1.5 },
+  option: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 4,
+    textAlign: "left",
+    padding: "12px 14px",
+    borderRadius: 12,
+    border: "2px solid",
+    background: "#FFFFFF",
+    cursor: "pointer",
+    fontSize: 14.5,
+    color: "#0F2E26",
+  },
+  optionSub: { fontSize: 12.5, color: "#6B7280", fontWeight: 500 },
+  cancel: {
+    marginTop: 2,
+    padding: "10px 14px",
+    borderRadius: 10,
+    border: "1px solid #E5E7EB",
+    background: "#F9FAFB",
+    color: "#374151",
+    fontWeight: 700,
+    cursor: "pointer",
   },
 };

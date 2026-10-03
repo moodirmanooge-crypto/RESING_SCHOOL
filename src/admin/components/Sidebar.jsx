@@ -31,6 +31,7 @@ import {
   ClipboardCheck,
   BookOpen,
   UploadCloud,
+  Trash2,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -58,6 +59,7 @@ const menus = [
   { name: "Library", icon: BookOpen, path: "/admin/library" },
   { name: "Add Cashier", icon: Wallet, path: "/admin/add-cashier" },
   { name: "Receipts", icon: Receipt, path: "/admin/receipts" },
+  { name: "Recycle Bin", icon: Trash2, path: "/admin/recycle-bin" },
   { name: "Messages", icon: MessageCircle, path: "/admin/messages" },
   { name: "Reports", icon: BarChart3, path: "/admin/reports" },
   { name: "Settings", icon: Settings, path: "/admin/settings" },

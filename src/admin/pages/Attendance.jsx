@@ -34,9 +34,26 @@ function formatClassName(className) {
 }
 
 function classRank(className) {
-  const clean = String(className || "").replace(/^fasalka\s*/i, "").trim().toUpperCase();
+  const raw = String(className || "").replace(/^fasalka\s*/i, "").trim().toUpperCase();
+  const partTime = /PART\s*TIME/.test(raw);
+  const clean = raw.replace(/PART\s*TIME/, "").trim();
   const idx = CLASS_ORDER.indexOf(clean);
-  return idx === -1 ? 999 : idx;
+  // Part Time fasallada waxay ka dambeeyaan Full Time-ka
+  return (idx === -1 ? 999 : idx) + (partTime ? 100 : 0);
+}
+
+// Fasalka saxda ah ee xaadirin kasta: xaadirinta Part Time (attendancePartTime)
+// waxay gashaa "5 Part Time", ma aha fasalka Full Time ee "5".
+function recordClassKey(r) {
+  const base = String(r.className || "-")
+    .replace(/^fasalka\s*/i, "")
+    .replace(/part\s*time/i, "")
+    .trim();
+  const partTime =
+    r.sourceCollection === "attendancePartTime" ||
+    r.studentType === "Part Time" ||
+    /part\s*time/i.test(String(r.className || ""));
+  return partTime ? `${base} Part Time` : base;
 }
 
 function ResponsiveStyles() {
@@ -416,7 +433,7 @@ export default function Attendance() {
 
     return records.filter((r) => {
       if (selectedClassFilter !== "ALL") {
-        const cleanClass = String(r.className).replace(/^fasalka\s*/i, "").trim().toUpperCase();
+        const cleanClass = recordClassKey(r).toUpperCase();
         if (cleanClass !== selectedClassFilter.toUpperCase()) {
           return false;
         }
@@ -446,7 +463,7 @@ export default function Attendance() {
     const map = {};
 
     filteredRecords.forEach((r) => {
-      const rawClass = String(r.className || "-").replace(/^fasalka\s*/i, "").trim();
+      const rawClass = recordClassKey(r);
       const teacherId = r.teacherId || "Unknown";
 
       if (!map[rawClass]) map[rawClass] = {};
@@ -808,6 +825,11 @@ export default function Attendance() {
                 {CLASS_ORDER.map((c) => (
                   <option key={c} value={c}>
                     {formatClassName(c)}
+                  </option>
+                ))}
+                {CLASS_ORDER.map((c) => (
+                  <option key={`${c}-pt`} value={`${c} Part Time`}>
+                    {formatClassName(`${c} Part Time`)}
                   </option>
                 ))}
               </select>

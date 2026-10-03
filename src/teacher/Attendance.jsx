@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { db } from "../firebase/firebase";
 import {
   collection,
@@ -68,6 +68,15 @@ function isPartTimeDay(dayName) {
   return dayName === "Thursday" || dayName === "Friday";
 }
 
+// Taariikhda maanta — waqtiga MAXALIGA ah (Muqdisho), ma aha UTC.
+// toISOString() (UTC) wuxuu saacadaha 00:00–03:00 siin jiray maalintii hore.
+function localDateStr(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getDayName(dateStr) {
   const dateObj = new Date(`${dateStr}T00:00:00`);
   return WEEKDAYS[dateObj.getDay()];
@@ -80,7 +89,9 @@ export default function Attendance() {
   const [selectedClass, setSelectedClass] = useState("");
   const [students, setStudents] = useState([]);
   const [attendance, setAttendance] = useState({});
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  // Xaadirinta waxaa loo qoraa MAANTA oo keliya (maalinta la qorayo) —
+  // taariikh kale lama dooran karo si aysan xaadirintu u gelin maalin khaldan.
+  const [date, setDate] = useState(localDateStr());
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -99,12 +110,25 @@ export default function Attendance() {
   const [isDayAllowed, setIsDayAllowed] = useState(true);
   const [dayErrorMsg, setDayErrorMsg] = useState("");
 
+  // Codsiga ugu dambeeya ee liiska ardayda — jawaab hore (fasal kale) lama aqbalo
+  const loadReqRef = useRef(0);
+  const loadedForRef = useRef({ className: "", date: "" });
+
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
 
   useEffect(() => {
     loadClasses();
     checkHoliday();
+  }, []);
+
+  // Haddii boggu furnaado oo maalintu is beddesho (saqda dhexe), u wareeji maanta
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const today = localDateStr();
+      setDate((prev) => (prev !== today ? today : prev));
+    }, 60000);
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -249,8 +273,13 @@ export default function Attendance() {
   };
 
   const loadStudents = async (className, dateStr, subject) => {
+    const reqId = ++loadReqRef.current;
     try {
       setLoading(true);
+      // Nadiifi liiskii hore si aan ardayda fasal kale loogu kaydin fasalkan
+      setStudents([]);
+      setAttendance({});
+      loadedForRef.current = { className: "", date: "" };
 
       const dayName = getDayName(dateStr);
       const partTime = isPartTimeDay(dayName);
@@ -263,7 +292,9 @@ export default function Attendance() {
       const list = snap.docs
         .map((d) => ({ id: d.id, ...d.data() }))
         .filter((s) => !s.pendingDeletion);
+      if (reqId !== loadReqRef.current) return; // fasal/taariikh kale ayaa la doortay
       setStudents(list);
+      loadedForRef.current = { className, date: dateStr };
 
       const constraints = [
         where("className", "==", className),
@@ -277,6 +308,7 @@ export default function Attendance() {
       const existingSnap = await getDocs(
         query(collection(db, attendanceCollectionName), ...constraints)
       );
+      if (reqId !== loadReqRef.current) return;
 
       const sessionNumbers = new Set();
       existingSnap.docs.forEach((d) => {
@@ -296,7 +328,7 @@ export default function Attendance() {
     } catch (err) {
       console.log(err);
     } finally {
-      setLoading(false);
+      if (reqId === loadReqRef.current) setLoading(false);
     }
   };
 
@@ -396,6 +428,31 @@ export default function Attendance() {
       return;
     }
 
+    // Hubi in liiska ardayda uu yahay kan fasalka iyo maanta la doortay
+    const today = localDateStr();
+    if (date !== today) {
+      setDate(today);
+      alert("Xaadirinta waxaa loo qoraa maanta oo keliya. Fadlan mar kale kaydi.");
+      return;
+    }
+    if (
+      loadedForRef.current.className !== selectedClass ||
+      loadedForRef.current.date !== date ||
+      loading
+    ) {
+      alert("Liiska ardayda weli wuu soo dhacayaa. Fadlan sug ilbiriqsi kadibna kaydi.");
+      return;
+    }
+    const classStudents = students.filter(
+      (st) =>
+        String(st.className || "").replace(/part\s*time/i, "").trim() ===
+        String(selectedClass).replace(/part\s*time/i, "").trim()
+    );
+    if (classStudents.length === 0) {
+      alert(`Fasalka ${selectedClass} arday kuma jiraan maanta.`);
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -405,7 +462,7 @@ export default function Attendance() {
       const partTime = isPartTimeDay(dayName);
       const attendanceCollectionName = partTime ? "attendancePartTime" : "attendance";
 
-      for (const student of students) {
+      for (const student of classStudents) {
         const docId = selectedSubject
           ? `${selectedClass}_${selectedSubject}_${student.id}_${date}_s${sessionNumberToSave}`
           : `${selectedClass}_${student.id}_${date}_s${sessionNumberToSave}`;
@@ -418,6 +475,7 @@ export default function Attendance() {
           studentType: partTime ? "Part Time" : "Full Time",
           teacherId,
           date,
+          dayName,
           sessionNumber: sessionNumberToSave,
           sessionTime: timeLabel,
           sessionTimestamp: serverTimestamp(),
@@ -623,9 +681,13 @@ export default function Attendance() {
                 <label style={label}>Date</label>
                 <input
                   type="date"
-                  style={input}
+                  style={{ ...input, cursor: "not-allowed" }}
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  min={date}
+                  max={date}
+                  readOnly
+                  title="Xaadirinta waxaa loo qoraa maanta oo keliya"
+                  onChange={() => setDate(localDateStr())}
                   disabled={!!activeHoliday}
                 />
               </div>

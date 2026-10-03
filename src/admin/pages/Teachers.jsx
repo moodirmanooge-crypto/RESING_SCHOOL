@@ -12,6 +12,7 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import TimePicker12 from "../components/TimePicker12";
 import {
   Plus,
   Search,
@@ -1009,38 +1010,22 @@ export default function Teachers() {
 
                                 <div>
                                   <label style={miniLabel}>Waqtiga Bilowga</label>
-                                  <input
-                                    type="time"
-                                    style={timeInput}
-                                    value={session.startTime}
-                                    onChange={(e) =>
-                                      updateSessionTime(
-                                        index,
-                                        day,
-                                        sIdx,
-                                        "startTime",
-                                        e.target.value
-                                      )
-                                    }
-                                  />
+                                  <TimePicker12
+                                value={session.startTime}
+                                onChange={(val) =>
+                                  updateSessionTime(index, day, sIdx, "startTime", val)
+                                }
+                              />
                                 </div>
 
                                 <div>
                                   <label style={miniLabel}>Waqtiga Dhamaadka</label>
-                                  <input
-                                    type="time"
-                                    style={timeInput}
-                                    value={session.endTime}
-                                    onChange={(e) =>
-                                      updateSessionTime(
-                                        index,
-                                        day,
-                                        sIdx,
-                                        "endTime",
-                                        e.target.value
-                                      )
-                                    }
-                                  />
+                                  <TimePicker12
+                                value={session.endTime}
+                                onChange={(val) =>
+                                  updateSessionTime(index, day, sIdx, "endTime", val)
+                                }
+                              />
                                 </div>
 
                                 {sessions.length > 1 && (

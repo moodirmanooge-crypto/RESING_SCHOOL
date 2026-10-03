@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Send, Clock, IdCard } from "lucide-react";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
+import { loadFeeLedger, localMonthKey } from "../../utils/feeLedger.js";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import DashboardCard from "../components/DashboardCard";
@@ -223,23 +224,33 @@ export default function Dashboard() {
         classes: null, // classes are derived from student.className, not their own dated docs
       });
 
-      // Fee stats — pulled from the real "payments" collection (source of truth
-      // for money actually collected) and the "monthlyFee" field on each student
-      // (source of truth for what's expected). Student docs do NOT have
-      // totalFee/paidFee fields, so those can't be used.
-      const paymentsSnap = await getDocs(collection(db, "payments"));
-      const paymentsList = paymentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const collected = paymentsList.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+      // Fee stats — isla xisaabinta Cashier-ka (utils/feeLedger.js):
+      //  • Total   = Monthly Fee-ga ardayda lacag bixiya (Free-ga laga reebay,
+      //              Full Time + Part Time, aan pendingDeletion ahayn)
+      //  • Collected = lacagta dhabta ah ee bishan la bixiyay (payments oo
+      //              rasiid jira daboolayo — lacag la tirtiray lama tiriyo)
+      //  • Pending = inta ka hartay bishan
+      const feeLedger = await loadFeeLedger();
+      const monthKey = localMonthKey();
 
-      const expectedTotal = studentsList.reduce(
+      const expectedTotal = feeLedger.payableStudents.reduce(
         (sum, s) => sum + (Number(s.monthlyFee) || 0),
         0
       );
 
+      let collected = 0;
+      let pending = 0;
+      feeLedger.payableStudents.forEach((s) => {
+        const fee = Number(s.monthlyFee) || 0;
+        const paid = Number(feeLedger.monthPaid[s.studentId]?.[monthKey]?.paidAmount) || 0;
+        collected += paid;
+        pending += Math.max(fee - paid, 0);
+      });
+
       setFeeStats({
         total: expectedTotal,
         collected,
-        pending: Math.max(expectedTotal - collected, 0),
+        pending,
       });
 
       // Full teachers list (for the Teachers table on the dashboard)

@@ -1,7 +1,8 @@
 //src/cashier/Receipts.jsx
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
-import { db } from "../firebase/firebase";
+import { createPortal } from "react-dom";
+import { loadFeeLedger, deleteReceiptsCascade } from "../utils/feeLedger.js";
+import { receiptA5Css } from "./receiptA5Styles.js";
 import { Search, Printer, X, Receipt as ReceiptIcon, Trash2 } from "lucide-react";
 
 import schoolLogo from "../assets/logo.png";
@@ -105,8 +106,10 @@ export default function Receipts() {
   async function fetchReceipts() {
     try {
       setLoading(true);
-      const snap = await getDocs(collection(db, "receipts"));
-      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Rasiidyada ardayda jira ee lacag bixiya oo keliya (labanlaabka waa
+      // laga saaray) — isla xogta Dashboard/Reports/Admin
+      const ledger = await loadFeeLedger();
+      const list = [...ledger.receipts];
       list.sort((a, b) => {
         const at = a.createdAt?.seconds || 0;
         const bt = b.createdAt?.seconds || 0;
@@ -155,8 +158,10 @@ export default function Receipts() {
       const receipt = confirmTarget.receipt;
       try {
         setDeletingId(receipt.id);
-        await deleteDoc(doc(db, "receipts", receipt.id));
+        // Backend-ka oo dhan: receipts + payments + receiptCashier + credit
+        await deleteReceiptsCascade([receipt]);
         setReceipts((prev) => prev.filter((r) => r.id !== receipt.id));
+        fetchReceipts();
         if (selected?.id === receipt.id) setSelected(null);
         setConfirmTarget(null);
       } catch (err) {
@@ -169,8 +174,9 @@ export default function Receipts() {
       try {
         setDeletingAll(true);
         const idsToDelete = filtered.map((r) => r.id);
-        await Promise.all(idsToDelete.map((id) => deleteDoc(doc(db, "receipts", id))));
+        await deleteReceiptsCascade(filtered);
         setReceipts((prev) => prev.filter((r) => !idsToDelete.includes(r.id)));
+        fetchReceipts();
         if (selected && idsToDelete.includes(selected.id)) setSelected(null);
         setConfirmTarget(null);
       } catch (err) {
@@ -516,11 +522,11 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
     : new Date();
 
   const totalPaidAmount = Number(receipt.paidAmount) || 0;
-  const sosAmount = Math.round(totalPaidAmount * USD_TO_SOS_RATE);
   const amountWords = amountToWords(totalPaidAmount);
 
-  return (
-    <>
+  // Portal -> <body>, si daabacaaddu u noqoto hal bog A5 portrait oo nadiif ah
+  return createPortal(
+    <div className="rc-print-portal">
       <div className="rv-overlay">
         <div className="rv-actions no-print">
           <button onClick={onClose} className="rv-close-btn">
@@ -593,8 +599,7 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
 
                 <div className="rc-amount-block">
                   <div className="rc-amount-top">
-                    <span className="rc-label">Amount of So Sh.</span>
-                    <span className="rc-amount-box-sos">{sosAmount ? sosAmount.toLocaleString() : ""}</span>
+                    <span className="rc-label">Amount:</span>
                     <span className="rc-usd-group">
                       <span className="rc-usd-tag">US$</span>
                       <span className="rc-amount-box-usd">{totalPaidAmount}</span>
@@ -655,17 +660,6 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
       </div>
 
       <style>{`
-        .rv-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.55);
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          z-index: 2000;
-          gap: 14px;
-        }
         .rv-actions { display: flex; gap: 10px; }
         .rv-close-btn, .rv-print-btn, .rv-delete-btn {
           border: none;
@@ -679,147 +673,9 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
         .rv-delete-btn { background: #DC2626; color: #ffffff; }
         .rv-print-btn { background: #16a34a; color: #ffffff; }
 
-        .rv-paper {
-          width: 650px;
-          max-width: 95vw;
-          background: #ffffff;
-          padding: 0;
-          font-family: 'Poppins', 'Segoe UI', Arial, sans-serif;
-          color: #0b1f4d;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.25);
-          box-sizing: border-box;
-        }
-
-        .rc-frame { border: 2px solid #0b1f4d; padding: 3px; box-sizing: border-box; }
-        .rc-outer { border: 2px solid #0b1f4d; padding: 10px 14px; box-sizing: border-box; }
-
-        .rc-top {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-        }
-
-        .rc-school-left { text-align: left; flex: 1; }
-        .rc-school-right { text-align: right; flex: 1; }
-        .rc-school-line1, .rc-arabic-line1 { font-weight: 800; font-size: 12px; color: #0b1f4d; }
-        .rc-school-line2, .rc-arabic-line2 { font-weight: 800; font-size: 12px; color: #0b1f4d; }
-        .rc-school-location, .rc-arabic-location { font-size: 9.5px; color: #475569; margin-top: 1px; }
-
-        .rc-logo { width: 55px; height: 55px; object-fit: contain; flex-shrink: 0; }
-        .rc-header-details { text-align: center; font-size: 9.5px; font-weight: 700; color: #0b1f4d; margin-top: 4px; }
-        .rc-divider { border-top: 1.5px solid #0b1f4d; margin: 6px 0; }
-
-        .rc-body { display: flex; flex-direction: column; gap: 6px; }
-        .rc-voucher-row { display: flex; align-items: center; justify-content: space-between; }
-        .rc-voucher-title { font-weight: 900; font-size: 15px; letter-spacing: 0.5px; color: #0b1f4d; text-align: center; flex: 1; }
-        .rc-voucher-sub { font-size: 9px; font-style: italic; font-weight: 500; color: #475569; }
-
-        .rc-no { font-size: 12px; font-weight: 700; color: #0b1f4d; white-space: nowrap; }
-        .rc-no-value { color: #dc2626; font-weight: 900; font-size: 15px; }
-
-        .rc-field { display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
-        .rc-field em { font-size: 9px; font-style: italic; color: #475569; font-weight: 400; }
-        .rc-label { font-weight: 700; white-space: nowrap; color: #0b1f4d; }
-        .rc-value { flex: 1; border-bottom: 1px solid #64748b; padding-bottom: 1px; font-weight: 600; min-height: 14px; }
-        .rc-id-val { max-width: 120px; font-weight: 800; }
-        .rc-value-strong { font-weight: 800; font-size: 12px; }
-
-        .rc-field-block, .rc-amount-block { padding: 1px 0; }
-        .rc-field-top { display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
-        .rc-field-caption { font-style: italic; font-size: 8.5px; color: #475569; margin-top: 1px; }
-
-        .rc-amount-top { display: flex; align-items: stretch; gap: 6px; }
-        .rc-amount-top .rc-label { align-self: center; }
-        .rc-amount-box-sos { flex: 1; border: 1.5px solid #0b1f4d; border-radius: 4px; padding: 3px 6px; font-weight: 800; font-size: 11.5px; text-align: right; display: flex; align-items: center; justify-content: flex-end; }
-        .rc-usd-group { display: flex; align-items: stretch; border: 1.5px solid #0b1f4d; border-radius: 4px; overflow: hidden; flex-shrink: 0; }
-        .rc-usd-tag { background: #0b1f4d; color: #fff; font-weight: 800; font-size: 10.5px; padding: 3px 6px; display: flex; align-items: center; }
-        .rc-amount-box-usd { padding: 3px 8px; font-weight: 800; font-size: 11.5px; min-width: 35px; text-align: right; display: flex; align-items: center; justify-content: flex-end; }
-
-        .rc-being-row { display: flex; gap: 10px; }
-        .rc-being-of { flex: 1; display: flex; align-items: baseline; gap: 6px; font-size: 11px; }
-        .rc-side-fields { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
-        .rc-field-inline { display: flex; align-items: baseline; gap: 6px; font-size: 10.5px; }
-
-        .rc-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
-        .rc-payment-method { display: flex; align-items: center; gap: 5px; }
-        .rc-method-tag { background: #0b1f4d; color: #fff; font-size: 9px; font-weight: 800; padding: 3px 6px; border-radius: 4px; white-space: nowrap; }
-        .rc-evc-label { font-weight: 700; font-size: 10.5px; color: #0b1f4d; }
-        .rc-evc-box { width: 16px; height: 16px; border: 1.5px solid #0b1f4d; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 11px; color: #16a34a; }
-
-        .rc-stamp { width: 45px; height: 45px; object-fit: contain; opacity: 0.85; flex-shrink: 0; }
-        .rc-signature { text-align: center; min-width: 120px; }
-        .rc-sig-title { font-size: 8.5px; font-weight: 800; color: #0b1f4d; letter-spacing: 0.3px; }
-        .rc-sig-img { height: 24px; object-fit: contain; margin-top: 1px; }
-        .rc-sig-line { border-bottom: 1px solid #64748b; height: 2px; }
-
-        .rc-footer-note { display: flex; align-items: center; gap: 6px; background: #0b1f4d; color: #fff; font-size: 9.5px; font-style: italic; font-weight: 700; padding: 4px 10px; margin: 8px -14px -10px; }
-        .rc-footer-icon { width: 12px; height: 12px; border-radius: 50%; background: #fff; color: #0b1f4d; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 8.5px; }
-
-        /* PRINT CONFIGURATION FOR EXACT A5 LANDSCAPE FIT */
-        @media print {
-          @page {
-            size: A5 landscape !important;
-            margin: 0 !important;
-          }
-
-          html, body {
-            width: 100% !important;
-            height: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            background: #ffffff !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-          }
-
-          body * {
-            visibility: hidden;
-          }
-
-          .rv-overlay, .rv-overlay * {
-            visibility: visible;
-          }
-
-          .rv-overlay {
-            position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            background: #ffffff !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
-            padding: 0 !important;
-            margin: 0 !important;
-          }
-
-          .rv-paper {
-            width: 210mm !important;
-            height: 148mm !important;
-            max-width: 100% !important;
-            max-height: 100% !important;
-            box-shadow: none !important;
-            padding: 8mm !important;
-            margin: 0 auto !important;
-            box-sizing: border-box !important;
-            page-break-after: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          .rc-frame {
-            width: 100% !important;
-            height: 100% !important;
-            box-sizing: border-box !important;
-          }
-
-          .no-print {
-            display: none !important;
-          }
-        }
+        ${receiptA5Css({ overlay: "rv-overlay", paper: "rv-paper" })}
       `}</style>
-    </>
+    </div>,
+    document.body
   );
 }

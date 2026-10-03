@@ -1,11 +1,16 @@
 // src/cashier/Payments.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-
-import { db } from "../firebase/firebase";
 import { theme } from "./theme.js";
+import {
+  loadFeeLedger,
+  localMonthKey,
+  monthKeyAdd as ledgerMonthKeyAdd,
+  toDateValue,
+  ledgerStartMonthKey,
+} from "../utils/feeLedger.js";
 
-const currentMonthKey = () => new Date().toISOString().slice(0, 7);
+// Waqtiga maxaliga ah (Soomaaliya), ma aha UTC
+const currentMonthKey = () => localMonthKey();
 
 const monthLabel = (key) => {
   if (!key) return "—";
@@ -21,17 +26,15 @@ function formatPaidDate(createdAt) {
 }
 
 function monthKeyAdd(key, n) {
-  const [y, m] = key.split("-").map(Number);
-  const d = new Date(y, m - 1 + n, 1);
-  return d.toISOString().slice(0, 7);
+  return ledgerMonthKeyAdd(key, n);
 }
 
 function registrationMonthKey(student) {
-  const ts = student.createdAt;
-  if (ts?.seconds) {
-    return new Date(ts.seconds * 1000).toISOString().slice(0, 7);
-  }
-  return currentMonthKey();
+  // Bilow cusub: bisha nidaamku dib u bilowday ama bisha diiwaangelinta
+  const startMonth = ledgerStartMonthKey();
+  const d = toDateValue(student.createdAt);
+  const reg = d ? localMonthKey(d) : currentMonthKey();
+  return reg > startMonth ? reg : startMonth;
 }
 
 function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
@@ -41,94 +44,6 @@ function findNextUnpaidMonth(fullyPaidSet, startKey, safetyCap = 120) {
     key = monthKeyAdd(key, 1);
   }
   return key;
-}
-
-// Rasiidyada hore (ka hor saxitaanka) ma sitaan "monthBreakdown" — waxay
-// kaliya haystaan hal "monthLabel" oo qoraal ah sida "September 2026".
-// Tan waxay u rogaysaa "2026-09" haddii ay tahay hal-bil oo qoraalkeedu
-// cad yahay; haddii kale (rasiid dhowr bilood ku daboolaya) waa la iska
-// dhaafaa xisaabinta bil-bil ah.
-//
-// FIIRO GAAR AH: halkan si ula kac ah looga fogaaday "new Date(...)" +
-// ".toISOString()" — habkaasi wuxuu keenaa khalad saacadda/goobta
-// (timezone) ah: Soomaaliya (UTC+3) wuxuu "September 2026" u rogi lahaa
-// "2026-08" (bishii ka horeysay!). Halkan waxaa lagu beddelayaa magaca
-// bisha lambar isla markiiba, iyada oo aan la isticmaalin Date/timezone.
-const MONTH_NAMES = [
-  "january", "february", "march", "april", "may", "june",
-  "july", "august", "september", "october", "november", "december",
-];
-
-function parseMonthLabelToKey(label) {
-  if (!label) return null;
-  const match = /^([A-Za-z]+)\s+(\d{4})$/.exec(String(label).trim());
-  if (!match) return null;
-  const monthIndex = MONTH_NAMES.indexOf(match[1].toLowerCase());
-  if (monthIndex === -1) return null;
-  return `${match[2]}-${String(monthIndex + 1).padStart(2, "0")}`;
-}
-
-// Dhammaan xogta "la bixiyay / lama bixin" waxay ka imanayaan collection-ka
-// "receipts" oo KELIYA. Waxay taageeraysaa labada nooc ee rasiid: kuwa
-// cusub ee leh "monthBreakdown" (wadarta ugu dambeysa ee bil kasta —
-// rasiidka ugu dambeeya ayaa la isticmaalaa), iyo kuwa hore ee leh kaliya
-// "monthLabel" + "paidAmount" (dhammaantood waa la isku daraa). Halkan
-// waxaa laga soo saarayaa kaliya WADARTA la bixiyay bil kasta —
-// Paid/Partial/Not Paid waxaa go'aaminaya bogga isticmaalaya (marka la
-// barbardhigo monthlyFee-ga ardayga), ma aha xogta rasiidka qudhiisa.
-function buildMonthPaidFromReceipts(receipts) {
-  const byStudent = {};
-  const legacyBySidMonth = {};
-
-  receipts.forEach((r) => {
-    const sid = r.studentId;
-    if (!sid) return;
-    const breakdown = Array.isArray(r.monthBreakdown) ? r.monthBreakdown : [];
-
-    if (breakdown.length > 0) {
-      const ts = r.createdAt?.seconds || 0;
-      if (!byStudent[sid]) byStudent[sid] = {};
-      breakdown.forEach((m) => {
-        const existing = byStudent[sid][m.monthKey];
-        if (!existing || ts >= existing._ts) {
-          byStudent[sid][m.monthKey] = {
-            paidAmount: Number(m.paidAmount) || 0,
-            createdAt: r.createdAt || null,
-            _ts: ts,
-          };
-        }
-      });
-    } else {
-      const key = parseMonthLabelToKey(r.monthLabel);
-      if (!key) return;
-      if (!legacyBySidMonth[sid]) legacyBySidMonth[sid] = {};
-      legacyBySidMonth[sid][key] =
-        (legacyBySidMonth[sid][key] || 0) + (Number(r.paidAmount) || 0);
-      if (!byStudent[sid]) byStudent[sid] = {};
-      const ts = r.createdAt?.seconds || 0;
-      const existing = byStudent[sid][key];
-      if (!existing || ts >= existing._ts) {
-        byStudent[sid][key] = {
-          ...(byStudent[sid][key] || {}),
-          createdAt: r.createdAt || existing?.createdAt || null,
-          _ts: ts,
-        };
-      }
-    }
-  });
-
-  Object.entries(legacyBySidMonth).forEach(([sid, months]) => {
-    if (!byStudent[sid]) byStudent[sid] = {};
-    Object.entries(months).forEach(([key, legacyAmt]) => {
-      const existing = byStudent[sid][key] || {};
-      byStudent[sid][key] = {
-        ...existing,
-        paidAmount: (existing.paidAmount || 0) + legacyAmt,
-      };
-    });
-  });
-
-  return byStudent;
 }
 
 export default function Payments() {
@@ -145,29 +60,11 @@ export default function Payments() {
     try {
       setLoading(true);
 
-      const studentsSnap = await getDocs(collection(db, "students"));
-      const studentData = studentsSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter(
-          (s) =>
-            !s.pendingDeletion &&
-            s.studentId &&
-            String(s.studentId).trim() !== "" &&
-            s.fullName &&
-            String(s.fullName).trim() !== ""
-        );
-      setStudents(studentData);
-
-      // Liiska ID-yada ardayda jira ee la ogolyahay (aan pendingDeletion ahayn)
-      const validStudentIds = new Set(studentData.map((s) => s.studentId));
-
-      const receiptsSnap = await getDocs(collection(db, "receipts"));
-      const receiptData = receiptsSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        // Marnaba soo aqrin rasiidka ardayda aan jirin ama la tirtiray
-        .filter((r) => r.studentId && validStudentIds.has(r.studentId));
-
-      setMonthStatusByStudent(buildMonthPaidFromReceipts(receiptData));
+      // Ardayda lacag bixiya (Full Time + Part Time, Free-ga laga reebay) iyo
+      // lacagta bil kasta — isla xisaabinta Classes/Dashboard/Admin
+      const ledger = await loadFeeLedger();
+      setStudents(ledger.payableStudents);
+      setMonthStatusByStudent(ledger.monthPaid);
     } catch (err) {
       console.log(err);
     } finally {

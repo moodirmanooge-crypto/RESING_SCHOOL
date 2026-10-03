@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import TimePicker12 from "../components/TimePicker12";
 
 const SCHOOL_INFO = {
   name1: "RISING STAR PRIMARY",
@@ -1009,7 +1010,7 @@ export default function Timetable() {
                     key={s.id || idx}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "35px 1fr 1fr 2fr 2fr 40px",
+                      gridTemplateColumns: "35px minmax(200px, 1fr) minmax(200px, 1fr) 2fr 2fr 40px",
                       gap: 12,
                       marginBottom: 12,
                       alignItems: "center",
@@ -1017,19 +1018,15 @@ export default function Timetable() {
                   >
                     <div style={{ fontWeight: "bold", color: "#8b87ad" }}>#{idx + 1}</div>
                     <div>
-                      <input
-                        type="time"
+                      <TimePicker12
                         value={s.startTime || ""}
-                        onChange={(e) => updateSession(idx, "startTime", e.target.value)}
-                        style={{ width: "100%", background: "#0b0a1c", color: "#fff", border: "1px solid rgba(139,108,245,0.3)", padding: 8, borderRadius: 6 }}
+                        onChange={(val) => updateSession(idx, "startTime", val)}
                       />
                     </div>
                     <div>
-                      <input
-                        type="time"
+                      <TimePicker12
                         value={s.endTime || ""}
-                        onChange={(e) => updateSession(idx, "endTime", e.target.value)}
-                        style={{ width: "100%", background: "#0b0a1c", color: "#fff", border: "1px solid rgba(139,108,245,0.3)", padding: 8, borderRadius: 6 }}
+                        onChange={(val) => updateSession(idx, "endTime", val)}
                       />
                     </div>
                     <div>

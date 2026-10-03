@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: "/cashier/exam-payments", label: "Exam Payments", icon: "📝" },
   { to: "/cashier/receipts", label: "Receipts", icon: "🧾" },
   { to: "/cashier/reports", label: "Reports", icon: "📈" },
+  { to: "/cashier/recycle-bin", label: "Recycle Bin", icon: "🗑️" },
   { to: "/cashier/profile", label: "Profile", icon: "👤" },
 ];
 
