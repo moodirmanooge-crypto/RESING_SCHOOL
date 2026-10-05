@@ -39,7 +39,10 @@ import logo from "../assets/logo.png";
 const menus = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
   { name: "Admissions", icon: ClipboardCheck, path: "/admin/admissions" },
-  { name: "Students", icon: GraduationCap, path: "/admin/students" },
+  // Diiwaan-galin keliya (Add Student) — halkii hore ee "Students" ku jirtay
+  { name: "Add Student", icon: UserPlus, path: "/admin/add-student" },
+  // Liiska ardayda oo gooni u ah (Student Directory)
+  { name: "Student List", icon: GraduationCap, path: "/admin/students" },
   { name: "Teachers", icon: Users, path: "/admin/teachers" },
   { name: "Parents", icon: Users, path: "/admin/parents" },
   { name: "Classes", icon: School, path: "/admin/classes" },
@@ -97,7 +100,17 @@ export default function Sidebar() {
   // — everything else is left out of the list entirely, not just
   // disabled, per how this sidebar was scoped.
   const visibleMenus = isSubAdmin
-    ? menus.filter((m) => permissions.includes(m.path))
+    ? menus.filter((m) => {
+        // Sub-admin hore u haystay "Students" waxaa is-dhex-galaya "Add Student"
+        // si aanay u luminin awoodda diiwaan-galinta.
+        if (m.path === "/admin/add-student") {
+          return (
+            permissions.includes("/admin/add-student") ||
+            permissions.includes("/admin/students")
+          );
+        }
+        return permissions.includes(m.path);
+      })
     : menus;
 
   // Live count of pending admissions — shown as a notification badge

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import Sidebar from "../components/Sidebar";
+import Topbar from "../components/Topbar";
 import { db, storage } from "../../firebase/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
@@ -275,7 +277,16 @@ export default function AddStudent() {
   };
 
   return (
-    <div style={{ background: "#0b0a1c", minHeight: "100vh", padding: "30px" }}>
+    // Bogga diiwaan-galinta hadda wuxuu leeyahay Sidebar iyo Topbar (diiwaan-gelin keliya)
+    <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
+      <Sidebar />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ padding: "20px 24px 0" }}>
+          <Topbar title="Add Student" />
+        </div>
+
+        <div style={{ padding: "30px" }}>
       <div
         style={{
           background: "linear-gradient(160deg,#151233,#181341)",
@@ -493,6 +504,9 @@ export default function AddStudent() {
             </>
           )}
         </button>
+      </div>
+
+        </div>
       </div>
 
       <style>{`

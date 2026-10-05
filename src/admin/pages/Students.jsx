@@ -23,6 +23,7 @@ import {
   Save,
   Loader2,
   User,
+  Users,
   School,
   Wallet,
   Phone,
@@ -36,10 +37,16 @@ import {
   FileDown,
   Filter,
   UserCheck,
+  Clock,
+  LayoutGrid,
+  List as ListIcon,
 } from "lucide-react";
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 
+// ----------------------------------------------------
+// Hawlaha yaryar (helpers) — isla sidii hore
+// ----------------------------------------------------
 function getStudentPhotoUrl(student) {
   const raw = student?.studentPhoto || student?.photoUrl || student?.photo || "";
   return typeof raw === "string" ? raw.trim() : "";
@@ -70,16 +77,80 @@ function loadImageAsDataUrl(url) {
   });
 }
 
+// Midabka kore ee kaarka (banner) — Free = jaalle, Part Time = buluug, inta kale = cawlan
+function getBannerGradient(student) {
+  if (student.feeType === "Free") return "linear-gradient(135deg,#f59e0b,#d97706)";
+  if (student.studentType === "Part Time") return "linear-gradient(135deg,#0ea5e9,#0369a1)";
+  return "linear-gradient(135deg,#94a3b8,#64748b)";
+}
+
+// ----------------------------------------------------
+// Avatar: sawir ama xarfaha hore haddii sawirku jirin
+// ----------------------------------------------------
+function Avatar({ student, size = 56 }) {
+  const [failed, setFailed] = useState(false);
+  const photoUrl = getStudentPhotoUrl(student);
+  const showPhoto = photoUrl && !failed;
+
+  return showPhoto ? (
+    <img
+      src={photoUrl}
+      alt={student.fullName || "Student"}
+      onError={() => setFailed(true)}
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: 20,
+        objectFit: "cover",
+        objectPosition: "center top", // wejiga ayaa la muujinayaa
+        display: "block",
+        background: "#fff",
+        border: "3px solid #fff",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+      }}
+    />
+  ) : (
+    <div
+      style={{
+        width: size,
+        height: size,
+        minWidth: size,
+        borderRadius: 16,
+        background: "#fff",
+        color: "#15803d",
+        border: "3px solid #fff",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontWeight: 800,
+        fontSize: size * 0.34,
+      }}
+    >
+      {(student.fullName || "?").trim().slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
 export default function Students() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  
+
   // Doorashooyinka Class-ka iyo Type-ka
   const [selectedClass, setSelectedClass] = useState("ALL");
   const [selectedType, setSelectedType] = useState("ALL");
-  // Filter-ka Ardayda Free-ga ah iyo kuwa Lacagta Bixiya (ALL | Free | Paid)
+  // Filter-ka Free / Paid (ALL | Free | Paid)
   const [feeFilter, setFeeFilter] = useState("ALL");
+  // Filter-ka Shift-ka (waxaa laga soo qaadaa xogta ardayda)
+  const [selectedShift, setSelectedShift] = useState("ALL");
+  // Kaliya ardayda agoonta ah
+  const [orphanOnly, setOrphanOnly] = useState(false);
+  // Habka loo eego: grid (kaararka) ama list (saf-saf)
+  const [viewMode, setViewMode] = useState("grid");
+  // Sida loo kala sooco: id | name | class
+  const [sortBy, setSortBy] = useState("id");
 
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [editData, setEditData] = useState(null);
@@ -123,36 +194,133 @@ export default function Students() {
     }
   }
 
-  // Filter-ka Isku dhafka ah (Class + Type + Fee + Search)
-  const filteredStudents = students.filter((s) => {
-    if (s.pendingDeletion) return false;
-
-    const matchesClass =
-      selectedClass === "ALL" || String(s.className) === String(selectedClass);
-
-    const matchesType =
-      selectedType === "ALL" || String(s.studentType) === String(selectedType);
-
-    const isFree = s.feeType === "Free";
-    const matchesFee =
-      feeFilter === "ALL" ||
-      (feeFilter === "Free" && isFree) ||
-      (feeFilter === "Paid" && !isFree);
-
-    const q = search.toLowerCase().trim();
-    const matchesSearch =
-      !q ||
-      (s.studentId || "").toLowerCase().includes(q) ||
-      (s.parentPassword || "").toLowerCase().includes(q) ||
-      (s.fullName || "").toLowerCase().includes(q);
-
-    return matchesClass && matchesType && matchesFee && matchesSearch;
-  });
-
-  // Tirada guud ee ardayda Free-ga ah iyo kuwa Lacagta Bixiya (aan la tirtirin)
+  // Ardayda aan la codsan in la tirtiro
   const activeStudents = students.filter((s) => !s.pendingDeletion);
+
+  // Liiska Shift-yada ee jira (haddii xogtu leedahay)
+  const shiftOptions = [
+    ...new Set(activeStudents.map((s) => s.shift).filter(Boolean)),
+  ];
+
+  // Filter-ka Isku dhafka ah (Class + Type + Fee + Shift + Orphan + Search) iyo kala soocidda
+  const filteredStudents = students
+    .filter((s) => {
+      if (s.pendingDeletion) return false;
+
+      const matchesClass =
+        selectedClass === "ALL" || String(s.className) === String(selectedClass);
+
+      const matchesType =
+        selectedType === "ALL" || String(s.studentType) === String(selectedType);
+
+      const isFree = s.feeType === "Free";
+      const matchesFee =
+        feeFilter === "ALL" ||
+        (feeFilter === "Free" && isFree) ||
+        (feeFilter === "Paid" && !isFree);
+
+      const matchesShift = selectedShift === "ALL" || s.shift === selectedShift;
+      const matchesOrphan = !orphanOnly || s.orphanStatus === "Yes";
+
+      const q = search.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        (s.studentId || "").toLowerCase().includes(q) ||
+        (s.parentPassword || "").toLowerCase().includes(q) ||
+        (s.fullName || "").toLowerCase().includes(q) ||
+        (s.parentPhone || "").includes(q) ||
+        (s.studentPhone || "").includes(q);
+
+      return (
+        matchesClass &&
+        matchesType &&
+        matchesFee &&
+        matchesShift &&
+        matchesOrphan &&
+        matchesSearch
+      );
+    })
+    .sort((a, b) => {
+      if (sortBy === "name") return (a.fullName || "").localeCompare(b.fullName || "");
+      if (sortBy === "class")
+        return String(a.className || "").localeCompare(String(b.className || ""), undefined, {
+          numeric: true,
+        });
+      return String(a.studentId || "").localeCompare(String(b.studentId || ""), undefined, {
+        numeric: true,
+      });
+    });
+
+  // Tirooyinka kaararka kore (stats)
+  const totalCount = activeStudents.length;
+  const fullTimeCount = activeStudents.filter((s) => s.studentType !== "Part Time").length;
+  const partTimeCount = activeStudents.filter((s) => s.studentType === "Part Time").length;
   const freeStudentsCount = activeStudents.filter((s) => s.feeType === "Free").length;
   const paidStudentsCount = activeStudents.filter((s) => s.feeType !== "Free").length;
+  const orphanCount = activeStudents.filter((s) => s.orphanStatus === "Yes").length;
+  const classesCount = new Set(activeStudents.map((s) => s.className).filter(Boolean)).size;
+  const totalMonthly = activeStudents.reduce(
+    (sum, s) => sum + (s.feeType === "Free" ? 0 : Number(s.monthlyFee) || 0),
+    0
+  );
+
+  // Kaararka kore way is-gaar-gaar yihiin (riix si aad u shaandheyso)
+  function resetAllFilters() {
+    setSelectedType("ALL");
+    setFeeFilter("ALL");
+    setOrphanOnly(false);
+  }
+
+  const statCards = [
+    {
+      key: "all",
+      icon: Users,
+      value: totalCount,
+      label: "Dhamaan",
+      active: selectedType === "ALL" && feeFilter === "ALL" && !orphanOnly,
+      onClick: resetAllFilters,
+    },
+    {
+      key: "full",
+      icon: GraduationCap,
+      value: fullTimeCount,
+      label: "Full Time",
+      active: selectedType === "Full Time",
+      onClick: () => setSelectedType(selectedType === "Full Time" ? "ALL" : "Full Time"),
+    },
+    {
+      key: "part",
+      icon: Clock,
+      value: partTimeCount,
+      label: "Part Time",
+      active: selectedType === "Part Time",
+      onClick: () => setSelectedType(selectedType === "Part Time" ? "ALL" : "Part Time"),
+    },
+    {
+      key: "free",
+      icon: UserCheck,
+      value: freeStudentsCount,
+      label: "Free",
+      active: feeFilter === "Free",
+      onClick: () => setFeeFilter(feeFilter === "Free" ? "ALL" : "Free"),
+    },
+    {
+      key: "paid",
+      icon: Wallet,
+      value: paidStudentsCount,
+      label: "Paid",
+      active: feeFilter === "Paid",
+      onClick: () => setFeeFilter(feeFilter === "Paid" ? "ALL" : "Paid"),
+    },
+    {
+      key: "orphan",
+      icon: Heart,
+      value: orphanCount,
+      label: "Agoon",
+      active: orphanOnly,
+      onClick: () => setOrphanOnly(!orphanOnly),
+    },
+  ];
 
   function openEdit(student) {
     setSelectedStudent(student);
@@ -249,7 +417,7 @@ export default function Students() {
   }
 
   // ----------------------------------------------------
-  // EXPORT PDF: EXCEL TABLE FORMAT WITH SAFE INDEXING
+  // EXPORT PDF: EXCEL TABLE FORMAT WITH SAFE INDEXING (isbeddel malahan)
   // ----------------------------------------------------
   async function exportStudentsToPdf(targetStudents = filteredStudents, titleSuffix = "") {
     if (!targetStudents || targetStudents.length === 0) {
@@ -414,38 +582,119 @@ export default function Students() {
     }
   }
 
+  // Badhamada yaryar ee kaarka (Export / Edit / Delete)
+  function ActionButtons({ student }) {
+    return (
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={() => exportStudentsToPdf([student], `(${student.fullName})`)}
+          title="Export Hal Arday PDF"
+          style={iconBtnExport}
+        >
+          <FileDown size={15} />
+        </button>
+        <button onClick={() => openEdit(student)} title="Edit" style={iconBtnEdit}>
+          <Pencil size={15} />
+          <span style={{ fontSize: 12.5, fontWeight: 700 }}>Edit</span>
+        </button>
+        <button onClick={() => deleteStudent(student)} title="Delete" style={iconBtnDelete}>
+          <Trash2 size={15} />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#0b0a1c" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f3f6f4" }}>
       <Sidebar />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ padding: "20px 24px 0" }}>
-          <Topbar title="Students" />
+          <Topbar title="Student List" />
         </div>
 
-        <div style={{ padding: "26px 30px" }}>
-          <h1 style={{ color: "#fff", marginBottom: 22, fontSize: 26, fontWeight: 800 }}>
-            Students Management
-          </h1>
+        <div style={{ padding: "22px 30px 40px" }}>
+          {/* ================= HEADER-KA CAGAARKA ================= */}
+          <div style={heroBanner}>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={heroKicker}>RISING STAR SCHOOL</div>
+              <h1 style={{ margin: "6px 0 4px", fontSize: 28, fontWeight: 800, color: "#fff" }}>
+                Student Directory
+              </h1>
+              <p style={{ margin: 0, fontSize: 13.5, color: "rgba(255,255,255,0.85)" }}>
+                Dhamaan ardayda — raadi, shaandhee, oo wax ka bedel.
+              </p>
+            </div>
 
-          <div style={{ display: "flex", gap: 12, marginBottom: 25, flexWrap: "wrap", alignItems: "center" }}>
-            <Link to="/admin/add-student">
-              <button style={purpleBtn}>
-                <Plus size={17} />
-                Add Student
-              </button>
-            </Link>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={heroStat}>
+                <div style={heroStatValue}>{totalCount}</div>
+                <div style={heroStatLabel}>Arday</div>
+              </div>
+              <div style={heroStat}>
+                <div style={heroStatValue}>{classesCount}</div>
+                <div style={heroStatLabel}>Fasal</div>
+              </div>
+              <div style={heroStat}>
+                <div style={heroStatValue}>${totalMonthly}</div>
+                <div style={heroStatLabel}>Bishii</div>
+              </div>
 
-            <Link to="/admin/bulk-registration">
-              <button style={ghostBtn}>
-                <Upload size={17} />
-                Bulk
-              </button>
-            </Link>
+              <Link to="/admin/add-student" style={{ textDecoration: "none" }}>
+                <button style={heroBtn}>
+                  <Plus size={16} />
+                  Add Student
+                </button>
+              </Link>
+              <Link to="/admin/bulk-registration" style={{ textDecoration: "none" }}>
+                <button style={heroBtnGhost}>
+                  <Upload size={16} />
+                  Bulk
+                </button>
+              </Link>
+            </div>
+          </div>
+
+          {/* ================= KAARARKA STATS (riix si loo shaandheeyo) ================= */}
+          <div style={statsRow}>
+            {statCards.map((c) => {
+              const Icon = c.icon;
+              return (
+                <button
+                  key={c.key}
+                  onClick={c.onClick}
+                  style={{
+                    ...statCard,
+                    ...(c.active ? statCardActive : {}),
+                  }}
+                >
+                  <Icon size={16} color={c.active ? "#16a34a" : "#9ca3af"} />
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 6 }}>
+                    {c.value}
+                  </div>
+                  <div style={{ fontSize: 11.5, color: "#6b7280", fontWeight: 600 }}>
+                    {c.label}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ================= TOOLBAR: raadin + filters ================= */}
+          <div style={toolbar}>
+            <div style={searchWrap}>
+              <Search size={16} color="#9ca3af" />
+              <input
+                placeholder="Raadi magac, ID, telefoon, password..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                style={searchInput}
+              />
+            </div>
 
             {/* Filter Fasalka */}
             <div style={filterDropdownWrap}>
-              <Filter size={15} color="#8b6cf5" />
+              <Filter size={15} color="#16a34a" />
               <select
                 value={selectedClass}
                 onChange={(e) => setSelectedClass(e.target.value)}
@@ -460,9 +709,9 @@ export default function Students() {
               </select>
             </div>
 
-            {/* Filter Nooca Ardayga (Full Time / Part Time) */}
+            {/* Filter Nooca Ardayga */}
             <div style={filterDropdownWrap}>
-              <UserCheck size={15} color="#8b6cf5" />
+              <UserCheck size={15} color="#16a34a" />
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
@@ -474,7 +723,53 @@ export default function Students() {
               </select>
             </div>
 
-            {/* Export PDF Button */}
+            {/* Filter Fee Type */}
+            <div style={filterDropdownWrap}>
+              <Wallet size={15} color="#16a34a" />
+              <select
+                value={feeFilter}
+                onChange={(e) => setFeeFilter(e.target.value)}
+                style={filterSelect}
+              >
+                <option value="ALL">Dhamaan Fee Types</option>
+                <option value="Free">Free</option>
+                <option value="Paid">Paid</option>
+              </select>
+            </div>
+
+            {/* Filter Shift — kaliya haddii xogtu leedahay shift */}
+            {shiftOptions.length > 0 && (
+              <div style={filterDropdownWrap}>
+                <Clock size={15} color="#16a34a" />
+                <select
+                  value={selectedShift}
+                  onChange={(e) => setSelectedShift(e.target.value)}
+                  style={filterSelect}
+                >
+                  <option value="ALL">Dhamaan Shifts</option>
+                  {shiftOptions.map((sh) => (
+                    <option key={sh} value={sh}>
+                      {sh}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Kala soocidda */}
+            <div style={filterDropdownWrap}>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                style={filterSelect}
+              >
+                <option value="id">Sort: ID</option>
+                <option value="name">Sort: Magac</option>
+                <option value="class">Sort: Class</option>
+              </select>
+            </div>
+
+            {/* Export PDF */}
             <button
               onClick={() =>
                 exportStudentsToPdf(
@@ -491,182 +786,158 @@ export default function Students() {
             >
               {exportingPdf ? (
                 <>
-                  <Loader2
-                    size={17}
-                    style={{ animation: "spin 1s linear infinite" }}
-                  />
+                  <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
                   PDF ({exportProgress.done}/{exportProgress.total})...
                 </>
               ) : (
                 <>
-                  <FileDown size={17} />
+                  <FileDown size={16} />
                   Export PDF
                 </>
               )}
             </button>
 
-            <div style={searchWrap}>
-              <Search size={16} color="#8b87ad" />
-              <input
-                placeholder="Raadi Magac, ID, ama Password..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={searchInput}
-              />
+            {/* Grid / List */}
+            <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+              <button
+                onClick={() => setViewMode("grid")}
+                title="Grid"
+                style={{ ...viewBtn, ...(viewMode === "grid" ? viewBtnActive : {}) }}
+              >
+                <LayoutGrid size={16} />
+              </button>
+              <button
+                onClick={() => setViewMode("list")}
+                title="List"
+                style={{ ...viewBtn, ...(viewMode === "list" ? viewBtnActive : {}) }}
+              >
+                <ListIcon size={16} />
+              </button>
             </div>
           </div>
 
-          <div style={listCard}>
+          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "4px 2px 14px", fontWeight: 600 }}>
+            Muujinaya {filteredStudents.length} ka mid ah {totalCount} arday
+          </div>
+
+          {/* ================= LIISKA ARDAYDA ================= */}
+          {loading ? (
+            <p style={{ color: "#6b7280" }}>Loading...</p>
+          ) : filteredStudents.length === 0 ? (
+            <div style={emptyBox}>Wax arday ah lama helin.</div>
+          ) : viewMode === "grid" ? (
+            // ---------- HABKA GRID (kaararka) ----------
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                flexWrap: "wrap",
-                gap: 12,
-                marginBottom: 16,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))",
+                gap: 18,
               }}
             >
-              <h3 style={{ color: "#fff", margin: 0, fontSize: 17 }}>
-                Student List{" "}
-                <span style={{ color: "#8b87ad", fontWeight: 400, fontSize: 14 }}>
-                  ({filteredStudents.length})
-                </span>
-              </h3>
+              {filteredStudents.map((student) => (
+                <div key={`${student.collection}_${student.id}`} style={card}>
+                  {/* Banner-ka midabka leh */}
+                  <div style={{ ...cardBanner, background: getBannerGradient(student) }}>
+                    <span style={idChip}>ID {student.studentId || "—"}</span>
+                  </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button
-                  onClick={() => setFeeFilter(feeFilter === "Free" ? "ALL" : "Free")}
-                  style={{
-                    ...feePillBtn,
-                    ...(feeFilter === "Free" ? feePillBtnActiveFree : {}),
-                  }}
-                >
-                  🆓 Free Students
-                  <span style={feePillCount}>{freeStudentsCount}</span>
-                </button>
-                <button
-                  onClick={() => setFeeFilter(feeFilter === "Paid" ? "ALL" : "Paid")}
-                  style={{
-                    ...feePillBtn,
-                    ...(feeFilter === "Paid" ? feePillBtnActivePaid : {}),
-                  }}
-                >
-                  💰 Paid Students
-                  <span style={feePillCount}>{paidStudentsCount}</span>
-                </button>
-              </div>
-            </div>
+                  <div style={{ padding: "0 18px 16px" }}>
+                    {/* position + zIndex: sawirku wuxuu ka sarreeyaa banner-ka, lagana qarin */}
+                    <div style={{ marginTop: -46, position: "relative", zIndex: 2 }}>
+                      <Avatar student={student} size={92} />
+                    </div>
 
-            {loading ? (
-              <p style={{ color: "#8b87ad" }}>Loading...</p>
-            ) : filteredStudents.length === 0 ? (
-              <p style={{ color: "#8b87ad" }}>Wax arday ah lama helin.</p>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {filteredStudents.map((student) => {
-                  const photoUrl = getStudentPhotoUrl(student);
-                  return (
-                    <div key={`${student.collection}_${student.id}`} style={studentRow}>
-                      {photoUrl ? (
-                        <img
-                          src={photoUrl}
-                          alt={student.fullName || "Student"}
-                          style={{
-                            width: 46,
-                            height: 46,
-                            minWidth: 46,
-                            borderRadius: "50%",
-                            objectFit: "cover",
-                            display: "block",
-                          }}
-                          onError={(e) => {
-                            e.currentTarget.style.display = "none";
-                            e.currentTarget.nextSibling.style.display = "flex";
-                          }}
-                        />
-                      ) : null}
-                      <div
-                        style={{
-                          width: 46,
-                          height: 46,
-                          minWidth: 46,
-                          borderRadius: "50%",
-                          background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
-                          display: photoUrl ? "none" : "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          color: "#fff",
-                          fontWeight: 700,
-                          fontSize: 15,
-                        }}
-                      >
-                        {(student.fullName || "?").slice(0, 2).toUpperCase()}
-                      </div>
+                    <div style={{ marginTop: 10, fontWeight: 800, fontSize: 15.5, color: "#111827" }}>
+                      {student.fullName || "—"}
+                    </div>
 
-                      <div style={{ flex: 1, minWidth: 160 }}>
-                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14.5 }}>
-                          {student.fullName || "—"}
-                        </div>
-                        <div style={{ color: "#8b87ad", fontSize: 12.5, marginTop: 2 }}>
-                          ID: {student.studentId || "—"}
-                        </div>
-                      </div>
-
-                      <span style={tag}>Class {student.className || "—"}</span>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                      <span style={chip}>Class {student.className || "—"}</span>
                       <span
                         style={{
-                          ...tag,
-                          color: student.studentType === "Part Time" ? "#fbbf24" : "#c4b5fd",
-                          borderColor:
-                            student.studentType === "Part Time"
-                              ? "rgba(251,191,36,0.35)"
-                              : "rgba(139,108,245,0.25)",
-                          background:
-                            student.studentType === "Part Time"
-                              ? "rgba(251,191,36,0.12)"
-                              : "rgba(139,108,245,0.12)",
+                          ...chip,
+                          ...(student.studentType === "Part Time" ? chipBlue : chipGreen),
                         }}
                       >
                         {student.studentType || "Full Time"}
                       </span>
-                      <span style={tag}>{student.studentPhone || "—"}</span>
-                      <span style={tag}>${student.monthlyFee || "0"}/bishii</span>
+                      {student.orphanStatus === "Yes" && <span style={chipRose}>Agoon</span>}
+                    </div>
 
-                      {/* Export Hal Arday PDF */}
-                      <button
-                        onClick={() => exportStudentsToPdf([student], `(${student.fullName})`)}
-                        title="Export Hal Arday PDF"
-                        style={iconBtnExport}
-                      >
-                        <FileDown size={15} />
-                      </button>
+                    {/* Xogta xiriirka */}
+                    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                      <InfoLine icon={User} label="Hooyo" value={student.motherName} />
+                      <InfoLine icon={Phone} label="Waalidka" value={student.parentPhone} />
+                      <InfoLine icon={Smartphone} label="Ardayga" value={student.studentPhone} />
+                      <InfoLine icon={Clock} label="Shift" value={student.shift} />
+                      <InfoLine icon={MapPin} label="Degmo" value={student.district} />
+                    </div>
 
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => openEdit(student)} style={iconBtnEdit}>
-                          <Pencil size={15} />
-                        </button>
-                        <button onClick={() => deleteStudent(student)} style={iconBtnDelete}>
-                          <Trash2 size={15} />
-                        </button>
+                    {/* Lacagta */}
+                    <div style={feeBox}>
+                      <div>
+                        <div style={feeLabel}>NOOCA LACAGTA</div>
+                        <div style={feeValue}>
+                          {student.feeType === "Free" ? "Free" : "Monthly"}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={feeLabel}>BISHII</div>
+                        <div style={feeValue}>${student.monthlyFee || "0"}</div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+
+                    <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+                      <ActionButtons student={student} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            // ---------- HABKA LIST (saf-saf) ----------
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {filteredStudents.map((student) => (
+                <div key={`${student.collection}_${student.id}`} style={studentRow}>
+                  <Avatar student={student} size={46} />
+
+                  <div style={{ flex: 1, minWidth: 170 }}>
+                    <div style={{ color: "#111827", fontWeight: 700, fontSize: 14.5 }}>
+                      {student.fullName || "—"}
+                    </div>
+                    <div style={{ color: "#6b7280", fontSize: 12.5, marginTop: 2 }}>
+                      ID: {student.studentId || "—"}
+                    </div>
+                  </div>
+
+                  <span style={chip}>Class {student.className || "—"}</span>
+                  <span
+                    style={{
+                      ...chip,
+                      ...(student.studentType === "Part Time" ? chipBlue : chipGreen),
+                    }}
+                  >
+                    {student.studentType || "Full Time"}
+                  </span>
+                  <span style={chip}>{student.studentPhone || "—"}</span>
+                  <span style={chip}>${student.monthlyFee || "0"}/bishii</span>
+
+                  <ActionButtons student={student} />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Modal Edit Student */}
+      {/* ================= MODAL: EDIT STUDENT ================= */}
       {editData && (
         <div style={overlay}>
           <div style={modal}>
             <div style={modalHeader}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <GraduationCap size={20} color="#8b6cf5" />
-                <h2 style={{ color: "#fff", margin: 0, fontSize: 19 }}>
+                <GraduationCap size={20} color="#16a34a" />
+                <h2 style={{ color: "#111827", margin: 0, fontSize: 19 }}>
                   Wax ka bedel: {selectedStudent.fullName}
                 </h2>
               </div>
@@ -686,8 +957,8 @@ export default function Students() {
                     borderRadius: "50%",
                     background: photoPreview
                       ? `url(${photoPreview}) center/cover`
-                      : "rgba(139,108,245,0.08)",
-                    border: "2px dashed #6d5df0",
+                      : "rgba(22,163,74,0.08)",
+                    border: "2px dashed #16a34a",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -695,7 +966,7 @@ export default function Students() {
                     overflow: "hidden",
                   }}
                 >
-                  {!photoPreview && <Camera color="#8b6cf5" size={26} />}
+                  {!photoPreview && <Camera color="#16a34a" size={26} />}
                 </label>
                 <input
                   id="editPhoto"
@@ -705,13 +976,13 @@ export default function Students() {
                   style={{ display: "none" }}
                 />
                 <div>
-                  <div style={{ fontWeight: 700, color: "#fff", fontSize: 15 }}>
+                  <div style={{ fontWeight: 700, color: "#111827", fontSize: 15 }}>
                     Sawirka Ardayga
                   </div>
-                  <div style={{ color: "#8b87ad", fontSize: 13, marginTop: 4 }}>
+                  <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
                     Riix goobta si aad sawir cusub uga soo dooratid
                   </div>
-                  <div style={{ color: "#6b6890", fontSize: 12, marginTop: 4 }}>
+                  <div style={{ color: "#9ca3af", fontSize: 12, marginTop: 4 }}>
                     Student ID: {selectedStudent.studentId}
                   </div>
                 </div>
@@ -834,9 +1105,30 @@ export default function Students() {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-        input::placeholder { color: #6b6890; }
-        select option { background: #1e1a4a; color: #ffffff; }
+        input::placeholder { color: #9ca3af; }
+        select option { background: #ffffff; color: #111827; }
       `}</style>
+    </div>
+  );
+}
+
+// Hal sadar oo xog ah ee kaarka (icon + calaamad + qiimo)
+function InfoLine({ icon: Icon, label: labelText, value }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+      <Icon size={13} color="#16a34a" style={{ flexShrink: 0 }} />
+      <span style={{ color: "#9ca3af", minWidth: 58 }}>{labelText}</span>
+      <span
+        style={{
+          color: "#374151",
+          fontWeight: 600,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {value || "—"}
+      </span>
     </div>
   );
 }
@@ -845,7 +1137,7 @@ function Field({ icon: Icon, label: labelText, children }) {
   return (
     <div>
       <label style={label}>
-        <Icon size={15} color="#8b6cf5" />
+        <Icon size={15} color="#16a34a" />
         {labelText}
       </label>
       {children}
@@ -853,147 +1145,266 @@ function Field({ icon: Icon, label: labelText, children }) {
   );
 }
 
-const filterDropdownWrap = {
+/* ====================================================
+   STYLES (habka iftiinka leh — green, sida sawirka labaad)
+   ==================================================== */
+
+const heroBanner = {
   display: "flex",
   alignItems: "center",
-  gap: 8,
-  background: "rgba(255,255,255,0.03)",
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1.5px solid rgba(139,108,245,0.35)",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  gap: 18,
+  padding: "26px 30px",
+  borderRadius: 20,
+  background: "linear-gradient(120deg,#16a34a,#15803d 60%,#166534)",
+  boxShadow: "0 14px 30px rgba(22,163,74,0.25)",
 };
 
-const filterSelect = {
-  background: "transparent",
-  color: "#fff",
-  border: "none",
-  padding: "12px 0",
-  outline: "none",
-  fontSize: 13.5,
-  fontWeight: 600,
-  cursor: "pointer",
+const heroKicker = {
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: "0.14em",
+  color: "rgba(255,255,255,0.75)",
 };
 
-const purpleBtn = {
+const heroStat = {
+  background: "rgba(255,255,255,0.16)",
+  border: "1px solid rgba(255,255,255,0.22)",
+  borderRadius: 14,
+  padding: "10px 18px",
+  textAlign: "center",
+  minWidth: 70,
+};
+
+const heroStatValue = { fontSize: 20, fontWeight: 800, color: "#fff", lineHeight: 1.1 };
+const heroStatLabel = { fontSize: 11, color: "rgba(255,255,255,0.8)", fontWeight: 600 };
+
+const heroBtn = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  background: "linear-gradient(90deg,#6d5df0,#8b6cf5)",
-  color: "#fff",
+  background: "#fff",
+  color: "#15803d",
   border: "none",
   padding: "12px 18px",
-  borderRadius: 10,
+  borderRadius: 12,
   cursor: "pointer",
-  fontWeight: 700,
+  fontWeight: 800,
   fontSize: 14,
-  boxShadow: "0 8px 20px rgba(109,93,240,0.3)",
 };
 
-const ghostBtn = {
+const heroBtnGhost = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  background: "rgba(255,255,255,0.03)",
+  background: "rgba(255,255,255,0.14)",
   color: "#fff",
-  border: "1.5px solid rgba(139,108,245,0.35)",
+  border: "1px solid rgba(255,255,255,0.35)",
   padding: "12px 18px",
-  borderRadius: 10,
+  borderRadius: 12,
   cursor: "pointer",
   fontWeight: 700,
   fontSize: 14,
+};
+
+const statsRow = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: 12,
+  margin: "18px 0",
+};
+
+const statCard = {
+  textAlign: "left",
+  background: "#fff",
+  border: "1.5px solid #e5e7eb",
+  borderRadius: 14,
+  padding: "12px 14px",
+  cursor: "pointer",
+};
+
+const statCardActive = {
+  borderColor: "#16a34a",
+  boxShadow: "0 6px 16px rgba(22,163,74,0.18)",
+  background: "#f0fdf4",
+};
+
+const toolbar = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  background: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: 14,
+  padding: 12,
+  marginBottom: 10,
 };
 
 const searchWrap = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  width: 260,
+  flex: "1 1 240px",
+  minWidth: 220,
   padding: "0 14px",
   borderRadius: 10,
-  border: "1.5px solid rgba(139,108,245,0.3)",
-  background: "rgba(255,255,255,0.02)",
+  border: "1.5px solid #e5e7eb",
+  background: "#f9fafb",
 };
 
 const searchInput = {
   flex: 1,
-  padding: "12px 0",
+  padding: "11px 0",
   border: "none",
   outline: "none",
   background: "transparent",
-  color: "#e5e3f7",
+  color: "#111827",
   fontSize: 13.5,
 };
 
-const listCard = {
-  marginTop: 26,
-  background: "linear-gradient(160deg,#1c1840,#211c48)",
-  borderRadius: 16,
-  padding: 22,
-  border: "1px solid rgba(255,255,255,0.05)",
-};
-
-const studentRow = {
+const filterDropdownWrap = {
   display: "flex",
   alignItems: "center",
-  gap: 16,
-  padding: "12px 16px",
-  background: "rgba(255,255,255,0.02)",
-  borderRadius: 12,
-  border: "1px solid rgba(139,108,245,0.12)",
-  flexWrap: "wrap",
+  gap: 8,
+  background: "#f9fafb",
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1.5px solid #e5e7eb",
 };
 
-const tag = {
-  background: "rgba(139,108,245,0.12)",
-  color: "#c4b5fd",
-  fontSize: 12,
-  padding: "6px 12px",
-  borderRadius: 20,
-  border: "1px solid rgba(139,108,245,0.25)",
-  whiteSpace: "nowrap",
+const filterSelect = {
+  background: "transparent",
+  color: "#111827",
+  border: "none",
+  padding: "11px 0",
+  outline: "none",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
 };
 
-const feePillBtn = {
+const ghostBtn = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  background: "rgba(255,255,255,0.03)",
-  color: "#e5e3f7",
-  border: "1.5px solid rgba(139,108,245,0.25)",
-  padding: "9px 16px",
-  borderRadius: 999,
+  background: "#f9fafb",
+  color: "#111827",
+  border: "1.5px solid #e5e7eb",
+  padding: "11px 16px",
+  borderRadius: 10,
   cursor: "pointer",
   fontWeight: 700,
   fontSize: 13,
 };
 
-const feePillBtnActiveFree = {
-  background: "rgba(251,191,36,0.15)",
-  borderColor: "rgba(251,191,36,0.5)",
-  color: "#fbbf24",
+const viewBtn = {
+  width: 38,
+  height: 38,
+  borderRadius: 10,
+  border: "1.5px solid #e5e7eb",
+  background: "#fff",
+  color: "#6b7280",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
 };
 
-const feePillBtnActivePaid = {
-  background: "rgba(16,185,129,0.15)",
-  borderColor: "rgba(16,185,129,0.5)",
-  color: "#10b981",
+const viewBtnActive = {
+  background: "#16a34a",
+  borderColor: "#16a34a",
+  color: "#fff",
 };
 
-const feePillCount = {
-  background: "rgba(255,255,255,0.12)",
-  padding: "2px 9px",
-  borderRadius: 999,
-  fontSize: 12,
+const emptyBox = {
+  background: "#fff",
+  border: "1px dashed #d1d5db",
+  borderRadius: 14,
+  padding: 30,
+  textAlign: "center",
+  color: "#6b7280",
+};
+
+const card = {
+  background: "#fff",
+  borderRadius: 18,
+  border: "1px solid #e5e7eb",
+  overflow: "hidden",
+  boxShadow: "0 6px 18px rgba(15,23,42,0.05)",
+};
+
+const cardBanner = {
+  height: 84,
+  position: "relative",
+};
+
+const idChip = {
+  position: "absolute",
+  top: 10,
+  right: 12,
+  zIndex: 1,
+  background: "rgba(255,255,255,0.22)",
+  color: "#fff",
+  fontSize: 11,
   fontWeight: 800,
+  padding: "4px 10px",
+  borderRadius: 999,
+};
+
+const chip = {
+  background: "#f3f4f6",
+  color: "#4b5563",
+  fontSize: 11.5,
+  fontWeight: 700,
+  padding: "4px 10px",
+  borderRadius: 999,
+  whiteSpace: "nowrap",
+};
+
+const chipGreen = { background: "#dcfce7", color: "#15803d" };
+const chipBlue = { background: "#e0f2fe", color: "#0369a1" };
+const chipRose = {
+  background: "#ffe4e6",
+  color: "#be123c",
+  fontSize: 11.5,
+  fontWeight: 700,
+  padding: "4px 10px",
+  borderRadius: 999,
+};
+
+const feeBox = {
+  marginTop: 14,
+  display: "flex",
+  justifyContent: "space-between",
+  background: "#f9fafb",
+  border: "1px solid #eef0f2",
+  borderRadius: 12,
+  padding: "10px 14px",
+};
+
+const feeLabel = { fontSize: 10, color: "#9ca3af", fontWeight: 800, letterSpacing: "0.06em" };
+const feeValue = { fontSize: 14.5, color: "#111827", fontWeight: 800, marginTop: 2 };
+
+const studentRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 14,
+  padding: "12px 16px",
+  background: "#fff",
+  borderRadius: 14,
+  border: "1px solid #e5e7eb",
+  flexWrap: "wrap",
 };
 
 const iconBtnExport = {
-  background: "rgba(16,185,129,0.12)",
-  border: "1px solid rgba(16,185,129,0.3)",
-  color: "#10b981",
-  width: 32,
-  height: 32,
-  borderRadius: 8,
+  background: "#ecfdf5",
+  border: "1px solid #a7f3d0",
+  color: "#059669",
+  width: 34,
+  height: 34,
+  borderRadius: 9,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1001,25 +1412,25 @@ const iconBtnExport = {
 };
 
 const iconBtnEdit = {
-  background: "rgba(139,108,245,0.12)",
-  border: "1px solid rgba(139,108,245,0.3)",
-  color: "#8b6cf5",
-  width: 32,
-  height: 32,
-  borderRadius: 8,
+  background: "#16a34a",
+  border: "none",
+  color: "#fff",
+  height: 34,
+  padding: "0 14px",
+  borderRadius: 9,
   display: "flex",
   alignItems: "center",
-  justifyContent: "center",
+  gap: 6,
   cursor: "pointer",
 };
 
 const iconBtnDelete = {
-  background: "rgba(239,68,68,0.12)",
-  border: "1px solid rgba(239,68,68,0.3)",
-  color: "#f87171",
-  width: 32,
-  height: 32,
-  borderRadius: 8,
+  background: "#fef2f2",
+  border: "1px solid #fecaca",
+  color: "#dc2626",
+  width: 34,
+  height: 34,
+  borderRadius: 9,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1032,7 +1443,7 @@ const overlay = {
   left: 0,
   right: 0,
   bottom: 0,
-  background: "rgba(0,0,0,0.65)",
+  background: "rgba(15,23,42,0.55)",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1041,8 +1452,8 @@ const overlay = {
 };
 
 const modal = {
-  background: "linear-gradient(160deg,#151233,#181341)",
-  border: "1px solid rgba(139,108,245,0.3)",
+  background: "#fff",
+  border: "1px solid #e5e7eb",
   borderRadius: 20,
   width: "100%",
   maxWidth: 780,
@@ -1056,13 +1467,13 @@ const modalHeader = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: "22px 26px",
-  borderBottom: "1px solid rgba(139,108,245,0.2)",
+  borderBottom: "1px solid #e5e7eb",
 };
 
 const closeBtn = {
-  background: "rgba(255,255,255,0.05)",
+  background: "#f3f4f6",
   border: "none",
-  color: "#fff",
+  color: "#374151",
   width: 32,
   height: 32,
   borderRadius: 8,
@@ -1082,13 +1493,13 @@ const modalFooter = {
   justifyContent: "flex-end",
   gap: 12,
   padding: "18px 26px",
-  borderTop: "1px solid rgba(139,108,245,0.2)",
+  borderTop: "1px solid #e5e7eb",
 };
 
 const cancelBtn = {
-  background: "rgba(255,255,255,0.04)",
-  border: "1.5px solid rgba(139,108,245,0.3)",
-  color: "#fff",
+  background: "#f9fafb",
+  border: "1.5px solid #e5e7eb",
+  color: "#374151",
   padding: "12px 22px",
   borderRadius: 10,
   cursor: "pointer",
@@ -1100,7 +1511,7 @@ const saveBtn = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  background: "linear-gradient(90deg,#6d5df0,#8b6cf5)",
+  background: "linear-gradient(90deg,#16a34a,#15803d)",
   color: "#fff",
   border: "none",
   padding: "12px 22px",
@@ -1116,7 +1527,7 @@ const label = {
   gap: 7,
   fontSize: 13.5,
   fontWeight: 600,
-  color: "#fff",
+  color: "#111827",
   marginBottom: 8,
 };
 
@@ -1124,11 +1535,11 @@ const input = {
   width: "100%",
   padding: "12px 14px",
   borderRadius: 10,
-  border: "1.5px solid rgba(139,108,245,0.3)",
+  border: "1.5px solid #e5e7eb",
   boxSizing: "border-box",
   fontSize: 14,
-  color: "#e5e3f7",
-  background: "rgba(255,255,255,0.02)",
+  color: "#111827",
+  background: "#f9fafb",
   outline: "none",
 };
 
