@@ -251,6 +251,42 @@ export default function Students() {
       });
     });
 
+  // Liiska loo diyaariyey EXPORT-ka PDF: Fee Type lama akhriyo (had iyo jeer Dhamaan Fee Types)
+  const exportStudents = students
+    .filter((s) => {
+      if (s.pendingDeletion) return false;
+
+      const matchesClass =
+        selectedClass === "ALL" || String(s.className) === String(selectedClass);
+
+      const matchesType =
+        selectedType === "ALL" || String(s.studentType) === String(selectedType);
+
+      const matchesShift = selectedShift === "ALL" || s.shift === selectedShift;
+      const matchesOrphan = !orphanOnly || s.orphanStatus === "Yes";
+
+      const q = search.toLowerCase().trim();
+      const matchesSearch =
+        !q ||
+        (s.studentId || "").toLowerCase().includes(q) ||
+        (s.parentPassword || "").toLowerCase().includes(q) ||
+        (s.fullName || "").toLowerCase().includes(q) ||
+        (s.parentPhone || "").includes(q) ||
+        (s.studentPhone || "").includes(q);
+
+      return matchesClass && matchesType && matchesShift && matchesOrphan && matchesSearch;
+    })
+    .sort((a, b) => {
+      if (sortBy === "name") return (a.fullName || "").localeCompare(b.fullName || "");
+      if (sortBy === "class")
+        return String(a.className || "").localeCompare(String(b.className || ""), undefined, {
+          numeric: true,
+        });
+      return String(a.studentId || "").localeCompare(String(b.studentId || ""), undefined, {
+        numeric: true,
+      });
+    });
+
   // Tirooyinka kaararka kore (stats)
   const totalCount = activeStudents.length;
   const fullTimeCount = activeStudents.filter((s) => s.studentType !== "Part Time").length;
@@ -419,7 +455,7 @@ export default function Students() {
   // ----------------------------------------------------
   // EXPORT PDF: EXCEL TABLE FORMAT WITH SAFE INDEXING (isbeddel malahan)
   // ----------------------------------------------------
-  async function exportStudentsToPdf(targetStudents = filteredStudents, titleSuffix = "") {
+  async function exportStudentsToPdf(targetStudents = exportStudents, titleSuffix = "") {
     if (!targetStudents || targetStudents.length === 0) {
       alert("Ma jiraan arday la daabaco.");
       return;
@@ -773,8 +809,8 @@ export default function Students() {
             <button
               onClick={() =>
                 exportStudentsToPdf(
-                  filteredStudents,
-                  `(${selectedClass === "ALL" ? "Dhamaan Class-yada" : "Class " + selectedClass} - ${selectedType === "ALL" ? "Dhamaan Types" : selectedType})`
+                  exportStudents,
+                  `(${selectedClass === "ALL" ? "Dhamaan Class-yada" : "Class " + selectedClass} - ${selectedType === "ALL" ? "Dhamaan Types" : selectedType} - Dhamaan Fee Types)`
                 )
               }
               disabled={exportingPdf || loading}
