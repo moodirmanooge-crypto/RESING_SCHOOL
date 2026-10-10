@@ -6,6 +6,9 @@ import {
   getDocs,
   doc,
   updateDoc,
+  setDoc,
+  getDoc,
+  deleteDoc,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import jsPDF from "jspdf";
@@ -159,6 +162,8 @@ export default function Students() {
   const [saving, setSaving] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
+  // Checkbox: ku dar lacagta ($) PDF-ka (default = maya)
+  const [includeFee, setIncludeFee] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -362,7 +367,11 @@ export default function Students() {
     setSelectedStudent(student);
     setEditData({
       fullName: student.fullName || "",
+      motherName: student.motherName || "",
       className: student.className || "",
+      studentType: student.studentType || (student.collection === "partTimeStudents" ? "Part Time" : "Full Time"),
+      shift: student.shift || "",
+      feeType: student.feeType || (Number(student.monthlyFee) > 0 ? "Paid" : "Free"),
       monthlyFee: student.monthlyFee || "",
       parentPhone: student.parentPhone || "",
       studentPhone: student.studentPhone || "",
@@ -384,7 +393,21 @@ export default function Students() {
   }
 
   function handleEditChange(field, value) {
-    setEditData({ ...editData, [field]: value });
+    setEditData((prev) => ({ ...prev, [field]: value }));
+  }
+
+  // Telefoonada: lambar keliya
+  function handleEditPhoneChange(field, value) {
+    setEditData((prev) => ({ ...prev, [field]: value.replace(/[^0-9]/g, "") }));
+  }
+
+  // Fee Type: Free => lacagtu waa 0
+  function handleEditFeeTypeChange(value) {
+    setEditData((prev) => ({
+      ...prev,
+      feeType: value,
+      monthlyFee: value === "Free" ? "0" : prev.monthlyFee === "0" ? "" : prev.monthlyFee,
+    }));
   }
 
   function handlePhotoChange(e) {
@@ -394,32 +417,109 @@ export default function Students() {
     setPhotoPreview(URL.createObjectURL(file));
   }
 
+  // Xogta ardayga ee ku jirta collection-yada kale (cashier, attendance,
+  // ID cards) ayaa sidoo kale la cusboonaysiinayaa si meel walba isku mid u noqoto.
+  async function syncRelatedDocs(id, f) {
+    try {
+      const tasks = [
+        setDoc(
+          doc(db, "cashier", id),
+          {
+            studentId: id,
+            studentName: f.fullName,
+            studentPhone: f.studentPhone,
+            parentPhone: f.parentPhone,
+            feeType: f.feeType,
+            monthlyFee: f.monthlyFee,
+          },
+          { merge: true }
+        ),
+        setDoc(doc(db, "attendance", id), { studentId: id, studentName: f.fullName }, { merge: true }),
+      ];
+
+      const [idCardSnap, manualSnap] = await Promise.all([
+        getDoc(doc(db, "studentIdCards", id)),
+        getDoc(doc(db, "manualStudentIdCards", id)),
+      ]);
+
+      if (idCardSnap.exists()) {
+        tasks.push(
+          updateDoc(doc(db, "studentIdCards", id), {
+            fullName: f.fullName,
+            motherName: f.motherName,
+            className: f.className,
+            studentType: f.studentType,
+            studentPhoto: f.studentPhoto,
+            district: f.district,
+            parentPhone: f.parentPhone,
+            studentPhone: f.studentPhone,
+          })
+        );
+      }
+      if (manualSnap.exists()) {
+        tasks.push(
+          updateDoc(doc(db, "manualStudentIdCards", id), {
+            fullName: f.fullName,
+            grade: f.className,
+            studentType: f.studentType,
+            studentPhoto: f.studentPhoto,
+          })
+        );
+      }
+
+      await Promise.allSettled(tasks);
+    } catch (err) {
+      console.warn("Related docs sync failed:", err);
+    }
+  }
+
   async function saveEdit() {
     if (!editData.fullName.trim()) {
       alert("Fadlan geli Magaca Ardayga");
+      return;
+    }
+    if (!editData.motherName.trim()) {
+      alert("Fadlan geli Magaca Hooyada");
       return;
     }
     if (!editData.className) {
       alert("Fadlan dooro Class");
       return;
     }
+    if (!editData.studentType) {
+      alert("Fadlan dooro Full Time ama Part Time");
+      return;
+    }
+    if (editData.feeType === "Paid" && !String(editData.monthlyFee).trim()) {
+      alert("Fadlan geli Qiimaha Fee-ga bishii (Paid)");
+      return;
+    }
 
     try {
       setSaving(true);
+
+      const oldCollection = selectedStudent.collection;
+      const newCollection = editData.studentType === "Part Time" ? "partTimeStudents" : "students";
+      const studentDocId = selectedStudent.id;
+
       let photoUrl = editData.studentPhoto || "";
       if (photoFile) {
         const photoRef = ref(
           storage,
-          `${selectedStudent.collection}/${selectedStudent.studentId}/${Date.now()}_${photoFile.name}`
+          `${newCollection}/${selectedStudent.studentId || studentDocId}/${Date.now()}_${photoFile.name}`
         );
         await uploadBytes(photoRef, photoFile);
         photoUrl = (await getDownloadURL(photoRef)).trim();
       }
 
       const updatedFields = {
-        fullName: editData.fullName,
+        fullName: editData.fullName.trim(),
+        motherName: editData.motherName.trim(),
         className: editData.className,
-        monthlyFee: editData.monthlyFee,
+        studentType: editData.studentType,
+        shift: editData.shift.trim(),
+        feeType: editData.feeType,
+        monthlyFee: editData.feeType === "Free" ? "0" : String(editData.monthlyFee),
         parentPhone: editData.parentPhone,
         studentPhone: editData.studentPhone,
         district: editData.district,
@@ -429,20 +529,39 @@ export default function Students() {
         studentPhoto: photoUrl,
       };
 
-      await updateDoc(
-        doc(db, selectedStudent.collection, selectedStudent.id),
-        updatedFields
-      );
+      if (newCollection !== oldCollection) {
+        // Full Time <-> Part Time: ardayga waxaa loo wareejinayaa collection-ka kale,
+        // isagoo haysanaya ID-giisii (attendance/cashier/ID card way sii xiran yihiin).
+        const targetRef = doc(db, newCollection, studentDocId);
+        const clash = await getDoc(targetRef);
+        if (clash.exists()) {
+          alert(
+            `Ma wareejin karo: ID "${studentDocId}" horey ayuu uga jiraa ${newCollection}. Fadlan la xiriir maamulka.`
+          );
+          return;
+        }
+        const oldSnap = await getDoc(doc(db, oldCollection, studentDocId));
+        const oldData = oldSnap.exists() ? oldSnap.data() : {};
+        await setDoc(targetRef, { ...oldData, ...updatedFields, updatedAt: new Date() });
+        await deleteDoc(doc(db, oldCollection, studentDocId));
+      } else {
+        await updateDoc(doc(db, oldCollection, studentDocId), {
+          ...updatedFields,
+          updatedAt: new Date(),
+        });
+      }
+
+      await syncRelatedDocs(studentDocId, updatedFields);
 
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === selectedStudent.id && s.collection === selectedStudent.collection
-            ? { ...s, ...updatedFields }
+          s.id === studentDocId && s.collection === oldCollection
+            ? { ...s, ...updatedFields, collection: newCollection }
             : s
         )
       );
 
-      alert("Ardayga waa la cusboonaysiiyay");
+      alert("Ardayga waa la cusboonaysiiyay ✅");
       closeEdit();
     } catch (err) {
       console.log(err);
@@ -509,7 +628,7 @@ export default function Students() {
         { header: "Shift", dataKey: "shift" },
         { header: "Tel Waalidka", dataKey: "parentPhone" },
         { header: "Tel Ardayga", dataKey: "studentPhone" },
-        { header: "Lacagta ($)", dataKey: "monthlyFee" },
+        ...(includeFee ? [{ header: "Lacagta ($)", dataKey: "monthlyFee" }] : []),
         { header: "Degmada", dataKey: "district" },
         { header: "Pass Waalidka", dataKey: "parentPassword" },
       ];
@@ -805,6 +924,31 @@ export default function Students() {
               </select>
             </div>
 
+            {/* Checkbox: ku dar lacagta PDF-ka */}
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                background: "#f9fafb",
+                border: "1.5px solid #e5e7eb",
+                borderRadius: 10,
+                padding: "11px 14px",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#111827",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={includeFee}
+                onChange={(e) => setIncludeFee(e.target.checked)}
+                style={{ accentColor: "#16a34a", width: 16, height: 16, cursor: "pointer" }}
+              />
+              Ku dar lacagta PDF-ka
+            </label>
+
             {/* Export PDF */}
             <button
               onClick={() =>
@@ -1024,15 +1168,57 @@ export default function Students() {
                 </div>
               </div>
 
+              {editData.studentType !== (selectedStudent.studentType || "Full Time") && (
+                <div style={typeWarn}>
+                  ⚠️ Nooca ardayga waxaad u bedeshay <b>{editData.studentType}</b>. Markaad kaydiso,
+                  ardayga waxaa loo wareejin doonaa liiska {editData.studentType}, ID-giisuna
+                  ({selectedStudent.studentId}) isma beddelayo.
+                </div>
+              )}
+
+              <div style={sectionTitle}>Xogta Shakhsiga</div>
               <div style={grid}>
                 <Field icon={User} label="Full Name">
                   <input
                     style={input}
+                    placeholder="Tusaale: Ahmed Cali"
                     value={editData.fullName}
                     onChange={(e) => handleEditChange("fullName", e.target.value)}
                   />
                 </Field>
 
+                <Field icon={User} label="Mother Name">
+                  <input
+                    style={input}
+                    placeholder="Tusaale: Faadumo Xasan"
+                    value={editData.motherName}
+                    onChange={(e) => handleEditChange("motherName", e.target.value)}
+                  />
+                </Field>
+
+                <Field icon={Heart} label="Orphan Status">
+                  <select
+                    style={input}
+                    value={editData.orphanStatus}
+                    onChange={(e) => handleEditChange("orphanStatus", e.target.value)}
+                  >
+                    <option>No</option>
+                    <option>Yes</option>
+                  </select>
+                </Field>
+
+                <Field icon={MapPin} label="District">
+                  <input
+                    style={input}
+                    placeholder="Tusaale: Hodan"
+                    value={editData.district}
+                    onChange={(e) => handleEditChange("district", e.target.value)}
+                  />
+                </Field>
+              </div>
+
+              <div style={sectionTitle}>Waxbarashada</div>
+              <div style={grid}>
                 <Field icon={School} label="Class Name">
                   <select
                     style={input}
@@ -1048,56 +1234,96 @@ export default function Students() {
                   </select>
                 </Field>
 
-                <Field icon={Wallet} label="Monthly Fee ($)">
+                <Field icon={Clock} label="Student Type">
+                  <select
+                    style={input}
+                    value={editData.studentType}
+                    onChange={(e) => handleEditChange("studentType", e.target.value)}
+                  >
+                    <option value="Full Time">🕒 Full Time</option>
+                    <option value="Part Time">⏱️ Part Time</option>
+                  </select>
+                </Field>
+
+                <Field icon={Clock} label="Shift">
+                  {/* Badhamo cad: riix Morning ama Afternoon si aad u bedesho */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {[...new Set(["Morning", "Afternoon", ...shiftOptions, editData.shift].filter(Boolean))].map(
+                      (sh) => {
+                        const active = editData.shift === sh;
+                        return (
+                          <button
+                            type="button"
+                            key={sh}
+                            onClick={() => handleEditChange("shift", sh)}
+                            style={active ? shiftPillActive : shiftPill}
+                          >
+                            {sh === "Morning" ? "🌅 " : sh === "Afternoon" ? "🌇 " : ""}
+                            {sh}
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </Field>
+
+                <Field icon={BookOpen} label="Previous School">
                   <input
                     style={input}
+                    placeholder="Magaca dugsiga hore"
+                    value={editData.previousSchool}
+                    onChange={(e) => handleEditChange("previousSchool", e.target.value)}
+                  />
+                </Field>
+              </div>
+
+              <div style={sectionTitle}>Lacagta</div>
+              <div style={grid}>
+                <Field icon={Wallet} label="Fee Type">
+                  <select
+                    style={input}
+                    value={editData.feeType}
+                    onChange={(e) => handleEditFeeTypeChange(e.target.value)}
+                  >
+                    <option value="Free">🆓 Free</option>
+                    <option value="Paid">💵 Paid</option>
+                  </select>
+                </Field>
+
+                <Field icon={Wallet} label="Monthly Fee ($)">
+                  <input
+                    style={{ ...input, opacity: editData.feeType === "Free" ? 0.55 : 1 }}
                     type="number"
-                    value={editData.monthlyFee}
+                    placeholder="0.00"
+                    value={editData.feeType === "Free" ? "0" : editData.monthlyFee}
+                    disabled={editData.feeType === "Free"}
                     onChange={(e) => handleEditChange("monthlyFee", e.target.value)}
                   />
                 </Field>
+              </div>
 
+              <div style={sectionTitle}>Xiriirka & Gelitaanka</div>
+              <div style={grid}>
                 <Field icon={Phone} label="Parent Phone">
                   <input
                     style={input}
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="61xxxxxxx"
                     value={editData.parentPhone}
-                    onChange={(e) => handleEditChange("parentPhone", e.target.value)}
+                    onChange={(e) => handleEditPhoneChange("parentPhone", e.target.value)}
                   />
                 </Field>
 
                 <Field icon={Smartphone} label="Student Phone">
                   <input
                     style={input}
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="61xxxxxxx"
                     value={editData.studentPhone}
-                    onChange={(e) => handleEditChange("studentPhone", e.target.value)}
+                    onChange={(e) => handleEditPhoneChange("studentPhone", e.target.value)}
                   />
-                </Field>
-
-                <Field icon={MapPin} label="District">
-                  <input
-                    style={input}
-                    value={editData.district}
-                    onChange={(e) => handleEditChange("district", e.target.value)}
-                  />
-                </Field>
-
-                <Field icon={BookOpen} label="Previous School">
-                  <input
-                    style={input}
-                    value={editData.previousSchool}
-                    onChange={(e) => handleEditChange("previousSchool", e.target.value)}
-                  />
-                </Field>
-
-                <Field icon={Heart} label="Orphan Status">
-                  <select
-                    style={input}
-                    value={editData.orphanStatus}
-                    onChange={(e) => handleEditChange("orphanStatus", e.target.value)}
-                  >
-                    <option>No</option>
-                    <option>Yes</option>
-                  </select>
                 </Field>
 
                 <Field icon={Lock} label="Parent Password">
@@ -1583,4 +1809,45 @@ const grid = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: "20px 24px",
+};
+
+const sectionTitle = {
+  fontSize: 11.5,
+  fontWeight: 800,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  color: "#16a34a",
+  margin: "22px 0 12px",
+  paddingBottom: 8,
+  borderBottom: "1px solid #eef0f2",
+};
+
+const typeWarn = {
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  color: "#92400e",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 13,
+  lineHeight: 1.5,
+  marginBottom: 6,
+};
+const shiftPill = {
+  flex: "1 1 120px",
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1.5px solid #e5e7eb",
+  background: "#f9fafb",
+  color: "#374151",
+  fontWeight: 700,
+  fontSize: 14,
+  cursor: "pointer",
+};
+
+const shiftPillActive = {
+  ...shiftPill,
+  border: "1.5px solid #16a34a",
+  background: "#f0fdf4",
+  color: "#15803d",
+  boxShadow: "0 0 0 3px rgba(22,163,74,0.15)",
 };

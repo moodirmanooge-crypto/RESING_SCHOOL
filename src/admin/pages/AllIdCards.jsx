@@ -157,7 +157,7 @@ import StudentIdCard from "../../student/StudentIdCard";
 import TeacherIdCard from "../../teacher/TeacherIdCard";
 import ManualStudentIdCard from "../../student/ManualStudentIdCard";
 import ManualTeacherIdCard from "../../teacher/ManualTeacherIdCard";
-import { Search, Printer, Download, IdCard, GraduationCap, Users, Trash2, Plus } from "lucide-react";
+import { Search, Printer, Download, IdCard, GraduationCap, Users, Trash2, Plus, Calendar, Clock, X, Eye, FileDown } from "lucide-react";
 import html2canvas from "html2canvas";
 import { migrateStudentIdCards } from "../../utils/migrateStudentIdCards";
 
@@ -311,6 +311,53 @@ const tableCardStyle = {
   boxShadow: "0 4px 18px rgba(17,24,39,0.06)",
   border: "1px solid rgba(17,24,39,0.05)",
 };
+
+// Hubi in card-ku dhacay (expireDate waa "DD-MM-YYYY")
+function isExpired(str) {
+  if (!str || typeof str !== "string") return false;
+  const [d, m, y] = str.split("-").map(Number);
+  if (!d || !m || !y) return false;
+  const exp = new Date(y, m - 1, d, 23, 59, 59);
+  return exp.getTime() < Date.now();
+}
+
+function CardAvatar({ photo, name, size = 88 }) {
+  const [failed, setFailed] = useState(false);
+  const base = {
+    width: size,
+    height: size,
+    minWidth: size,
+    borderRadius: 20,
+    border: "3px solid #fff",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+    background: "#fff",
+  };
+  if (photo && !failed) {
+    return (
+      <img
+        src={photo}
+        alt={name}
+        onError={() => setFailed(true)}
+        style={{ ...base, objectFit: "cover", objectPosition: "center top", display: "block" }}
+      />
+    );
+  }
+  return (
+    <div style={{ ...base, display: "flex", alignItems: "center", justifyContent: "center", color: "#15803d", fontWeight: 800, fontSize: size * 0.34 }}>
+      {(name || "?").trim().slice(0, 2).toUpperCase()}
+    </div>
+  );
+}
+
+function InfoRow({ icon: Icon, label, value, danger }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+      <Icon size={13} color={danger ? "#dc2626" : "#16a34a"} style={{ flexShrink: 0 }} />
+      <span style={{ color: "#9ca3af", minWidth: 72 }}>{label}</span>
+      <span style={{ color: danger ? "#dc2626" : "#374151", fontWeight: 600 }}>{value || "—"}</span>
+    </div>
+  );
+}
 
 export default function AllIdCards() {
   const [students, setStudents] = useState([]);
@@ -1117,7 +1164,7 @@ export default function AllIdCards() {
   })();
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#F3F4F8", fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+    <div style={{ display: "flex", minHeight: "100vh", background: "#f3f6f4", fontFamily: "'Inter','Segoe UI',sans-serif" }}>
       <Sidebar />
 
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -1125,344 +1172,285 @@ export default function AllIdCards() {
           <Topbar />
         </div>
 
-        <div style={{ padding: "26px 30px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 12, flexWrap: "wrap" }} className="idcards-print-hide">
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <IdCard size={22} color="#16a34a" />
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#111827" }}>
-                All ID Cards
+        <div style={{ padding: "22px 30px 40px" }}>
+          {/* ================= HERO (sida Student List) ================= */}
+          <div style={heroBanner} className="idcards-print-hide">
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={heroKicker}>RISING STAR SCHOOL</div>
+              <h1 style={{ margin: "6px 0 4px", fontSize: 28, fontWeight: 800, color: "#fff", display: "flex", alignItems: "center", gap: 10 }}>
+                <IdCard size={26} /> ID Cards
               </h1>
+              <p style={{ margin: 0, fontSize: 13.5, color: "rgba(255,255,255,0.85)" }}>
+                Dhammaan ID card-yada ardayda iyo macallimiinta — raadi, eeg, daabac, ama soo deji PDF.
+              </p>
             </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {/* Create a manual ID card — asks Teacher or Student first */}
-              <button
-                onClick={() => setCreateChoice("choose")}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "9px 16px",
-                  borderRadius: 10,
-                  border: "none",
-                  background: "linear-gradient(90deg,#16a34a,#15803d)",
-                  color: "#fff",
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  cursor: "pointer",
-                }}
-              >
-                <Plus size={14} /> Create ID Card
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <button onClick={() => setCreateChoice("choose")} style={heroBtn}>
+                <Plus size={16} /> Create ID Card
               </button>
-
-              <button onClick={() => migrateStudentIdCards().then(console.log)}>
+              <button onClick={() => migrateStudentIdCards().then(console.log)} style={heroBtnGhost}>
                 Run Migration
-              </button>
-
-              {/* Bulk PDF download — one PDF per checked card (student or
-                  teacher), only shown once at least one row is checked. */}
-              {selectedIds.size > 0 && (
-                <button
-                  onClick={handleDownloadSelectedPdf}
-                  disabled={bulkPdfRunning}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "9px 16px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(37,99,235,0.3)",
-                    background: bulkPdfRunning ? "#E5E7EB" : "#EFF6FF",
-                    color: "#2563eb",
-                    fontWeight: 700,
-                    fontSize: 12.5,
-                    cursor: bulkPdfRunning ? "not-allowed" : "pointer",
-                    opacity: bulkPdfRunning ? 0.7 : 1,
-                  }}
-                >
-                  <Download size={14} />
-                  {bulkPdfRunning
-                    ? `Generating PDFs... (${bulkPdfDone}/${bulkPdfTotal})`
-                    : `Download PDF (Selected) (${selectedIds.size})`}
-                </button>
-              )}
-
-              {/* Bulk delete button — muuqda marka card la doorto ama liis jiro */}
-              <button
-                onClick={handleDeleteSelected}
-                disabled={deleting || filtered.length === 0}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "9px 16px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(220,38,38,0.3)",
-                  background: selectedIds.size > 0 ? "#DC2626" : "transparent",
-                  color: selectedIds.size > 0 ? "#fff" : "#DC2626",
-                  fontWeight: 700,
-                  fontSize: 12.5,
-                  cursor: deleting || filtered.length === 0 ? "not-allowed" : "pointer",
-                  opacity: deleting || filtered.length === 0 ? 0.6 : 1,
-                }}
-              >
-                <Trash2 size={14} />
-                {deleting
-                  ? "Deleting..."
-                  : selectedIds.size > 0
-                  ? `Delete Selected (${selectedIds.size})`
-                  : "Delete All Shown"}
               </button>
             </div>
           </div>
 
-          {/* Search + filters */}
-          <div
-            style={{
-              ...tableCardStyle,
-              display: "flex",
-              gap: 14,
-              alignItems: "center",
-              flexWrap: "wrap",
-              marginBottom: 20,
-            }}
-            className="idcards-print-hide"
-          >
-            <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
-              <Search size={16} color="#9CA3AF" style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+          {/* ================= STATS (riix si loo shaandheeyo) ================= */}
+          <div style={statsRow} className="idcards-print-hide">
+            {[
+              { key: "all", icon: IdCard, value: combined.length, label: "Dhammaan" },
+              { key: "student", icon: GraduationCap, value: manualCards.length, label: "Students" },
+              { key: "teacher", icon: Users, value: manualTeacherCards.length, label: "Teachers" },
+            ].map((c) => {
+              const Icon = c.icon;
+              const active = typeFilter === c.key;
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => setTypeFilter(c.key)}
+                  style={{ ...statCard, ...(active ? statCardActive : {}) }}
+                >
+                  <Icon size={16} color={active ? "#16a34a" : "#9ca3af"} />
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 6 }}>{c.value}</div>
+                  <div style={{ fontSize: 11.5, color: "#6b7280", fontWeight: 600 }}>{c.label}</div>
+                </button>
+              );
+            })}
+            <div style={{ ...statCard, cursor: "default" }}>
+              <Clock size={16} color="#9ca3af" />
+              <div style={{ fontSize: 22, fontWeight: 800, color: "#111827", marginTop: 6 }}>
+                {combined.filter((r) => isExpired(r.expireDate)).length}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#6b7280", fontWeight: 600 }}>Dhacay (Expired)</div>
+            </div>
+          </div>
+
+          {/* ================= TOOLBAR ================= */}
+          <div style={toolbar} className="idcards-print-hide">
+            <div style={searchWrap}>
+              <Search size={16} color="#9ca3af" />
               <input
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search by ID number or name..."
-                style={{
-                  width: "100%",
-                  padding: "10px 12px 10px 36px",
-                  borderRadius: 10,
-                  border: "1px solid rgba(17,24,39,0.1)",
-                  fontSize: 13.5,
-                  outline: "none",
-                  boxSizing: "border-box",
-                }}
+                placeholder="Raadi ID ama magac..."
+                style={searchInput}
               />
             </div>
 
-            <div style={{ display: "flex", gap: 8 }}>
-              {[
-                { key: "all", label: "All" },
-                { key: "student", label: "Students" },
-                { key: "teacher", label: "Teachers" },
-              ].map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => setTypeFilter(f.key)}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: 10,
-                    border: "1px solid rgba(22,163,74,0.25)",
-                    background: typeFilter === f.key ? "#16a34a" : "transparent",
-                    color: typeFilter === f.key ? "#fff" : "#16a34a",
-                    fontWeight: 700,
-                    fontSize: 12.5,
-                    cursor: "pointer",
-                  }}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+            <label style={selectAllLabel}>
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                onChange={toggleSelectAll}
+                disabled={filtered.length === 0}
+                style={{ accentColor: "#16a34a", width: 16, height: 16, cursor: "pointer" }}
+              />
+              Dooro dhammaan ({filtered.length})
+            </label>
+
+            {selectedIds.size > 0 && (
+              <button
+                onClick={handleDownloadSelectedPdf}
+                disabled={bulkPdfRunning}
+                style={{
+                  ...ghostBtn,
+                  color: "#2563eb",
+                  borderColor: "rgba(37,99,235,0.3)",
+                  background: "#eff6ff",
+                  opacity: bulkPdfRunning ? 0.7 : 1,
+                  cursor: bulkPdfRunning ? "not-allowed" : "pointer",
+                }}
+              >
+                <FileDown size={16} />
+                {bulkPdfRunning
+                  ? `PDF... (${bulkPdfDone}/${bulkPdfTotal})`
+                  : `Download PDF (${selectedIds.size})`}
+              </button>
+            )}
+
+            <button
+              onClick={handleDeleteSelected}
+              disabled={deleting || filtered.length === 0}
+              style={{
+                ...ghostBtn,
+                marginLeft: "auto",
+                color: selectedIds.size > 0 ? "#fff" : "#dc2626",
+                background: selectedIds.size > 0 ? "#dc2626" : "#fef2f2",
+                borderColor: "#fecaca",
+                opacity: deleting || filtered.length === 0 ? 0.6 : 1,
+                cursor: deleting || filtered.length === 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              <Trash2 size={16} />
+              {deleting
+                ? "Deleting..."
+                : selectedIds.size > 0
+                ? `Delete Selected (${selectedIds.size})`
+                : "Delete All Shown"}
+            </button>
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: selected ? "0.9fr 1.4fr" : "1fr", gap: 20, alignItems: "start" }}>
-            {/* Results table */}
-            <div style={{ ...tableCardStyle, overflowX: "auto" }} className="idcards-print-hide">
-              <h3 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#111827" }}>
-                {loading ? "Loading..." : `${filtered.length} card${filtered.length !== 1 ? "s" : ""} found`}
-              </h3>
+          <div style={{ fontSize: 12.5, color: "#6b7280", margin: "4px 2px 14px", fontWeight: 600 }} className="idcards-print-hide">
+            Muujinaya {filtered.length} ka mid ah {combined.length} card
+          </div>
 
-              {!loading && filtered.length === 0 && (
-                <p style={{ fontSize: 13, color: "#9CA3AF" }}>Wax natiijo ah lama helin.</p>
-              )}
-
-              {filtered.length > 0 && (
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, minWidth: 460 }}>
-                  <thead>
-                    <tr style={{ color: "#9CA3AF", textAlign: "left" }}>
-                      <th style={{ fontWeight: 600, paddingBottom: 8, width: 28 }}>
+          {/* ================= KAARARKA ID-GA ================= */}
+          {loading ? (
+            <p style={{ color: "#6b7280" }}>Loading...</p>
+          ) : filtered.length === 0 ? (
+            <div style={emptyBox} className="idcards-print-hide">Wax natiijo ah lama helin.</div>
+          ) : (
+            <div
+              className="idcards-print-hide"
+              style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 18 }}
+            >
+              {filtered.map((r) => {
+                const isTeacher = r.type === "teacher";
+                const idValue = isTeacher ? r.teacherId || r.teacherUsername || r.id : r.studentId;
+                const nameValue = r.fullName || r.name || "—";
+                const photo = isTeacher ? r.teacherPhoto : r.studentPhoto;
+                const isChecked = selectedIds.has(rowKey(r));
+                const expired = isExpired(r.expireDate);
+                const banner = isTeacher
+                  ? "linear-gradient(135deg,#8b5cf6,#6d28d9)"
+                  : r.studentType === "Part Time"
+                  ? "linear-gradient(135deg,#0ea5e9,#0369a1)"
+                  : "linear-gradient(135deg,#22c55e,#15803d)";
+                return (
+                  <div
+                    key={rowKey(r)}
+                    onClick={() => setSelected({ type: r.type, data: r })}
+                    style={{ ...idCardStyle, ...(isChecked ? idCardChecked : {}) }}
+                  >
+                    <div style={{ ...idBanner, background: banner }}>
+                      <label style={checkWrap} onClick={(e) => e.stopPropagation()}>
                         <input
                           type="checkbox"
-                          checked={allFilteredSelected}
-                          onChange={toggleSelectAll}
-                          style={{ cursor: "pointer" }}
+                          checked={isChecked}
+                          onChange={() => toggleRowSelected(r)}
+                          style={{ accentColor: "#16a34a", width: 16, height: 16, cursor: "pointer" }}
                         />
-                      </th>
-                      <th style={{ fontWeight: 600, paddingBottom: 8 }}>Type</th>
-                      <th style={{ fontWeight: 600, paddingBottom: 8 }}>ID</th>
-                      <th style={{ fontWeight: 600, paddingBottom: 8 }}>Name</th>
-                      <th style={{ fontWeight: 600, paddingBottom: 8 }}>Issued</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.map((r) => {
-                      const idValue = r.type === "student" ? r.studentId : (r.teacherId || r.teacherUsername || r.id);
-                      const nameValue = r.fullName || r.name || "—";
-                      const isSelected = selected?.data.id === r.id && selected?.type === r.type;
-                      const isChecked = selectedIds.has(rowKey(r));
-                      return (
-                        <tr
-                          key={rowKey(r)}
-                          style={{
-                            borderTop: "1px solid #F3F4F6",
-                            cursor: "pointer",
-                            background: isSelected ? "#EFFBF3" : "transparent",
-                          }}
-                        >
-                          <td style={{ padding: "10px 0" }} onClick={(e) => e.stopPropagation()}>
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={() => toggleRowSelected(r)}
-                              style={{ cursor: "pointer" }}
-                            />
-                          </td>
-                          <td style={{ padding: "10px 0" }} onClick={() => setSelected({ type: r.type, data: r })}>
-                            <span
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 5,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                padding: "3px 9px",
-                                borderRadius: 20,
-                                background: r.type === "student" ? "#E6F5EC" : "#EDE9FE",
-                                color: r.type === "student" ? "#16a34a" : "#7c3aed",
-                              }}
-                            >
-                              {r.type === "student" ? <GraduationCap size={12} /> : <Users size={12} />}
-                              {r.type === "student" ? "Student" : "Teacher"}
-                              {r.manual ? " (Manual)" : ""}
-                            </span>
-                          </td>
-                          <td style={{ color: "#111827", fontWeight: 700 }} onClick={() => setSelected({ type: r.type, data: r })}>{idValue || "—"}</td>
-                          <td style={{ color: "#374151" }} onClick={() => setSelected({ type: r.type, data: r })}>{nameValue}</td>
-                          <td style={{ color: "#9CA3AF" }} onClick={() => setSelected({ type: r.type, data: r })}>{formatDate(r.issuedAt || r.idIssuedAt || r.createdAt)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+                      </label>
+                      <span style={idChipStyle}>ID {idValue || "—"}</span>
+                    </div>
 
-            {/* Selected card preview */}
-            {selected && (
-              <div style={{ ...tableCardStyle, overflowX: "auto" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }} className="idcards-print-hide">
-                  <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#111827" }}>
-                    {selected.type === "student" ? "Student" : "Teacher"} ID Card
-                    {selected.data.manual ? " (Manual)" : ""}
-                  </h3>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button
-                      onClick={handlePrint}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "none",
-                        background: "#14532d",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Printer size={14} /> Print
-                    </button>
-                    <button
-                      onClick={handleDownload}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(20,83,45,0.3)",
-                        background: "transparent",
-                        color: "#14532d",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Download size={14} /> Download
-                    </button>
-                    <button
-                      onClick={handleDownloadPdf}
-                      disabled={downloadingPdf}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(20,83,45,0.3)",
-                        background: "transparent",
-                        color: "#14532d",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: downloadingPdf ? "not-allowed" : "pointer",
-                        opacity: downloadingPdf ? 0.6 : 1,
-                      }}
-                    >
-                      <Download size={14} /> {downloadingPdf ? "Generating..." : "Download PDF"}
-                    </button>
-                    <button
-                      onClick={handleDeleteSingle}
-                      disabled={deletingOne || !selected.data.hasCardDoc}
-                      title={!selected.data.hasCardDoc ? "ID card gaar ah weli lama sameynin" : undefined}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 6,
-                        padding: "8px 14px",
-                        borderRadius: 10,
-                        border: "1px solid rgba(220,38,38,0.3)",
-                        background: "#DC2626",
-                        color: "#fff",
-                        fontWeight: 700,
-                        fontSize: 12.5,
-                        cursor: deletingOne || !selected.data.hasCardDoc ? "not-allowed" : "pointer",
-                        opacity: deletingOne || !selected.data.hasCardDoc ? 0.6 : 1,
-                      }}
-                    >
-                      <Trash2 size={14} /> {deletingOne ? "Deleting..." : "Delete"}
-                    </button>
+                    <div style={{ padding: "0 18px 16px" }}>
+                      <div style={{ marginTop: -44, position: "relative", zIndex: 2 }}>
+                        <CardAvatar photo={photo} name={nameValue} size={88} />
+                      </div>
+
+                      <div style={{ marginTop: 10, fontWeight: 800, fontSize: 15.5, color: "#111827" }}>
+                        {nameValue}
+                      </div>
+
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                        <span style={{ ...chip, ...(isTeacher ? chipPurple : chipGreen), display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          {isTeacher ? <Users size={11} /> : <GraduationCap size={11} />}
+                          {isTeacher ? "Teacher" : "Student"}
+                        </span>
+                        {!isTeacher && <span style={chip}>Class {r.grade || "—"}</span>}
+                        {!isTeacher && (
+                          <span style={{ ...chip, ...(r.studentType === "Part Time" ? chipBlue : {}) }}>
+                            {r.studentType || "Full Time"}
+                          </span>
+                        )}
+                        {isTeacher && <span style={chip}>{r.title || "Teacher"}</span>}
+                        {expired && <span style={chipRed}>Wuu dhacay</span>}
+                      </div>
+
+                      <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <InfoRow icon={Calendar} label="La bixiyay" value={r.issueDate || formatDate(r.issuedAt || r.createdAt)} />
+                        <InfoRow icon={Clock} label="Dhacaya" value={r.expireDate} danger={expired} />
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelected({ type: r.type, data: r });
+                        }}
+                        style={viewCardBtn}
+                      >
+                        <Eye size={15} /> Eeg ID Card-ka
+                      </button>
+                    </div>
                   </div>
-                </div>
-
-                <div ref={printRef} id="idcards-printable">
-                  {selected.data.manual && selected.type === "teacher" ? (
-                    <ManualTeacherIdCard card={selected.data} />
-                  ) : selected.data.manual ? (
-                    <ManualStudentIdCard card={selected.data} />
-                  ) : selected.type === "student" ? (
-                    <StudentIdCard student={selected.data} studentId={selected.data.studentId} />
-                  ) : (
-                    <TeacherIdCard
-                      teacher={selected.data}
-                      teacherUsername={selected.data.teacherUsername || selected.data.id}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ================= MODAL: PREVIEW ID CARD ================= */}
+      {selected && (
+        <div onClick={() => setSelected(null)} style={previewOverlay}>
+          <div onClick={(e) => e.stopPropagation()} style={previewModal}>
+            <div className="idcards-print-hide" style={previewHeader}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {selected.type === "student" ? (
+                  <GraduationCap size={20} color="#16a34a" />
+                ) : (
+                  <Users size={20} color="#7c3aed" />
+                )}
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#111827" }}>
+                    {selected.data.fullName || "—"}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 2 }}>
+                    {selected.type === "student" ? "Student" : "Teacher"} ID Card ·{" "}
+                    {selected.type === "student"
+                      ? selected.data.studentId
+                      : selected.data.teacherId || selected.data.teacherUsername || selected.data.id}
+                  </div>
+                </div>
+              </div>
+              <button onClick={() => setSelected(null)} style={closeBtnStyle}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: "22px 24px", overflow: "auto", display: "flex", justifyContent: "center", background: "#f9fafb" }}>
+              <div ref={printRef} id="idcards-printable">
+                {selected.data.manual && selected.type === "teacher" ? (
+                  <ManualTeacherIdCard card={selected.data} />
+                ) : selected.data.manual ? (
+                  <ManualStudentIdCard card={selected.data} />
+                ) : selected.type === "student" ? (
+                  <StudentIdCard student={selected.data} studentId={selected.data.studentId} />
+                ) : (
+                  <TeacherIdCard
+                    teacher={selected.data}
+                    teacherUsername={selected.data.teacherUsername || selected.data.id}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="idcards-print-hide" style={previewFooter}>
+              <button
+                onClick={handleDeleteSingle}
+                disabled={deletingOne || !selected.data.hasCardDoc}
+                style={{ ...footerBtn, color: "#dc2626", background: "#fef2f2", borderColor: "#fecaca", marginRight: "auto", opacity: deletingOne ? 0.6 : 1 }}
+              >
+                <Trash2 size={15} /> {deletingOne ? "Deleting..." : "Delete"}
+              </button>
+              <button onClick={handleDownload} style={footerBtn}>
+                <Download size={15} /> PNG
+              </button>
+              <button
+                onClick={handleDownloadPdf}
+                disabled={downloadingPdf}
+                style={{ ...footerBtn, opacity: downloadingPdf ? 0.6 : 1 }}
+              >
+                <FileDown size={15} /> {downloadingPdf ? "Generating..." : "Download PDF"}
+              </button>
+              <button onClick={handlePrint} style={{ ...footerBtn, background: "linear-gradient(90deg,#16a34a,#15803d)", color: "#fff", border: "none" }}>
+                <Printer size={15} /> Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Off-screen container used only during bulk PDF generation — never
           visible to the admin, exists purely so html2canvas has a real
@@ -1886,4 +1874,95 @@ const modalInput = {
   fontSize: 13.5,
   outline: "none",
   boxSizing: "border-box",
+};
+
+/* ====================================================
+   STYLES — isla qaabka Student List (green)
+   ==================================================== */
+const heroBanner = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  gap: 18,
+  padding: "26px 30px",
+  borderRadius: 20,
+  background: "linear-gradient(120deg,#16a34a,#15803d 60%,#166534)",
+  boxShadow: "0 14px 30px rgba(22,163,74,0.25)",
+};
+const heroKicker = { fontSize: 11, fontWeight: 800, letterSpacing: "0.14em", color: "rgba(255,255,255,0.75)" };
+const heroBtn = {
+  display: "inline-flex", alignItems: "center", gap: 8, background: "#fff", color: "#15803d",
+  border: "none", padding: "12px 18px", borderRadius: 12, cursor: "pointer", fontWeight: 800, fontSize: 14,
+};
+const heroBtnGhost = {
+  display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.14)", color: "#fff",
+  border: "1px solid rgba(255,255,255,0.35)", padding: "12px 18px", borderRadius: 12, cursor: "pointer", fontWeight: 700, fontSize: 14,
+};
+const statsRow = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, margin: "18px 0" };
+const statCard = { textAlign: "left", background: "#fff", border: "1.5px solid #e5e7eb", borderRadius: 14, padding: "12px 14px", cursor: "pointer" };
+const statCardActive = { borderColor: "#16a34a", boxShadow: "0 6px 16px rgba(22,163,74,0.18)", background: "#f0fdf4" };
+const toolbar = {
+  display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", background: "#fff",
+  border: "1px solid #e5e7eb", borderRadius: 14, padding: 12, marginBottom: 10,
+};
+const searchWrap = {
+  display: "flex", alignItems: "center", gap: 10, flex: "1 1 240px", minWidth: 220, padding: "0 14px",
+  borderRadius: 10, border: "1.5px solid #e5e7eb", background: "#f9fafb",
+};
+const searchInput = { flex: 1, padding: "11px 0", border: "none", outline: "none", background: "transparent", color: "#111827", fontSize: 13.5 };
+const selectAllLabel = {
+  display: "inline-flex", alignItems: "center", gap: 8, background: "#f9fafb", border: "1.5px solid #e5e7eb",
+  borderRadius: 10, padding: "11px 14px", fontSize: 13, fontWeight: 600, color: "#111827", cursor: "pointer",
+};
+const ghostBtn = {
+  display: "inline-flex", alignItems: "center", gap: 8, background: "#f9fafb", color: "#111827",
+  border: "1.5px solid #e5e7eb", padding: "11px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13,
+};
+const emptyBox = { background: "#fff", border: "1px dashed #d1d5db", borderRadius: 14, padding: 30, textAlign: "center", color: "#6b7280" };
+const idCardStyle = {
+  background: "#fff", borderRadius: 18, border: "1.5px solid #e5e7eb", overflow: "hidden",
+  boxShadow: "0 6px 18px rgba(15,23,42,0.05)", cursor: "pointer", transition: "box-shadow .2s, border-color .2s",
+};
+const idCardChecked = { borderColor: "#16a34a", boxShadow: "0 0 0 3px rgba(22,163,74,0.18)" };
+const idBanner = { height: 84, position: "relative" };
+const checkWrap = {
+  position: "absolute", top: 10, left: 12, zIndex: 3, background: "rgba(255,255,255,0.9)",
+  borderRadius: 8, width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+};
+const idChipStyle = {
+  position: "absolute", top: 10, right: 12, background: "rgba(255,255,255,0.22)", color: "#fff",
+  fontSize: 11, fontWeight: 800, padding: "4px 10px", borderRadius: 999,
+};
+const chip = { background: "#f3f4f6", color: "#4b5563", fontSize: 11.5, fontWeight: 700, padding: "4px 10px", borderRadius: 999, whiteSpace: "nowrap" };
+const chipGreen = { background: "#dcfce7", color: "#15803d" };
+const chipBlue = { background: "#e0f2fe", color: "#0369a1" };
+const chipPurple = { background: "#ede9fe", color: "#6d28d9" };
+const chipRed = { ...chip, background: "#fee2e2", color: "#b91c1c" };
+const viewCardBtn = {
+  marginTop: 14, width: "100%", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+  background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "10px 0",
+  fontWeight: 700, fontSize: 13, cursor: "pointer",
+};
+const previewOverlay = {
+  position: "fixed", inset: 0, zIndex: 1000, background: "rgba(15,23,42,0.6)",
+  display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "32px 16px", overflowY: "auto",
+};
+const previewModal = {
+  background: "#fff", borderRadius: 20, width: "min(820px, 100%)", overflow: "hidden",
+  boxShadow: "0 20px 60px rgba(0,0,0,0.3)", display: "flex", flexDirection: "column",
+};
+const previewHeader = {
+  display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 24px", borderBottom: "1px solid #e5e7eb",
+};
+const previewFooter = {
+  display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end", padding: "16px 24px", borderTop: "1px solid #e5e7eb",
+};
+const footerBtn = {
+  display: "inline-flex", alignItems: "center", gap: 6, padding: "10px 16px", borderRadius: 10,
+  border: "1.5px solid #e5e7eb", background: "#f9fafb", color: "#111827", fontWeight: 700, fontSize: 13, cursor: "pointer",
+};
+const closeBtnStyle = {
+  background: "#f3f4f6", border: "none", color: "#374151", width: 32, height: 32, borderRadius: 8,
+  display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
 };
