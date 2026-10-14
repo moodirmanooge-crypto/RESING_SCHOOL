@@ -6,12 +6,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { db } from "../../firebase/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
 import {
   GraduationCap,
   User,
   Users,
   Phone,
+  Mail,
   BookOpen,
   Loader2,
   Save,
@@ -28,6 +29,7 @@ export default function EditTeacher() {
   const [fullName, setFullName] = useState("");
   const [fatherName, setFatherName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [subjectsText, setSubjectsText] = useState("");
 
   useEffect(() => {
@@ -47,6 +49,7 @@ export default function EditTeacher() {
       setFullName(data.fullName || "");
       setFatherName(data.fatherName || data.parentName || "");
       setPhone(data.phone || data.phoneNumber || "");
+      setEmail(data.email || (String(username).includes("@") ? username : ""));
       const subjects = Array.isArray(data.subjects) ? data.subjects : [];
       setSubjectsText(subjects.join(", "));
     } catch (err) {
@@ -65,8 +68,21 @@ export default function EditTeacher() {
       return;
     }
 
+    // Email-ka: OTP code-ka marka macalinku galayo Teacher Portal-ka halkan ayaa loo diraa.
+    const cleanEmail = email.trim().toLowerCase();
+    if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(cleanEmail)) {
+      alert("Fadlan geli email sax ah — code-ka login-ka (OTP) halkan ayaa loo diraa.");
+      return;
+    }
+
     try {
       setSaving(true);
+
+      const dup = await getDocs(query(collection(db, "teachers"), where("email", "==", cleanEmail)));
+      if (dup.docs.some((d) => d.id !== username)) {
+        alert("Email-kan macalin kale ayaa isticmaala. Fadlan email kale geli.");
+        return;
+      }
 
       const uniqueSubjects = [
         ...new Set(
@@ -84,6 +100,7 @@ export default function EditTeacher() {
         phone,
         phoneNumber: phone, // keep old field in sync too
         subjects: uniqueSubjects,
+        email: cleanEmail,
       });
 
       alert("Macluumaadka macalinka waa la cusboonaysiiyay");
@@ -160,6 +177,18 @@ export default function EditTeacher() {
 
           <Field icon={Users} label="Father's Name (Magaca Aabaha)">
             <input style={input} value={fatherName} onChange={(e) => setFatherName(e.target.value)} />
+          </Field>
+
+          <div style={{ height: 18 }} />
+
+          <Field icon={Mail} label="Email-ka Macalinka (OTP code-ka halkan ayaa loo diraa)">
+            <input
+              style={input}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Tusaale: cabdi@gmail.com"
+            />
           </Field>
 
           <div style={{ height: 18 }} />

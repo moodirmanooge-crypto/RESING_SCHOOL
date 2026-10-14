@@ -139,7 +139,10 @@ function Avatar({ student, size = 56 }) {
 export default function Students() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  // Raadinta Topbar-ka (?q=...) ayaa si toos ah halkan ku soo dhacaysa
+  const [search, setSearch] = useState(
+    () => new URLSearchParams(window.location.search).get("q") || ""
+  );
 
   // Doorashooyinka Class-ka iyo Type-ka
   const [selectedClass, setSelectedClass] = useState("ALL");
@@ -150,6 +153,8 @@ export default function Students() {
   const [selectedShift, setSelectedShift] = useState("ALL");
   // Kaliya ardayda agoonta ah
   const [orphanOnly, setOrphanOnly] = useState(false);
+  // Filter-ka Gender-ka (ALL | Male | Female)
+  const [genderFilter, setGenderFilter] = useState("ALL");
   // Habka loo eego: grid (kaararka) ama list (saf-saf)
   const [viewMode, setViewMode] = useState("grid");
   // Sida loo kala sooco: id | name | class
@@ -226,6 +231,7 @@ export default function Students() {
 
       const matchesShift = selectedShift === "ALL" || s.shift === selectedShift;
       const matchesOrphan = !orphanOnly || s.orphanStatus === "Yes";
+      const matchesGender = genderFilter === "ALL" || s.gender === genderFilter;
 
       const q = search.toLowerCase().trim();
       const matchesSearch =
@@ -242,6 +248,7 @@ export default function Students() {
         matchesFee &&
         matchesShift &&
         matchesOrphan &&
+        matchesGender &&
         matchesSearch
       );
     })
@@ -269,6 +276,7 @@ export default function Students() {
 
       const matchesShift = selectedShift === "ALL" || s.shift === selectedShift;
       const matchesOrphan = !orphanOnly || s.orphanStatus === "Yes";
+      const matchesGender = genderFilter === "ALL" || s.gender === genderFilter;
 
       const q = search.toLowerCase().trim();
       const matchesSearch =
@@ -279,7 +287,9 @@ export default function Students() {
         (s.parentPhone || "").includes(q) ||
         (s.studentPhone || "").includes(q);
 
-      return matchesClass && matchesType && matchesShift && matchesOrphan && matchesSearch;
+      return (
+        matchesClass && matchesType && matchesShift && matchesOrphan && matchesGender && matchesSearch
+      );
     })
     .sort((a, b) => {
       if (sortBy === "name") return (a.fullName || "").localeCompare(b.fullName || "");
@@ -299,6 +309,9 @@ export default function Students() {
   const freeStudentsCount = activeStudents.filter((s) => s.feeType === "Free").length;
   const paidStudentsCount = activeStudents.filter((s) => s.feeType !== "Free").length;
   const orphanCount = activeStudents.filter((s) => s.orphanStatus === "Yes").length;
+  const maleCount = activeStudents.filter((s) => s.gender === "Male").length;
+  const femaleCount = activeStudents.filter((s) => s.gender === "Female").length;
+  const noGenderCount = totalCount - maleCount - femaleCount;
   const classesCount = new Set(activeStudents.map((s) => s.className).filter(Boolean)).size;
   const totalMonthly = activeStudents.reduce(
     (sum, s) => sum + (s.feeType === "Free" ? 0 : Number(s.monthlyFee) || 0),
@@ -310,6 +323,7 @@ export default function Students() {
     setSelectedType("ALL");
     setFeeFilter("ALL");
     setOrphanOnly(false);
+    setGenderFilter("ALL");
   }
 
   const statCards = [
@@ -318,8 +332,24 @@ export default function Students() {
       icon: Users,
       value: totalCount,
       label: "Dhamaan",
-      active: selectedType === "ALL" && feeFilter === "ALL" && !orphanOnly,
+      active: selectedType === "ALL" && feeFilter === "ALL" && !orphanOnly && genderFilter === "ALL",
       onClick: resetAllFilters,
+    },
+    {
+      key: "male",
+      icon: User,
+      value: maleCount,
+      label: "👦 Wiilal (Male)",
+      active: genderFilter === "Male",
+      onClick: () => setGenderFilter(genderFilter === "Male" ? "ALL" : "Male"),
+    },
+    {
+      key: "female",
+      icon: User,
+      value: femaleCount,
+      label: "👧 Gabdho (Female)",
+      active: genderFilter === "Female",
+      onClick: () => setGenderFilter(genderFilter === "Female" ? "ALL" : "Female"),
     },
     {
       key: "full",
@@ -368,6 +398,7 @@ export default function Students() {
     setEditData({
       fullName: student.fullName || "",
       motherName: student.motherName || "",
+      gender: student.gender || "",
       className: student.className || "",
       studentType: student.studentType || (student.collection === "partTimeStudents" ? "Part Time" : "Full Time"),
       shift: student.shift || "",
@@ -447,6 +478,7 @@ export default function Students() {
           updateDoc(doc(db, "studentIdCards", id), {
             fullName: f.fullName,
             motherName: f.motherName,
+            gender: f.gender,
             className: f.className,
             studentType: f.studentType,
             studentPhoto: f.studentPhoto,
@@ -460,6 +492,7 @@ export default function Students() {
         tasks.push(
           updateDoc(doc(db, "manualStudentIdCards", id), {
             fullName: f.fullName,
+            gender: f.gender,
             grade: f.className,
             studentType: f.studentType,
             studentPhoto: f.studentPhoto,
@@ -480,6 +513,10 @@ export default function Students() {
     }
     if (!editData.motherName.trim()) {
       alert("Fadlan geli Magaca Hooyada");
+      return;
+    }
+    if (!editData.gender) {
+      alert("Fadlan dooro Gender-ka ardayga (Male ama Female)");
       return;
     }
     if (!editData.className) {
@@ -515,6 +552,7 @@ export default function Students() {
       const updatedFields = {
         fullName: editData.fullName.trim(),
         motherName: editData.motherName.trim(),
+        gender: editData.gender,
         className: editData.className,
         studentType: editData.studentType,
         shift: editData.shift.trim(),
@@ -623,6 +661,7 @@ export default function Students() {
         { header: "Sawir", dataKey: "photo" },
         { header: "ID", dataKey: "studentId" },
         { header: "Magaca Buuxa", dataKey: "fullName" },
+        { header: "Jinsiga", dataKey: "gender" },
         { header: "Fasalka", dataKey: "className" },
         { header: "Nooca", dataKey: "studentType" },
         { header: "Shift", dataKey: "shift" },
@@ -636,6 +675,7 @@ export default function Students() {
       const tableRows = targetStudents.map((s) => ({
         studentId: s.studentId || "—",
         fullName: s.fullName || "—",
+        gender: s.gender === "Male" ? "Male" : s.gender === "Female" ? "Female" : "—",
         className: s.className || "—",
         studentType: s.studentType || "Full Time",
         shift: s.shift || "—",
@@ -670,15 +710,16 @@ export default function Students() {
         columnStyles: {
           photo: { cellWidth: 14 },
           studentId: { cellWidth: 20 },
-          fullName: { cellWidth: 45, halign: "left" },
+          fullName: { cellWidth: 42, halign: "left" },
+          gender: { cellWidth: 16 },
           className: { cellWidth: 16 },
           studentType: { cellWidth: 22 },
           shift: { cellWidth: 18 },
-          parentPhone: { cellWidth: 26 },
-          studentPhone: { cellWidth: 26 },
+          parentPhone: { cellWidth: 24 },
+          studentPhone: { cellWidth: 24 },
           monthlyFee: { cellWidth: 22 },
-          district: { cellWidth: 25 },
-          parentPassword: { cellWidth: 25 },
+          district: { cellWidth: 22 },
+          parentPassword: { cellWidth: 22 },
         },
         bodyStyles: {
           minCellHeight: 12,
@@ -787,6 +828,14 @@ export default function Students() {
                 <div style={heroStatLabel}>Arday</div>
               </div>
               <div style={heroStat}>
+                <div style={heroStatValue}>{maleCount}</div>
+                <div style={heroStatLabel}>Wiil</div>
+              </div>
+              <div style={heroStat}>
+                <div style={heroStatValue}>{femaleCount}</div>
+                <div style={heroStatLabel}>Gabar</div>
+              </div>
+              <div style={heroStat}>
                 <div style={heroStatValue}>{classesCount}</div>
                 <div style={heroStatLabel}>Fasal</div>
               </div>
@@ -835,6 +884,13 @@ export default function Students() {
             })}
           </div>
 
+          {noGenderCount > 0 && (
+            <div style={genderWarn}>
+              ⚠️ {noGenderCount} arday weli lama calaamadin Gender (Male/Female). Riix <b>Edit</b>{" "}
+              kaarka ardayga si aad u doorato.
+            </div>
+          )}
+
           {/* ================= TOOLBAR: raadin + filters ================= */}
           <div style={toolbar}>
             <div style={searchWrap}>
@@ -875,6 +931,20 @@ export default function Students() {
                 <option value="ALL">Dhamaan (Full & Part Time)</option>
                 <option value="Full Time">Full Time</option>
                 <option value="Part Time">Part Time</option>
+              </select>
+            </div>
+
+            {/* Filter Gender */}
+            <div style={filterDropdownWrap}>
+              <Users size={15} color="#16a34a" />
+              <select
+                value={genderFilter}
+                onChange={(e) => setGenderFilter(e.target.value)}
+                style={filterSelect}
+              >
+                <option value="ALL">Dhamaan (Male & Female)</option>
+                <option value="Male">Male (Wiilal)</option>
+                <option value="Female">Female (Gabdho)</option>
               </select>
             </div>
 
@@ -1041,6 +1111,7 @@ export default function Students() {
                       >
                         {student.studentType || "Full Time"}
                       </span>
+                      <GenderChip gender={student.gender} />
                       {student.orphanStatus === "Yes" && <span style={chipRose}>Agoon</span>}
                     </div>
 
@@ -1099,6 +1170,7 @@ export default function Students() {
                   >
                     {student.studentType || "Full Time"}
                   </span>
+                  <GenderChip gender={student.gender} />
                   <span style={chip}>{student.studentPhone || "—"}</span>
                   <span style={chip}>${student.monthlyFee || "0"}/bishii</span>
 
@@ -1194,6 +1266,32 @@ export default function Students() {
                     value={editData.motherName}
                     onChange={(e) => handleEditChange("motherName", e.target.value)}
                   />
+                </Field>
+
+                <Field icon={Users} label="Gender *">
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {[
+                      { v: "Male", t: "👦 Male", c: "#0284c7", bg: "#e0f2fe" },
+                      { v: "Female", t: "👧 Female", c: "#db2777", bg: "#fce7f3" },
+                    ].map((g) => {
+                      const active = editData.gender === g.v;
+                      return (
+                        <button
+                          key={g.v}
+                          type="button"
+                          onClick={() => handleEditChange("gender", g.v)}
+                          style={{
+                            ...shiftPill,
+                            ...(active
+                              ? { border: `1.5px solid ${g.c}`, background: g.bg, color: g.c, boxShadow: `0 0 0 3px ${g.bg}` }
+                              : {}),
+                          }}
+                        >
+                          {g.t}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </Field>
 
                 <Field icon={Heart} label="Orphan Status">
@@ -1372,6 +1470,15 @@ export default function Students() {
       `}</style>
     </div>
   );
+}
+
+// Calaamadda Gender-ka ee kaarka
+function GenderChip({ gender }) {
+  if (gender === "Male")
+    return <span style={{ ...chip, background: "#e0f2fe", color: "#0369a1" }}>👦 Male</span>;
+  if (gender === "Female")
+    return <span style={{ ...chip, background: "#fce7f3", color: "#be185d" }}>👧 Female</span>;
+  return <span style={{ ...chip, background: "#fef3c7", color: "#b45309" }}>Gender ?</span>;
 }
 
 // Hal sadar oo xog ah ee kaarka (icon + calaamad + qiimo)
@@ -1850,4 +1957,14 @@ const shiftPillActive = {
   background: "#f0fdf4",
   color: "#15803d",
   boxShadow: "0 0 0 3px rgba(22,163,74,0.15)",
+};
+
+const genderWarn = {
+  background: "#fffbeb",
+  border: "1px solid #fde68a",
+  color: "#92400e",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 13,
+  marginBottom: 12,
 };

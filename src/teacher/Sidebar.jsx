@@ -5,6 +5,7 @@
 // pattern shown in the reference screenshot.
 
 import { NavLink, useNavigate } from "react-router-dom";
+import { signOutTeacher } from "../services/teacherOtpService";
 import {
   LayoutDashboard,
   CalendarCheck2,
@@ -46,11 +47,10 @@ export default function Sidebar({ teacherName = "Teacher" }) {
   const navigate = useNavigate();
   const { unreadCount } = useMessages();
 
-  const logout = () => {
-    localStorage.removeItem("teacherId");
-    localStorage.removeItem("teacherName");
-    localStorage.removeItem("teacherPhoto");
-    navigate("/login/teacher");
+  // Ka bax Firebase Auth session-ka (OTP) + xogta UI, kadib login-ka macalinka.
+  const logout = async () => {
+    await signOutTeacher();
+    navigate("/teacher-login");
   };
 
   return (

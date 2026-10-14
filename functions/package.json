@@ -1,0 +1,19 @@
+{
+  "name": "al-isra-functions",
+  "description": "AL-ISRA School — Admin Email OTP Cloud Functions",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "serve": "firebase emulators:start --only functions,firestore,auth",
+    "deploy": "firebase deploy --only functions:adminotp",
+    "logs": "firebase functions:log"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0",
+    "nodemailer": "^7.0.5"
+  }
+}

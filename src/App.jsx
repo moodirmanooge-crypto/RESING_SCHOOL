@@ -11,6 +11,10 @@ import News from "./pages/News";
 import Contact from "./pages/Contact";
 import Library from "./pages/Library";
 import Login from "./pages/Login";
+import AdminOtp from "./admin/AdminOtp";
+import AdminRoute from "./admin/AdminRoute";
+import TeacherOtp from "./teacher/TeacherOtp";
+import TeacherRoute from "./teacher/TeacherRoute";
 
 // ADMIN
 import Dashboard from "./admin/pages/Dashboard";
@@ -72,6 +76,7 @@ import Receipts from "./admin/pages/Receipts";
 import AdminRecycleBin from "./admin/pages/RecycleBin";
 import CashierRecycleBin from "./cashier/RecycleBin";
 import AllIdCards from "./admin/pages/AllIdCards";
+import SchoolAssets from "./admin/pages/SchoolAssets";
 
 // PUBLIC
 import VerifyCertificate from "./pages/VerifyCertificate";
@@ -84,7 +89,6 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/verify/student/:studentId" element={<StudentIdVerify />} />
-        <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
         <Route path="/" element={<Home />} />
         <Route path="/about" element={<About />} />
         <Route path="/admissions" element={<Admissions />} />
@@ -93,33 +97,13 @@ function App() {
         <Route path="/news" element={<News />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/library" element={<Library />} />
-        <Route path="/admin/receipts" element={<Receipts />} />
-        <Route path="/admin/recycle-bin" element={<AdminRecycleBin />} />
         <Route path="/admin-login" element={<Login role="Admin" />} />
+        <Route path="/admin-verify" element={<AdminOtp />} />
         <Route path="/teacher-login" element={<Login role="Teacher" />} />
+        <Route path="/teacher-verify" element={<TeacherOtp />} />
         <Route path="/student-login" element={<Login role="Student" />} />
         <Route path="/parent-login" element={<Login role="Parent" />} />
         <Route path="/cashier-login" element={<Login role="Cashier" />} />
-        <Route path="/admin/exam-cards" element={<ExamCards />} />
-        <Route path="/admin/id-cards" element={<AllIdCards />} />
-        <Route path="/admin/results-by-class" element={<ResultsByClass />} />
-        <Route path="/admin/holidays" element={<Holidays />} />
-        <Route path="/admin/gallery" element={<GalleryManager />} />
-        <Route path="/admin/news" element={<NewsManager />} />
-        <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
-        <Route path="/admin/manage-admins" element={<ManageAdmins />} />
-        <Route path="/admin/library" element={<LibraryManager />} />
-
-        {/* Admin page for uploading the single photo/video shown on the
-            public homepage hero section — writes to the
-            `settings/homepage` Firestore doc that Home.jsx reads live. */}
-        <Route path="/admin/upload-certificate" element={<UploadCertificate />} />
-
-        {/* Admin view of all admission applications submitted from the
-            public /admissions page — lists every applicant, shows a
-            pending-count badge in the sidebar, and lets the admin
-            approve a submission. */}
-        <Route path="/admin/admissions" element={<AdmissionsList />} />
 
         {/* Public certificate verification page — QR code on the Class 8
             leaving certificate links here. No login required. */}
@@ -131,102 +115,132 @@ function App() {
             the same details printed on the card. */}
         <Route path="/verify/teacher/:teacherUsername" element={<TeacherVerify />} />
 
+        {/* ===== ADMIN (ilaalinta OTP) =====
+            Dhammaan /admin/* waxay ku jiraan AdminRoute: Firebase Auth session
+            + claims role=admin & otpVerified=true (kaddib email OTP sax ah). */}
+        <Route element={<AdminRoute />}>
+          <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
+          <Route path="/admin/receipts" element={<Receipts />} />
+          <Route path="/admin/recycle-bin" element={<AdminRecycleBin />} />
+          <Route path="/admin/exam-cards" element={<ExamCards />} />
+          <Route path="/admin/id-cards" element={<AllIdCards />} />
+          <Route path="/admin/results-by-class" element={<ResultsByClass />} />
+          <Route path="/admin/holidays" element={<Holidays />} />
+          <Route path="/admin/gallery" element={<GalleryManager />} />
+          <Route path="/admin/news" element={<NewsManager />} />
+          <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
+          <Route path="/admin/manage-admins" element={<ManageAdmins />} />
+          <Route path="/admin/library" element={<LibraryManager />} />
+          {/* Admin page for uploading the single photo/video shown on the
+              public homepage hero section — writes to the
+              `settings/homepage` Firestore doc that Home.jsx reads live. */}
+          <Route path="/admin/upload-certificate" element={<UploadCertificate />} />
+          {/* Admin view of all admission applications submitted from the
+              public /admissions page — lists every applicant, shows a
+              pending-count badge in the sidebar, and lets the admin
+              approve a submission. */}
+          <Route path="/admin/admissions" element={<AdmissionsList />} />
+          <Route path="/admin/dashboard" element={<Dashboard />} />
+          <Route path="/admin/add-student" element={<AddStudent />} />
+          <Route path="/admin/bulk-registration" element={<BulkRegistration />} />
+          <Route path="/admin/add-teacher" element={<AddTeacher />} />
+          <Route path="/admin/add-cashier" element={<AddCashier />} />
+          <Route path="/admin/cashiers" element={<Cashiers />} />
+          <Route path="/admin/edit-teacher/:username" element={<EditTeacher />} />
+          <Route path="/admin/students" element={<Students />} />
+          <Route path="/admin/teachers" element={<Teachers />} />
+          <Route path="/admin/parents" element={<Parents />} />
+          <Route path="/admin/classes" element={<Classes />} />
+          <Route path="/admin/school-assets" element={<SchoolAssets />} />
+          <Route path="/admin/attendance" element={<Attendance />} />
+          <Route path="/admin/exams" element={<Exams />} />
+          <Route path="/admin/reports" element={<Reports />} />
+          <Route path="/admin/settings" element={<Settings />} />
+          <Route path="/admin/messages" element={<Messages />} />
+          <Route path="/admin/timetable" element={<Timetable />} />
+          <Route path="/admin/exam-timetable" element={<ExamTimetable />} />
+          <Route path="/admin/shifts" element={<Shifts />} />
+          {/* Class 8 Leaving Certificates — admin generates/manages them here */}
+          <Route path="/admin/certificates" element={<Certificates />} />
+        </Route>
+
         <Route path="/student/dashboard" element={<StudentDashboard />} />
         <Route path="/parent/dashboard" element={<ParentDashboard />} />
         <Route path="/cashier/exam-payments" element={<ExamPayments />} />
-
-        <Route path="/admin/dashboard" element={<Dashboard />} />
-        <Route path="/admin/add-student" element={<AddStudent />} />
-        <Route path="/admin/bulk-registration" element={<BulkRegistration />} />
-        <Route path="/admin/add-teacher" element={<AddTeacher />} />
-        <Route path="/admin/add-cashier" element={<AddCashier />} />
-        <Route path="/admin/cashiers" element={<Cashiers />} />
-        <Route path="/admin/edit-teacher/:username" element={<EditTeacher />} />
-
-        <Route path="/admin/students" element={<Students />} />
-        <Route path="/admin/teachers" element={<Teachers />} />
-        <Route path="/admin/parents" element={<Parents />} />
-        <Route path="/admin/classes" element={<Classes />} />
-        <Route path="/admin/attendance" element={<Attendance />} />
-        <Route path="/admin/exams" element={<Exams />} />
-        <Route path="/admin/reports" element={<Reports />} />
-        <Route path="/admin/settings" element={<Settings />} />
-        <Route path="/admin/messages" element={<Messages />} />
-        <Route path="/admin/timetable" element={<Timetable />} />
-        <Route path="/admin/exam-timetable" element={<ExamTimetable />} />
-        <Route path="/admin/shifts" element={<Shifts />} />
-
-        {/* Class 8 Leaving Certificates — admin generates/manages them here */}
-        <Route path="/admin/certificates" element={<Certificates />} />
 
         {/* Dhammaan boggagga Teacher waxay ku jiraan MessagesProvider hal mar,
             si Sidebar/Topbar/Messages ay isku wadaagaan xogta fariimaha.
             /teacher/timetable sidoo kale waa in lagu duubaa MessagesProvider
             maxaa yeelay Sidebar.jsx wuxuu isticmaalaa useMessages(). */}
-        <Route
-          path="/teacher/dashboard"
-          element={
-            <MessagesProvider>
-              <TeacherDashboard />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/attendance"
-          element={
-            <MessagesProvider>
-              <TeacherAttendance />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/messages"
-          element={
-            <MessagesProvider>
-              <TeacherMessages />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/exams"
-          element={
-            <MessagesProvider>
-              <TeacherExams />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/students"
-          element={
-            <MessagesProvider>
-              <TeacherStudents />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/results"
-          element={
-            <MessagesProvider>
-              <TeacherResults />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/profile"
-          element={
-            <MessagesProvider>
-              <TeacherProfile />
-            </MessagesProvider>
-          }
-        />
-        <Route
-          path="/teacher/timetable"
-          element={
-            <MessagesProvider>
-              <TeacherTimetable />
-            </MessagesProvider>
-          }
-        />
+        {/* ===== TEACHER (ilaalinta OTP) =====
+            Dhammaan /teacher/* waxay ku jiraan TeacherRoute: Firebase Auth session
+            + claims role=teacher & otpVerified=true (kaddib email OTP sax ah). */}
+        <Route element={<TeacherRoute />}>
+          <Route
+            path="/teacher/dashboard"
+            element={
+              <MessagesProvider>
+                <TeacherDashboard />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/attendance"
+            element={
+              <MessagesProvider>
+                <TeacherAttendance />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/messages"
+            element={
+              <MessagesProvider>
+                <TeacherMessages />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/exams"
+            element={
+              <MessagesProvider>
+                <TeacherExams />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/students"
+            element={
+              <MessagesProvider>
+                <TeacherStudents />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/results"
+            element={
+              <MessagesProvider>
+                <TeacherResults />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/profile"
+            element={
+              <MessagesProvider>
+                <TeacherProfile />
+              </MessagesProvider>
+            }
+          />
+          <Route
+            path="/teacher/timetable"
+            element={
+              <MessagesProvider>
+                <TeacherTimetable />
+              </MessagesProvider>
+            }
+          />
+        </Route>
 
         <Route path="/cashier" element={<CashierLayout />}>
           <Route index element={<CashierDashboard />} />

@@ -25,6 +25,7 @@ const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", 
 const emptyRow = () => ({
   fullName: "",
   motherName: "", // ✅ Magaca Hooyada - field cusub
+  gender: "", // ✅ Male / Female - waajib
   className: "",
   studentType: "", // ✅ Full Time / Part Time - field cusub
   feeType: "Free",
@@ -140,6 +141,11 @@ export default function BulkRegistration() {
         return false;
       }
 
+      if (!s.gender) {
+        alert(`${rowLabel}: Fadlan dooro Gender (Male ama Female)`);
+        return false;
+      }
+
       if (!s.className) {
         alert(`${rowLabel}: Fadlan dooro Class`);
         return false;
@@ -229,6 +235,7 @@ export default function BulkRegistration() {
           studentId,
           fullName: student.fullName,
           motherName: student.motherName, // ✅ Magaca Hooyada oo lagu kaydiyo students
+          gender: student.gender,
           className: student.className,
           studentType: student.studentType,
           feeType: student.feeType,
@@ -261,6 +268,7 @@ export default function BulkRegistration() {
           studentId,
           fullName: student.fullName,
           motherName: student.motherName, // ✅ Magaca Hooyada oo lagu daro ID Card-ka
+          gender: student.gender,
           className: student.className,
           studentType: student.studentType,
           studentPhoto: photoURL,
@@ -346,13 +354,14 @@ export default function BulkRegistration() {
             style={{
               width: "100%",
               borderCollapse: "collapse",
-              minWidth: 1450,
+              minWidth: 1580,
             }}
           >
             <thead>
               <tr style={{ textAlign: "left", background: "rgba(139,108,245,0.08)" }}>
                 <th style={th}>Full Name</th>
                 <th style={th}>Mother Name</th>
+                <th style={th}>Gender *</th>
                 <th style={th}>Class Name</th>
                 <th style={th}>Student Type</th>
                 <th style={th}>Fee Type</th>
@@ -396,6 +405,22 @@ export default function BulkRegistration() {
                         handleChange(index, "motherName", e.target.value)
                       }
                     />
+                  </td>
+
+                  {/* ✅ Column cusub: Gender */}
+                  <td style={td}>
+                    <select
+                      style={{
+                        ...input,
+                        borderColor: student.gender ? "rgba(139,108,245,0.3)" : "#f87171",
+                      }}
+                      value={student.gender}
+                      onChange={(e) => handleChange(index, "gender", e.target.value)}
+                    >
+                      <option value="">Select</option>
+                      <option value="Male">👦 Male</option>
+                      <option value="Female">👧 Female</option>
+                    </select>
                   </td>
 
                   <td style={td}>

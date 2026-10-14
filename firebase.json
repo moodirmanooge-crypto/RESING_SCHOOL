@@ -11,6 +11,17 @@
         "firebase-debug.*.log",
         "*.local"
       ]
+    },
+    {
+      "source": "functions",
+      "codebase": "adminotp",
+      "runtime": "nodejs22",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "*.log",
+        "*.local"
+      ]
     }
   ],
   "hosting": {

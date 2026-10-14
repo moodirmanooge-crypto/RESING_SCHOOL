@@ -1,6 +1,7 @@
 // src/teacher/Profile.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { signOutTeacher } from "../services/teacherOtpService";
 import { db } from "../firebase/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { LogOut } from "lucide-react";
@@ -210,10 +211,10 @@ export default function Profile() {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem("teacherId");
-    localStorage.removeItem("teacherName");
-    navigate("/login/teacher");
+  // Ka bax Firebase Auth session-ka (OTP) + xogta UI, kadib login-ka macalinka.
+  const logout = async () => {
+    await signOutTeacher();
+    navigate("/teacher-login");
   };
 
   const teacherName = localStorage.getItem("teacherName") || "Teacher";

@@ -25,6 +25,7 @@ import {
   Camera,
   Loader2,
   Clock,
+  Users,
 } from "lucide-react";
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
@@ -33,6 +34,7 @@ export default function AddStudent() {
   const [student, setStudent] = useState({
     fullName: "",
     motherName: "",
+    gender: "",
     className: "",
     studentType: "",
     feeType: "Free",
@@ -134,6 +136,11 @@ export default function AddStudent() {
         return;
       }
 
+      if (!student.gender) {
+        alert("Fadlan dooro Gender-ka ardayga (Male ama Female)");
+        return;
+      }
+
       if (!student.className) {
         alert("Fadlan dooro Class");
         return;
@@ -199,6 +206,7 @@ export default function AddStudent() {
         studentId,
         fullName: student.fullName,
         motherName: student.motherName,
+        gender: student.gender,
         className: student.className,
         studentType: student.studentType,
         feeType: student.feeType,
@@ -231,6 +239,7 @@ export default function AddStudent() {
         studentId,
         fullName: student.fullName,
         motherName: student.motherName,
+        gender: student.gender,
         className: student.className,
         studentType: student.studentType,
         studentPhoto: photoURL,
@@ -255,6 +264,7 @@ export default function AddStudent() {
       setStudent({
         fullName: "",
         motherName: "",
+        gender: "",
         className: "",
         studentType: "",
         feeType: "Free",
@@ -357,6 +367,36 @@ export default function AddStudent() {
               value={student.motherName}
               onChange={handleChange}
             />
+          </Field>
+
+          <Field icon={Users} label="Gender *">
+            <div style={{ display: "flex", gap: 10 }}>
+              {[
+                { v: "Male", t: "👦 Male (Wiil)", c: "#0ea5e9" },
+                { v: "Female", t: "👧 Female (Gabar)", c: "#ec4899" },
+              ].map((g) => {
+                const active = student.gender === g.v;
+                return (
+                  <button
+                    key={g.v}
+                    type="button"
+                    onClick={() => setStudent({ ...student, gender: g.v })}
+                    style={{
+                      ...input,
+                      flex: 1,
+                      cursor: "pointer",
+                      fontWeight: 700,
+                      textAlign: "center",
+                      border: active ? `2px solid ${g.c}` : input.border,
+                      background: active ? `${g.c}22` : input.background,
+                      color: active ? "#fff" : "#a9a6c4",
+                    }}
+                  >
+                    {g.t}
+                  </button>
+                );
+              })}
+            </div>
           </Field>
 
           <Field icon={School} label="Class Name">

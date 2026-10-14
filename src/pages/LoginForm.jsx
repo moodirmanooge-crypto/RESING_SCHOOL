@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase/firebase";
+import { startAdminLogin, startTeacherLogin } from "../services/adminOtpService";
 
 export default function LoginForm({ role }) {
   const navigate = useNavigate();
@@ -56,6 +57,23 @@ export default function LoginForm({ role }) {
     }
 
     setLoading(true);
+
+    // ---- ADMIN & TEACHER: password-ka server-ka (Cloud Function) ayaa hubiya,
+    // kadib OTP 4 lambar ah ayaa loo diraa email-kooda. Dashboard-ka lama
+    // furayo ilaa code-ka la xaqiijiyo (/admin-verify ama /teacher-verify).
+    if (role === "Admin" || role === "Teacher") {
+      try {
+        if (role === "Admin") await startAdminLogin(username, password);
+        else await startTeacherLogin(username, password);
+        setPassword("");
+        navigate(role === "Admin" ? "/admin-verify" : "/teacher-verify");
+      } catch (err) {
+        alert(err?.message || "Check your email or password");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     try {
       let collectionName = "";
@@ -191,38 +209,6 @@ export default function LoginForm({ role }) {
         snapshot.forEach((item) => {
           const data = item.data();
 
-          if (role === "Admin") {
-            if (
-              (data.email === username.trim() ||
-                data.username === username.trim()) &&
-              data.password === password.trim()
-            ) {
-              found = true;
-              localStorage.setItem("adminId", item.id);
-              localStorage.setItem("adminName", data.fullName || data.name || data.username || "Admin");
-              localStorage.setItem("adminRole", data.role || "admin");
-              localStorage.setItem(
-                "adminPermissions",
-                JSON.stringify(Array.isArray(data.permissions) ? data.permissions : [])
-              );
-            }
-          }
-
-          if (role === "Teacher") {
-            if (
-              (data.username === username.trim() ||
-                data.teacherId === username.trim()) &&
-              data.password === password.trim()
-            ) {
-              found = true;
-              localStorage.setItem("teacherId", item.id);
-              localStorage.setItem(
-                "teacherName",
-                data.fullName || data.name || data.username || "Teacher"
-              );
-            }
-          }
-
           if (role === "Cashier") {
             if (
               data.username === username.trim() &&
@@ -245,8 +231,6 @@ export default function LoginForm({ role }) {
         return;
       }
 
-      if (role === "Admin") navigate("/admin/dashboard");
-      if (role === "Teacher") navigate("/teacher/dashboard");
       if (role === "Cashier") navigate("/cashier/dashboard");
       if (role === "Student") navigate("/student/dashboard");
       if (role === "Parent") navigate("/parent/dashboard");
@@ -292,7 +276,7 @@ export default function LoginForm({ role }) {
             role === "Admin"
               ? "Admin Email or Username"
               : role === "Teacher"
-              ? "Teacher Username"
+              ? "Teacher Email"
               : role === "Cashier"
               ? "Cashier Username"
               : role === "Parent"
@@ -316,7 +300,11 @@ export default function LoginForm({ role }) {
         <br />
 
         <button style={button} onClick={login} disabled={loading}>
-          {loading ? "LOGGING IN..." : "LOGIN"}
+          {loading
+            ? role === "Admin" || role === "Teacher"
+              ? "SENDING CODE..."
+              : "LOGGING IN..."
+            : "LOGIN"}
         </button>
       </div>
     </div>

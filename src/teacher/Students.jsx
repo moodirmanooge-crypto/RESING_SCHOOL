@@ -142,36 +142,34 @@ export default function Students() {
       if (uniqueClassNames.length > 0) {
         const queries = [];
         if (fetchFullTime) {
-          queries.push(
-            getDocs(
-              query(
-                collection(db, "students"),
-                where("className", "in", uniqueClassNames.slice(0, 10))
-              )
-            )
-          );
+          // KALIYA fasalada macalinka (Firestore "in" ≤ 10 → qaybo-qaybo)
+          for (let i = 0; i < uniqueClassNames.length; i += 10) {
+            queries.push(
+              getDocs(
+                query(
+                  collection(db, "students"),
+                  where("className", "in", uniqueClassNames.slice(i, i + 10))
+                )
+              ).then((snap) => ({ snap, type: "Full Time" }))
+            );
+          }
         }
         if (fetchPartTime) {
-          queries.push(
-            getDocs(
-              query(
-                collection(db, "partTimeStudents"),
-                where("className", "in", uniqueClassNames.slice(0, 10))
-              )
-            )
-          );
+          // KALIYA fasalada macalinka (Firestore "in" ≤ 10 → qaybo-qaybo)
+          for (let i = 0; i < uniqueClassNames.length; i += 10) {
+            queries.push(
+              getDocs(
+                query(
+                  collection(db, "partTimeStudents"),
+                  where("className", "in", uniqueClassNames.slice(i, i + 10))
+                )
+              ).then((snap) => ({ snap, type: "Part Time" }))
+            );
+          }
         }
 
         const snapshots = await Promise.all(queries);
-        snapshots.forEach((snap, idx) => {
-          const typeLabel =
-            fetchFullTime && fetchPartTime
-              ? idx === 0
-                ? "Full Time"
-                : "Part Time"
-              : fetchPartTime
-              ? "Part Time"
-              : "Full Time";
+        snapshots.forEach(({ snap, type: typeLabel }) => {
           snap.docs.forEach((d) => {
             loadedStudents.push({
               id: d.id,
@@ -196,12 +194,17 @@ export default function Students() {
     if (uniqueClassNames.length === 0) return;
 
     try {
-      const attSnap = await getDocs(
-        query(
-          collection(db, "attendance"),
-          where("className", "in", uniqueClassNames.slice(0, 10))
-        )
-      );
+      const attDocs = [];
+      for (let i = 0; i < uniqueClassNames.length; i += 10) {
+        const part = await getDocs(
+          query(
+            collection(db, "attendance"),
+            where("className", "in", uniqueClassNames.slice(i, i + 10))
+          )
+        );
+        attDocs.push(...part.docs);
+      }
+      const attSnap = { docs: attDocs, forEach: (fn) => attDocs.forEach(fn), size: attDocs.length };
 
       const perStudent = {};
 
