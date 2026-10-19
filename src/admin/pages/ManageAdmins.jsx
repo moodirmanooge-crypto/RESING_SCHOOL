@@ -27,6 +27,7 @@ const PERMISSION_OPTIONS = [
   { label: "Timetable", path: "/admin/timetable" },
   { label: "Exam Timetable", path: "/admin/exam-timetable" },
   { label: "Exam Cards", path: "/admin/exam-cards" },
+  { label: "Exam Payments", path: "/admin/exam-payments" },
   { label: "ID Cards", path: "/admin/id-cards" },
   { label: "Certificates", path: "/admin/certificates" },
   { label: "Results by Class", path: "/admin/results-by-class" },

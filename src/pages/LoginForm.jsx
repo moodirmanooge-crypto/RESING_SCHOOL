@@ -63,8 +63,10 @@ export default function LoginForm({ role }) {
     // furayo ilaa code-ka la xaqiijiyo (/admin-verify ama /teacher-verify).
     if (role === "Admin" || role === "Teacher") {
       try {
-        if (role === "Admin") await startAdminLogin(username, password);
-        else await startTeacherLogin(username, password);
+        // Teacher: email-ka waa lowercase + trim (sida Teachers/AddTeacher).
+        // Admin: kaliya trim.
+        if (role === "Admin") await startAdminLogin(username.trim(), password);
+        else await startTeacherLogin(username.trim().toLowerCase(), password);
         setPassword("");
         navigate(role === "Admin" ? "/admin-verify" : "/teacher-verify");
       } catch (err) {

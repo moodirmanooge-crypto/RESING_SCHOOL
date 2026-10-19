@@ -1,47 +1,78 @@
 // src/cashier/ExamPayments.jsx
+//
+// Bogga qaadista lacagta Exam Card-ka. Waxaa isticmaala Cashier-ka (role="cashier")
+// iyo Admin / Sub-Admin (role="admin", via admin/pages/AdminExamPayments.jsx).
+// Labaduba isla `examCards` collection ayay qoraan, sidaas Cashier-ku wuxuu isla
+// markiiba arkaa ardayga/fasalka uu Admin-ku qaaday (iyo ka soo horjeedkeeda).
 import { useEffect, useMemo, useState } from "react";
 import {
   collection,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   runTransaction,
   serverTimestamp,
-  query,
-  where,
+  onSnapshot,
 } from "firebase/firestore";
 
 import { db } from "../firebase/firebase";
 import { theme } from "./theme.js";
+import { currentActor } from "../utils/recycleBin.js";
 
 const SCHOOL_NAME = "Rising School";
 
+// Sameysyada nuuca imtixaanka — isku mid la ExamTimetable.jsx (monthly1, midterm, ...).
+// Sameysyadii hore (FinalExam, ...) waa la fahmayaa si xogta jirta aysan u lumin.
 const EXAM_TYPE_LABELS = {
-  MonthlyExamTest1: "Monthly Exam Test 1",
-  MidtermExam: "Midterm Exam",
-  MonthlyTest2: "Monthly Test 2",
-  FinalExam: "Final Exam",
+  monthly1: "Monthly 1",
+  midterm: "Mid Term",
+  monthly2: "Monthly 2",
+  final: "Final",
 };
 
+const LEGACY_EXAM_TYPES = {
+  MonthlyExamTest1: "monthly1",
+  MidtermExam: "midterm",
+  MonthlyTest2: "monthly2",
+  FinalExam: "final",
+};
+
+function normalizeExamType(key) {
+  if (!key) return "final";
+  if (LEGACY_EXAM_TYPES[key]) return LEGACY_EXAM_TYPES[key];
+  return EXAM_TYPE_LABELS[key] ? key : "final";
+}
+
 function examTypeLabel(key) {
-  return EXAM_TYPE_LABELS[key] || "Final";
+  return EXAM_TYPE_LABELS[normalizeExamType(key)];
 }
 
+// Taariikhda maanta ee waqtiga maxaliga ah (Soomaaliya UTC+3) — toISOString()
+// waxay bixin jirtay maalin hore saacadaha 00:00–03:00.
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
-function isExamWeekActive(wk) {
+// Lacag qaadistu waxay furan tahay laga bilaabo taariikhda Admin-ku u dhigay
+// Cashier-ka (paymentStartDate) ilaa dhamaadka imtixaanka — MA aha maalinta
+// imtixaanku bilaabmayo. Haddii paymentStartDate aan la dhigin (xog hore),
+// waxaa la isticmaalayaa bilowga imtixaanka sidii hore.
+function isPaymentWindowOpen(wk) {
   if (!wk?.startDate || !wk?.endDate) return false;
+  const from = wk.paymentStartDate || wk.startDate;
   const today = todayISO();
-  return today >= wk.startDate && today <= wk.endDate;
+  return today >= from && today <= wk.endDate;
 }
 
 // Hubinta in magaca fasalka iyo ardaygu isu dhigmaan (Full Time vs Part Time)
 function getNormalizedClassName(rawClass, studentType) {
   const cleanClass = String(rawClass || "").trim();
   if (!cleanClass) return "Unknown";
-  
+
   const isPartTime =
     String(studentType || "").toLowerCase() === "part time" ||
     cleanClass.toLowerCase().includes("part time");
@@ -54,7 +85,31 @@ function getNormalizedClassName(rawClass, studentType) {
   return baseClass;
 }
 
-export default function ExamPayments() {
+function baseClassOf(student) {
+  return String(student.className || "")
+    .replace(/part\s*time/i, "")
+    .trim()
+    .toUpperCase();
+}
+
+function cardKey(studentId, examType) {
+  return `${studentId}_${examType}`;
+}
+
+function safeActorName(role) {
+  try {
+    const a = currentActor(role);
+    if (!a) return "";
+    if (typeof a === "string") return a;
+    return a.name || a.fullName || a.email || a.username || "";
+  } catch {
+    return "";
+  }
+}
+
+export default function ExamPayments({ role = "cashier" }) {
+  const actorRole = role === "admin" ? "admin" : "cashier";
+
   const [loading, setLoading] = useState(true);
   const [students, setStudents] = useState([]);
   const [examWeeks, setExamWeeks] = useState({});
@@ -70,6 +125,32 @@ export default function ExamPayments() {
     loadData();
   }, []);
 
+  // Kaararka la bixiyay — LIVE, si Cashier-ku u arko isla markiiba waxa Admin-ku qaaday
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "examCards"),
+      (snap) => {
+        const statusMap = {};
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          if (!data.studentId) return;
+          const type = normalizeExamType(data.examType);
+          statusMap[cardKey(data.studentId, type)] = {
+            cardNo: data.cardNo,
+            paid: true,
+            examType: type,
+            amountPaid: data.amountPaid,
+            collectedBy: data.collectedBy || "cashier",
+            collectedByName: data.collectedByName || "",
+          };
+        });
+        setExamCardStatus(statusMap);
+      },
+      (err) => console.log("examCards snapshot error:", err)
+    );
+    return () => unsub();
+  }, []);
+
   async function loadData() {
     try {
       setLoading(true);
@@ -82,53 +163,52 @@ export default function ExamPayments() {
       });
       setExamWeeks(weekMap);
 
-      const activeEntries = Object.entries(weekMap).filter(([, wk]) => isExamWeekActive(wk));
-      
-      // Halkan waxaan ku kaydinaynaa nooca imtixaanka ee fasal kasta (tusaale: "1" -> "FinalExam")
+      // Nooca imtixaanka ee fasal kasta oo lacag qaadistiisu furan tahay
       const typeMap = {};
-      activeEntries.forEach(([cls, wk]) => {
-        typeMap[cls.toUpperCase()] = wk.examType || "FinalExam";
-      });
+      Object.entries(weekMap)
+        .filter(([, wk]) => isPaymentWindowOpen(wk))
+        .forEach(([cls, wk]) => {
+          typeMap[cls.trim().toUpperCase()] = normalizeExamType(wk.examType);
+        });
       setExamTypeByClass(typeMap);
 
-      // 2. Soo qaad Ardayda (Cashier collection) si loo arko fee-ga imtixaanka
-      // Fiiro gaar ah: Cashier collection waa inuu lahaadaa studentId, className, studentType, examinationFees
-      const cashierSnap = await getDocs(collection(db, "cashier"));
-      
-      const allStudents = cashierSnap.docs
-        .map((d) => {
-          const data = d.data();
-          // Habeey magaca fasalka (tusaale: "1" + "Part Time" -> "1 Part Time")
-          const normalizedClass = getNormalizedClassName(data.className, data.studentType);
-          return {
-            id: d.id,
-            ...data,
-            normalizedClass, // Fasalka la habeeyay
-          };
-        })
-        .filter(
-          (s) =>
-            s.studentId &&
-            String(s.studentId).trim() !== "" &&
-            s.studentName &&
-            String(s.studentName).trim() !== ""
-        );
+      // 2. Soo qaad DHAMMAAN ardayda (Full Time + Part Time, kuwa Free ahna ku jira)
+      // iyo xogta cashier-ka (examinationFees)
+      const [studentsSnap, partTimeSnap, cashierSnap] = await Promise.all([
+        getDocs(collection(db, "students")),
+        getDocs(collection(db, "partTimeStudents")),
+        getDocs(collection(db, "cashier")),
+      ]);
 
-      setStudents(allStudents);
-
-      // 3. Soo qaad kaararka imtixaanka ee horay loo bixiyay
-      const cardsSnap = await getDocs(collection(db, "examCards"));
-      const statusMap = {};
-      cardsSnap.docs.forEach((d) => {
-        const data = d.data();
-        if (!data.studentId) return;
-        statusMap[data.studentId] = {
-          cardNo: data.cardNo,
-          paid: true,
-          examType: data.examType || "FinalExam",
-        };
+      const cashierMap = {};
+      cashierSnap.docs.forEach((d) => {
+        cashierMap[d.id] = d.data();
       });
-      setExamCardStatus(statusMap);
+
+      const build = (snap, isPartTime) =>
+        snap.docs
+          .map((d) => {
+            const data = d.data();
+            if (data.pendingDeletion) return null;
+            const c = cashierMap[d.id] || {};
+            const studentType = isPartTime ? "Part Time" : data.studentType || "Full Time";
+            const studentId = data.studentId || c.studentId || d.id;
+            const studentName = data.fullName || c.studentName || "";
+            if (!String(studentId).trim() || !String(studentName).trim()) return null;
+            return {
+              id: d.id,
+              ...c,
+              ...data,
+              studentId,
+              studentName,
+              studentType,
+              examinationFees: c.examinationFees ?? data.examinationFees,
+              normalizedClass: getNormalizedClassName(data.className, studentType),
+            };
+          })
+          .filter(Boolean);
+
+      setStudents([...build(studentsSnap, false), ...build(partTimeSnap, true)]);
     } catch (err) {
       console.log(err);
       alert("Khalad ayaa dhacay marka xogta la soo qaadanayay: " + err.message);
@@ -140,7 +220,7 @@ export default function ExamPayments() {
   // Kala soocidda fasallada firfircoon (Dropdown Options)
   const classOptions = useMemo(() => {
     const activeWeekClasses = Object.entries(examWeeks)
-      .filter(([, wk]) => isExamWeekActive(wk))
+      .filter(([, wk]) => isPaymentWindowOpen(wk))
       .map(([cls]) => cls.trim());
 
     if (activeWeekClasses.length === 0) return { fullTime: [], partTime: [] };
@@ -148,7 +228,7 @@ export default function ExamPayments() {
     const fullTimeSet = new Set();
     const partTimeSet = new Set();
 
-    activeWeekClasses.forEach(cls => {
+    activeWeekClasses.forEach((cls) => {
       // examWeek had iyo jeer waxay isticmaashaa magacyada asalka ah (tusaale: "1", "F1")
       // maadaama jadwalku isku mid u yahay FT/PT
       fullTimeSet.add(cls);
@@ -156,46 +236,99 @@ export default function ExamPayments() {
     });
 
     return {
-      fullTime: Array.from(fullTimeSet).sort((a,b) => a.localeCompare(b, undefined, {numeric: true})),
-      partTime: Array.from(partTimeSet).sort((a,b) => a.localeCompare(b, undefined, {numeric: true})),
+      fullTime: Array.from(fullTimeSet).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      ),
+      partTime: Array.from(partTimeSet).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
+      ),
     };
   }, [examWeeks]);
 
+  // Ardayda fasallada lacag qaadistoodu furan tahay (dhamaan fasalka, Free-gana ku jira)
+  const activeStudents = useMemo(
+    () => students.filter((s) => !!examTypeByClass[baseClassOf(s)]),
+    [students, examTypeByClass]
+  );
+
   // Ardayda miiska lagu muujinayo (ka dib filter)
   const filteredStudents = useMemo(() => {
-    return students.filter((s) => {
-      // 1. Search filter
-      const t = search.toLowerCase();
-      const matchesSearch =
-        t === "" ||
-        (s.studentId || "").toLowerCase().includes(t) ||
-        (s.studentName || "").toLowerCase().includes(t) ||
-        (s.normalizedClass || "").toLowerCase().includes(t);
+    return activeStudents
+      .filter((s) => {
+        const t = search.toLowerCase();
+        const matchesSearch =
+          t === "" ||
+          (s.studentId || "").toLowerCase().includes(t) ||
+          (s.studentName || "").toLowerCase().includes(t) ||
+          (s.normalizedClass || "").toLowerCase().includes(t);
 
-      // 2. Class dropdown filter
-      const matchesClass =
-        selectedClass === "All" ||
-        String(s.normalizedClass || "").toUpperCase() === selectedClass.toUpperCase();
+        const matchesClass =
+          selectedClass === "All" ||
+          String(s.normalizedClass || "").toUpperCase() === selectedClass.toUpperCase();
 
-      return matchesSearch && matchesClass;
+        return matchesSearch && matchesClass;
+      })
+      .sort(
+        (a, b) =>
+          String(a.normalizedClass).localeCompare(String(b.normalizedClass), undefined, {
+            numeric: true,
+          }) ||
+          String(a.studentId).localeCompare(String(b.studentId), undefined, { numeric: true })
+      );
+  }, [activeStudents, search, selectedClass]);
+
+  // Warbixin kooban oo fasal kasta: imisa la qaaday, imisa Admin, imisa Cashier
+  const classSummary = useMemo(() => {
+    const map = {};
+    activeStudents.forEach((s) => {
+      const key = s.normalizedClass;
+      if (!map[key]) map[key] = { total: 0, issued: 0, admin: 0, cashier: 0 };
+      map[key].total += 1;
+      const type = examTypeByClass[baseClassOf(s)];
+      const info = examCardStatus[cardKey(s.studentId, type)];
+      if (info) {
+        map[key].issued += 1;
+        if (info.collectedBy === "admin") map[key].admin += 1;
+        else map[key].cashier += 1;
+      }
     });
-  }, [students, search, selectedClass]);
+    return Object.entries(map).sort(([a], [b]) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    );
+  }, [activeStudents, examTypeByClass, examCardStatus]);
 
   async function savePaymentAndCard(student) {
     const entered = Number(amounts[student.id] || 0);
-    
-    // Hubi in lacag la geliyay
+
+    // Hubi in lacag la geliyay (Free-gana waa la bixiyaa lacagta imtixaanka)
     if (entered <= 0) {
       alert("Fadlan geli lacagta imtixaanka ee la bixiyay");
       return;
     }
 
-    // Raadi nooca imtixaanka ee fasalkan (FT/PT isku mid bay u yihiin jadwalka)
-    const baseClass = (student.className || "").replace(/part\s*time/i, "").trim().toUpperCase();
-    const examType = examTypeByClass[baseClass] || "FinalExam";
+    // Nooca imtixaanka ee fasalkan (FT/PT isku mid bay u yihiin jadwalka)
+    const examType = examTypeByClass[baseClassOf(student)];
+    if (!examType) {
+      alert("Fasalkan lacag qaadistiisu hadda ma furna.");
+      return;
+    }
 
     setSavingId(student.id);
     try {
+      const cardDocId = cardKey(student.studentId, examType);
+
+      // Hubi in qof kale (Admin/Cashier) uusan hore u qaadin — lacag labanlaab ma dhacdo
+      const existing = await getDoc(doc(db, "examCards", cardDocId));
+      if (existing.exists()) {
+        const ex = existing.data();
+        alert(
+          `Ardaygan horey ayaa loo qaaday (${ex.collectedBy === "admin" ? "Admin" : "Cashier"}${
+            ex.collectedByName ? ` — ${ex.collectedByName}` : ""
+          }). Lacag dambe lama qaadi karo.`
+        );
+        return;
+      }
+
       const counterRef = doc(db, "examCardCounters", examType);
       let cardNo = 0;
 
@@ -209,7 +342,6 @@ export default function ExamPayments() {
         if (assigned[student.studentId]) {
           cardNo = assigned[student.studentId];
         } else {
-          // Haddii kale, kordhi counter-ka oo sii nambar cusub
           current += 1;
           assigned[student.studentId] = current;
           cardNo = current;
@@ -223,15 +355,18 @@ export default function ExamPayments() {
       });
 
       // Kaydi diiwaanka kaarka iyo lacag bixinta
-      const cardDocId = `${student.studentId}_${examType}`;
+      const collectedByName = safeActorName(actorRole);
       const cardRecord = {
         studentId: student.studentId,
         studentName: student.studentName,
         className: student.normalizedClass, // Isticmaal fasalka saxda ah (FT/PT)
+        feeType: student.feeType || "",
         cardNo,
         examType,
         amountPaid: entered,
         schoolName: SCHOOL_NAME,
+        collectedBy: actorRole, // "admin" ama "cashier"
+        collectedByName,
         createdAt: serverTimestamp(),
       };
 
@@ -243,11 +378,6 @@ export default function ExamPayments() {
         ...cardRecord,
       });
 
-      // Cusboonaysii state-ka si ay miiska uga muuqato
-      setExamCardStatus((prev) => ({
-        ...prev,
-        [student.studentId]: { cardNo, paid: true, examType },
-      }));
       setAmounts((prev) => ({ ...prev, [student.id]: "" }));
       setLastCard({ ...cardRecord, createdAt: { seconds: Math.floor(Date.now() / 1000) } });
     } catch (err) {
@@ -261,13 +391,18 @@ export default function ExamPayments() {
   // Tirada guud ee fasallada firfircoon
   const totalActiveClasses = classOptions.fullTime.length + classOptions.partTime.length;
 
+  const issuedCount = filteredStudents.filter((s) => {
+    const type = examTypeByClass[baseClassOf(s)];
+    return !!examCardStatus[cardKey(s.studentId, type)];
+  }).length;
+
   return (
     <div style={{ fontFamily: theme.font.body }}>
       <header style={styles.header}>
         <div>
           <h1 style={styles.title}>Exam Payments</h1>
           <p style={styles.subtitle}>
-            Qaado lacagta imtixaanka ardayda fasallada xilliga imtixaanku hadda socdo
+            Qaado lacagta imtixaanka ardayda fasallada lacag aruurintoodu furan tahay (Free-gana ku jira)
           </p>
         </div>
         <div style={styles.headerStats}>
@@ -276,17 +411,7 @@ export default function ExamPayments() {
             <span style={styles.statLabel}>Students</span>
           </div>
           <div style={styles.statPill}>
-            <span style={styles.statNum}>
-              {
-                filteredStudents.filter((s) => {
-                  // Raadi base class si loo arko nooca imtixaanka jadwalka
-                  const baseClass = (s.className || "").replace(/part\s*time/i, "").trim().toUpperCase();
-                  const type = examTypeByClass[baseClass];
-                  const cardInfo = examCardStatus[s.studentId];
-                  return cardInfo?.paid && cardInfo.examType === type;
-                }).length
-              }
-            </span>
+            <span style={styles.statNum}>{issuedCount}</span>
             <span style={styles.statLabel}>Cards issued</span>
           </div>
         </div>
@@ -295,8 +420,33 @@ export default function ExamPayments() {
       {/* Notice Box: Haddii aan jadwalku oolin */}
       {!loading && totalActiveClasses === 0 && (
         <div style={styles.noticeBox}>
-          ⚠️ Hadda ma jiro fasal xilli imtixaan ah oo furan. Maamulku waa inuu ka daaraa Exam
-          Timetable bogga taariikhda bilowga iyo dhamaadka imtixaanka.
+          ⚠️ Hadda ma jiro fasal lacag aruurintiisu furan tahay. Maamulku waa inuu ka daaraa Exam
+          Timetable bogga taariikhda bilowga lacag aruurinta, bilowga iyo dhamaadka imtixaanka.
+        </div>
+      )}
+
+      {/* Warbixin kooban oo fasal kasta (riix si aad u shaandheyso) */}
+      {classSummary.length > 0 && (
+        <div style={styles.summaryRow}>
+          {classSummary.map(([cls, s]) => (
+            <button
+              key={cls}
+              type="button"
+              onClick={() => setSelectedClass(selectedClass === cls ? "All" : cls)}
+              style={{
+                ...styles.summaryChip,
+                ...(selectedClass === cls ? styles.summaryChipActive : {}),
+              }}
+            >
+              <strong>{cls}</strong>
+              <span>
+                {s.issued}/{s.total} la qaaday
+              </span>
+              <span style={styles.summarySub}>
+                Admin: {s.admin} · Cashier: {s.cashier}
+              </span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -319,7 +469,7 @@ export default function ExamPayments() {
             style={styles.classSelect}
           >
             <option value="All">Dhammaan Fasallada Socda ({totalActiveClasses})</option>
-            
+
             {classOptions.fullTime.length > 0 && (
               <optgroup label="🏫 Full Time Classes">
                 {classOptions.fullTime.map((cls) => (
@@ -355,7 +505,7 @@ export default function ExamPayments() {
           <div style={styles.emptyState}>
             <span style={{ fontSize: 34 }}>🗂️</span>
             <p style={{ color: theme.colors.inkMuted, marginTop: 8 }}>
-              Arday lama helin fasallada xilliga imtixaanku hadda socdo.
+              Arday lama helin fasallada lacag aruurintoodu hadda furan tahay.
             </p>
           </div>
         ) : (
@@ -370,21 +520,19 @@ export default function ExamPayments() {
                 <th style={styles.th}>Enter Amount</th>
                 <th style={styles.th}>Card No</th>
                 <th style={styles.th}>Status</th>
+                <th style={styles.th}>Collected By</th>
                 <th style={styles.th}>Save</th>
               </tr>
             </thead>
             <tbody>
               {filteredStudents.map((student, i) => {
-                // Raadi base class si loo ogaado nooca imtixaanka
-                const baseClass = (student.className || "").replace(/part\s*time/i, "").trim().toUpperCase();
-                const studentExamType = examTypeByClass[baseClass];
-                
-                // Haddii fasalka ardayga aan jadwalka lagu darin, ha soo bandhigin
+                const studentExamType = examTypeByClass[baseClassOf(student)];
                 if (!studentExamType) return null;
 
-                const cardInfo = examCardStatus[student.studentId];
-                const alreadyPaid = !!cardInfo?.paid && cardInfo.examType === studentExamType;
+                const cardInfo = examCardStatus[cardKey(student.studentId, studentExamType)];
+                const alreadyPaid = !!cardInfo?.paid;
                 const isSaving = savingId === student.id;
+                const isFreeStudent = student.feeType === "Free";
 
                 return (
                   <tr
@@ -394,13 +542,22 @@ export default function ExamPayments() {
                     <td style={styles.td}>
                       <span style={styles.idChip}>{student.studentId}</span>
                     </td>
-                    <td style={{ ...styles.td, fontWeight: 600 }}>{student.studentName}</td>
+                    <td style={{ ...styles.td, fontWeight: 600 }}>
+                      {student.studentName}
+                      {isFreeStudent && <span style={styles.freeChip}>Free</span>}
+                    </td>
                     <td style={styles.td}>
-                      <span style={{
-                        ...styles.classChip,
-                        color: (student.normalizedClass || "").includes("Part Time") ? "#92400E" : "#1F2937",
-                        background: (student.normalizedClass || "").includes("Part Time") ? "#FEF3C7" : "#F3F4F6",
-                      }}>
+                      <span
+                        style={{
+                          ...styles.classChip,
+                          color: (student.normalizedClass || "").includes("Part Time")
+                            ? "#92400E"
+                            : "#1F2937",
+                          background: (student.normalizedClass || "").includes("Part Time")
+                            ? "#FEF3C7"
+                            : "#F3F4F6",
+                        }}
+                      >
                         {student.normalizedClass || "—"}
                       </span>
                     </td>
@@ -412,7 +569,9 @@ export default function ExamPayments() {
                     </td>
                     <td style={styles.td}>
                       {alreadyPaid ? (
-                        <span style={{ color: theme.colors.inkMuted, fontSize: 12.5 }}>—</span>
+                        <span style={{ color: theme.colors.inkMuted, fontSize: 12.5 }}>
+                          {cardInfo.amountPaid ? `$${cardInfo.amountPaid}` : "—"}
+                        </span>
                       ) : (
                         <input
                           type="number"
@@ -446,6 +605,22 @@ export default function ExamPayments() {
                         />
                         {alreadyPaid ? "Card Issued" : "Not Paid"}
                       </span>
+                    </td>
+                    <td style={styles.td}>
+                      {alreadyPaid ? (
+                        <span
+                          style={{
+                            ...styles.collectorChip,
+                            ...(cardInfo.collectedBy === "admin" ? styles.collectorAdmin : {}),
+                          }}
+                          title={cardInfo.collectedByName || ""}
+                        >
+                          {cardInfo.collectedBy === "admin" ? "Admin" : "Cashier"}
+                          {cardInfo.collectedByName ? ` · ${cardInfo.collectedByName}` : ""}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td style={styles.td}>
                       <button
@@ -534,6 +709,31 @@ const styles = {
     fontSize: 13.5,
     marginBottom: 18,
   },
+  summaryRow: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    marginBottom: 18,
+  },
+  summaryChip: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 2,
+    padding: "10px 14px",
+    borderRadius: theme.radius.sm,
+    background: theme.colors.card,
+    border: `1px solid ${theme.colors.border}`,
+    color: theme.colors.ink,
+    fontSize: 12.5,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  summaryChipActive: {
+    borderColor: theme.colors.mint,
+    boxShadow: `0 0 0 2px ${theme.colors.mint}33`,
+  },
+  summarySub: { fontSize: 11, color: theme.colors.inkMuted },
   controlsRow: {
     display: "flex",
     gap: 16,
@@ -639,6 +839,29 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     color: "#92400E",
+  },
+  freeChip: {
+    display: "inline-block",
+    marginLeft: 8,
+    padding: "2px 8px",
+    borderRadius: 999,
+    background: "#E0F2FE",
+    color: "#0369A1",
+    fontSize: 11,
+    fontWeight: 700,
+  },
+  collectorChip: {
+    display: "inline-block",
+    padding: "3px 10px",
+    borderRadius: 999,
+    background: "#F3F4F6",
+    color: "#374151",
+    fontSize: 12,
+    fontWeight: 700,
+  },
+  collectorAdmin: {
+    background: "#EDE9FE",
+    color: "#5B21B6",
   },
   money: {
     fontVariantNumeric: "tabular-nums",

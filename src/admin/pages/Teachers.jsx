@@ -4,6 +4,7 @@ import { db, storage } from "../../firebase/firebase";
 import {
   collection,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   updateDoc,
@@ -358,10 +359,21 @@ export default function Teachers() {
 
   async function saveEdit() {
     if (!editData.fullName.trim() || !editData.username.trim()) {
-      alert("Fadlan buuxi Magaca iyo Username-ka");
+      alert("Fadlan buuxi Magaca iyo Email-ka");
       return;
     }
-    if (editData.password && editData.password.length < 6) {
+    // Email-ka macalinka = username-kiisa (login) + meesha code-ka OTP loo diro.
+    // Waa la nadiifiyaa sida AddTeacher.jsx: trim + xaraf yar.
+    const cleanEmail = editData.username.trim().toLowerCase();
+    if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(cleanEmail)) {
+      alert("Fadlan geli email sax ah (tusaale: cabdi@gmail.com)");
+      return;
+    }
+    if (!editData.password.trim() && !(selectedTeacher.password || "").trim()) {
+      alert("Fadlan geli password (ugu yaraan 6 xaraf)");
+      return;
+    }
+    if (editData.password && editData.password.trim().length < 6) {
       alert("Password waa inuu ugu yaraan 6 xaraf ahaadaa");
       return;
     }
@@ -380,7 +392,7 @@ export default function Teachers() {
         const fileExt = editPhotoFile.name.split(".").pop();
         const photoRef = ref(
           storage,
-          `teacherPhotos/${editData.username.trim()}-${Date.now()}.${fileExt}`
+          `teacherPhotos/${cleanEmail}-${Date.now()}.${fileExt}`
         );
         await uploadBytes(photoRef, editPhotoFile);
         teacherPhotoUrl = await getDownloadURL(photoRef);
@@ -391,8 +403,8 @@ export default function Teachers() {
 
       const updatedFields = {
         fullName: editData.fullName,
-        username: editData.username,
-        password: editData.password,
+        username: cleanEmail,
+        email: cleanEmail, // OTP code-ka halkan ayaa loo diraa
         phoneNumber: editData.phoneNumber,
         phone: editData.phoneNumber,
         parentName: editData.parentName,
@@ -403,10 +415,22 @@ export default function Teachers() {
         classes: editData.classes,
       };
 
+      // Password madhan ma beddelo password-ka jira (si login-ku u joogo shaqaynayo).
+      if (editData.password.trim()) {
+        updatedFields.password = editData.password.trim();
+      }
+
       const oldId = selectedTeacher.id;
-      const newId = editData.username.trim();
+      const newId = cleanEmail;
 
       if (newId !== oldId) {
+        // Email-kan macalin kale ma isticmaalaa?
+        const clash = await getDoc(doc(db, "teachers", newId));
+        if (clash.exists()) {
+          alert("Email-kan macalin kale ayaa horay u isticmaalay. Fadlan email kale geli.");
+          setSaving(false);
+          return;
+        }
         const fullRecord = { ...selectedTeacher, ...updatedFields };
         delete fullRecord.id;
         await setDoc(doc(db, "teachers", newId), fullRecord);
@@ -430,6 +454,7 @@ export default function Teachers() {
                 ...existingIdDoc.data(),
                 ...updatedFields,
                 teacherUsername: newId,
+                email: newId,
               });
               await deleteDoc(doc(db, "teacher_id", oldId));
             }
@@ -691,9 +716,10 @@ export default function Teachers() {
                   />
                 </Field>
 
-                <Field label="Username">
+                <Field label="Email-ka Macalinka (Username)">
                   <input
                     style={input}
+                    type="email"
                     value={editData.username}
                     onChange={(e) =>
                       setEditData({ ...editData, username: e.target.value })

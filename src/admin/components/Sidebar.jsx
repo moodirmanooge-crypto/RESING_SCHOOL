@@ -1,6 +1,6 @@
 // Sidebar.jsx — naqshad cagaar madow ah (dark green) oo logo weyn leh
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { signOutAdmin } from "../../services/adminOtpService";
 import { db } from "../../firebase/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
@@ -10,6 +10,7 @@ import {
   Users,
   School,
   Wallet,
+  CreditCard,
   UserPlus,
   MessageCircle,
   BarChart3,
@@ -61,6 +62,7 @@ const menus = [
   { name: "Timetable", icon: CalendarDays, path: "/admin/timetable" },
   { name: "Exam Timetable", icon: FileEdit, path: "/admin/exam-timetable" },
   { name: "Exam Cards", icon: IdCard, path: "/admin/exam-cards" },
+  { name: "Exam Payments", icon: CreditCard, path: "/admin/exam-payments" },
   { name: "ID Cards", icon: IdCard, path: "/admin/id-cards" },
   { name: "Certificates", icon: Award, path: "/admin/certificates" },
   { name: "Upload Certificate", icon: UploadCloud, path: "/admin/upload-certificate" },
@@ -88,6 +90,7 @@ const SUPPORT_EMAIL = "risingstar0261@gmail.com";
 
 export default function Sidebar() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Ka bax Firebase Auth session-ka (OTP) + xogta UI, kadib login-ka admin-ka.
   // Dashboard-ka dib looma geli karo password + code cusub la'aantood.
@@ -128,6 +131,27 @@ export default function Sidebar() {
         return permissions.includes(m.path);
       })
     : menus;
+
+  // Ilaalin: sub-admin ma geli karo bog aan loo ogolaan (Dashboard-ka oo ay ku jirto),
+  // hadduu URL-ka gacanta ku qoro ama login-ka kadib halkaas u gudbo. Haddii bogga
+  // hadda furan ee menu-ga ku jira aan loo ogolaan, waxaa loo gudbiyaa bogga ugu horreeya
+  // ee loo ogolaaday. Boggaga aan menu-ga ku jirin waa la taaban maayo.
+  useEffect(() => {
+    if (!isSubAdmin) return;
+    const path = location.pathname.replace(/\/+$/, "");
+    const matchesMenu = (m) => path === m.path || path.startsWith(m.path + "/");
+
+    const isKnownMenuPage =
+      menus.some(matchesMenu) || superAdminOnlyMenus.some(matchesMenu);
+    if (!isKnownMenuPage) return;
+
+    const allowed = visibleMenus.some(matchesMenu);
+    if (allowed) return;
+
+    if (visibleMenus.length > 0) {
+      navigate(visibleMenus[0].path, { replace: true });
+    }
+  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [pendingAdmissions, setPendingAdmissions] = useState(0);
 

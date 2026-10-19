@@ -226,6 +226,7 @@ export default function ExamTimetable() {
   const [activeDay, setActiveDay] = useState(DAYS[0].key);
   const [draftSlots, setDraftSlots] = useState([]);
   const [dirty, setDirty] = useState(false);
+  const [draftPaymentStartDate, setDraftPaymentStartDate] = useState("");
   const [draftStartDate, setDraftStartDate] = useState("");
   const [draftEndDate, setDraftEndDate] = useState("");
   const [draftExamType, setDraftExamType] = useState("final");
@@ -308,6 +309,7 @@ export default function ExamTimetable() {
   useEffect(() => {
     if (!selectedClass) return;
     const wk = examWeekDates[selectedClass];
+    setDraftPaymentStartDate(wk?.paymentStartDate || "");
     setDraftStartDate(wk?.startDate || "");
     setDraftEndDate(wk?.endDate || "");
     setDraftExamType(wk?.examType || "final");
@@ -365,12 +367,18 @@ export default function ExamTimetable() {
   // ExamPayments.jsx isticmaali doona marka Exam Card la sameenayo. ----
   async function saveExamWeekDates() {
     if (!selectedClass) return;
-    if (!draftStartDate || !draftEndDate) {
-      alert("Fadlan geli labada taariikh — bilowga iyo dhamaadka imtixaanka.");
+    if (!draftPaymentStartDate || !draftStartDate || !draftEndDate) {
+      alert(
+        "Fadlan geli saddexda taariikh — bilowga lacag aruurinta, bilowga imtixaanka iyo dhamaadka imtixaanka."
+      );
       return;
     }
     if (draftEndDate < draftStartDate) {
       alert("Taariikhda dhamaadka waa inay ka dambaysaa ama la mid tahay tan bilowga.");
+      return;
+    }
+    if (draftPaymentStartDate > draftEndDate) {
+      alert("Taariikhda bilowga lacag aruurinta ma noqon karto mid ka dambaysa dhamaadka imtixaanka.");
       return;
     }
 
@@ -378,6 +386,7 @@ export default function ExamTimetable() {
     try {
       const payload = {
         className: selectedClass,
+        paymentStartDate: draftPaymentStartDate,
         startDate: draftStartDate,
         endDate: draftEndDate,
         examType: draftExamType,
@@ -798,6 +807,17 @@ export default function ExamTimetable() {
               >
                 <div style={{ flex: "1 1 160px" }}>
                   <div style={{ color: "#8b87ad", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                    Cashier-ku Bilaabayo Lacag Aruurinta
+                  </div>
+                  <input
+                    type="date"
+                    value={draftPaymentStartDate}
+                    onChange={(e) => setDraftPaymentStartDate(e.target.value)}
+                    style={fieldStyle}
+                  />
+                </div>
+                <div style={{ flex: "1 1 160px" }}>
+                  <div style={{ color: "#8b87ad", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
                     Taariikhda Bilowga Imtixaanka
                   </div>
                   <input
@@ -860,6 +880,15 @@ export default function ExamTimetable() {
 
                 {examWeekDates[selectedClass]?.startDate && (
                   <div style={{ width: "100%", color: "#c4b8f7", fontSize: 12.5, marginTop: 4 }}>
+                    {examWeekDates[selectedClass].paymentStartDate && (
+                      <>
+                        Lacag aruurinta Exam Card-ka waxay bilaabmaysaa{" "}
+                        <strong style={{ color: "#fff" }}>
+                          {examWeekDates[selectedClass].paymentStartDate}
+                        </strong>
+                        {" — "}
+                      </>
+                    )}
                     Imtixaanku wuxuu bilaabmayaa{" "}
                     <strong style={{ color: "#fff" }}>
                       {examWeekDates[selectedClass].startDate}

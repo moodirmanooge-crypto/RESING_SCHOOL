@@ -4,6 +4,7 @@ import { collection, getDocs, doc, deleteDoc } from "firebase/firestore";
 import { IdCard, Printer, Search, Trash2, X } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import signatureImg from "../assets/signature.png";
 
 const SCHOOL_NAME_EN = "RISING STAR PRIMARY & SECONDARY SCHOOL";
 const SCHOOL_NAME_AR = "مدرسة ريسن استار الأساسية والثانوية";
@@ -20,6 +21,15 @@ const EXAM_TYPES = [
   { key: "monthly2", label: "Monthly 2" },
   { key: "final", label: "Final" },
 ];
+
+// Legacy keys (FinalExam, Monthly 1 ...) -> monthly1 / midterm / monthly2 / final
+function normalizeExamType(v) {
+  const t = String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (t.includes("monthly1") || t === "m1") return "monthly1";
+  if (t.includes("monthly2") || t === "m2") return "monthly2";
+  if (t.includes("mid")) return "midterm";
+  return "final";
+}
 
 function pad4(n) {
   return String(n).padStart(4, "0");
@@ -57,10 +67,11 @@ function ExamCardStyles() {
         box-shadow: 0 4px 10px rgba(0,0,0,0.35);
       }
       @media print {
-        @page { size: A4 portrait; margin: 10mm; }
+        @page { size: A4 portrait; margin: 0; }
+        html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
         body * { visibility: hidden; }
         .ec-print-area, .ec-print-area * { visibility: visible; }
-        .ec-print-area { position: absolute; top: 0; left: 0; width: 100%; }
+        .ec-print-area { position: absolute; top: 0; left: 0; width: 100%; box-sizing: border-box; }
         .ec-print-area, .ec-print-area * {
           -webkit-print-color-adjust: exact !important;
           print-color-adjust: exact !important;
@@ -69,33 +80,52 @@ function ExamCardStyles() {
         .ec-grid {
           display: block !important;
         }
+        /* 4 card / A4: 4 x 73.5mm = 294mm < 297mm; kaar kasta isku cabbir (65.5mm) */
         .ec-card-wrap {
+          box-sizing: border-box !important;
+          height: 73.5mm !important;
+          overflow: hidden !important;
+          padding: 4mm 8mm !important;
+          margin: 0 !important;
           break-inside: avoid;
           page-break-inside: avoid;
-          margin-bottom: 6mm;
         }
         .ec-card-wrap:nth-child(4n) {
           page-break-after: always;
-          margin-bottom: 0;
+          break-after: page;
+        }
+        .ec-card-wrap:last-child {
+          page-break-after: auto !important;
+          break-after: auto !important;
         }
         .ec-hide-print {
           display: none !important;
         }
         .ec-card {
           zoom: 0.8 !important;
+          box-sizing: border-box !important;
+          width: 100% !important;
+          height: 81.8mm !important;
+          padding: 8px 12px !important;
           break-inside: avoid;
           page-break-inside: avoid;
           margin-bottom: 0 !important;
           box-shadow: none !important;
-          border-bottom: 2px dashed #7a4e2a !important;
-          padding-bottom: 12px !important;
-        }
-        .ec-card-wrap:nth-child(4n) .ec-card {
-          border-bottom: none !important;
         }
         .ec-single-print .ec-card-wrap:nth-child(4n) {
           page-break-after: auto !important;
+          break-after: auto !important;
         }
+        .ec-inner {
+          height: 100% !important;
+          box-sizing: border-box !important;
+          padding: 8px 14px !important;
+          display: flex !important;
+          flex-direction: column !important;
+          justify-content: space-between !important;
+        }
+        .ec-sig-box { height: 44px !important; }
+        .ec-sig-img { max-height: 44px !important; }
         .ec-card-actions { display: none !important; }
       }
       @media (max-width: 900px) {
@@ -108,7 +138,7 @@ function ExamCardStyles() {
 }
 
 function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
-  const examLabel = EXAM_TYPES.find((t) => t.key === card.examType)?.label || "Final";
+  const examLabel = EXAM_TYPES.find((t) => t.key === normalizeExamType(card.examType))?.label || "Final";
   return (
     <div className={`ec-card-wrap${isPrintHidden ? " ec-hide-print" : ""}`}>
       <div className="ec-card-actions">
@@ -143,7 +173,7 @@ function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
           fontFamily: "Georgia, 'Times New Roman', serif",
         }}
       >
-        <div style={{ border: "2px solid #6b3f1d", borderRadius: 2, padding: "16px 20px" }}>
+        <div className="ec-inner" style={{ border: "2px solid #6b3f1d", borderRadius: 2, padding: "16px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 6 }}>
             <div style={{ fontWeight: 800, fontSize: 17, color: "#0f5132", letterSpacing: 0.3 }}>
               {SCHOOL_NAME_EN}
@@ -231,7 +261,22 @@ function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
 
           <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
             <div style={{ textAlign: "center", minWidth: 180 }}>
-              <div style={{ height: 32 }} />
+              <div
+                className="ec-sig-box"
+                style={{
+                  height: 56,
+                  display: "flex",
+                  alignItems: "flex-end",
+                  justifyContent: "center",
+                }}
+              >
+                <img
+                  className="ec-sig-img"
+                  src={signatureImg}
+                  alt="Principal signature"
+                  style={{ maxHeight: 56, maxWidth: 200, objectFit: "contain", display: "block" }}
+                />
+              </div>
               <div
                 style={{
                   borderTop: "1.5px solid #1a1a1a",

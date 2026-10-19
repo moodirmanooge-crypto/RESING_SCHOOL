@@ -95,6 +95,17 @@ function maskEmail(email) {
 
 const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e || "").trim());
 
+/**
+ * Email-ka code-ka loo diro. Macalinka: username-kiisu waa email-kiisa (AddTeacher /
+ * Teachers.jsx), sidaa darteed username-ka ayaa ugu horreeya (si email hore oo stale ahi
+ * u dhicin); haddii uusan email ahayn, field-ka `email` ayaa la isticmaalaa.
+ * Admin: `email` kuu horreeya, kadib username (haddii email yahay).
+ */
+const emailOf = (roleKey, d) => {
+  const order = roleKey === "teacher" ? [d?.username, d?.email] : [d?.email, d?.username];
+  return order.map((x) => String(x || "").trim()).find(isValidEmail) || "";
+};
+
 function clientIp(request) {
   const raw = request.rawRequest;
   const fwd = raw?.headers?.["x-forwarded-for"];
@@ -297,7 +308,7 @@ async function issueOtp({ roleKey, accountId, data, sessionId, ip }) {
   const isNew = !sessionId;
   const sid = sessionId || crypto.randomBytes(32).toString("hex");
   const sessionRef = db.collection(SESSIONS).doc(sid);
-  const email = String(data.email).trim();
+  const email = emailOf(roleKey, data);
 
   await db.runTransaction(async (tx) => {
     const [gSnap, sSnap] = await Promise.all([tx.get(guardRef), tx.get(sessionRef)]);
@@ -408,7 +419,7 @@ async function handleLoginStart(roleKey, request) {
   if (data.disabled === true || data.active === false) {
     throw new HttpsError("permission-denied", `Account-kan waa la xannibay. ${cfg.contactHint}.`);
   }
-  if (!isValidEmail(data.email)) {
+  if (!emailOf(roleKey, data)) {
     throw new HttpsError(
       "failed-precondition",
       `${cfg.label}-kan email sax ah looma diiwaangelin. ${cfg.contactHint} si email loogu daro.`
@@ -456,7 +467,7 @@ async function handleResend(roleKey, request) {
   const aSnap = await db.collection(cfg.collection).doc(accountId).get();
   if (!aSnap.exists) throw new HttpsError("permission-denied", `${cfg.label}-kan lama helin.`);
   const data = aSnap.data();
-  if (!isValidEmail(data.email)) {
+  if (!emailOf(roleKey, data)) {
     throw new HttpsError("failed-precondition", `${cfg.label}-kan email sax ah ma laha.`);
   }
 

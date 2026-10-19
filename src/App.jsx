@@ -83,11 +83,13 @@ import VerifyCertificate from "./pages/VerifyCertificate";
 import TeacherVerify from "./pages/TeacherVerify";
 import PendingDeletions from "./admin/pages/Pendingdeletions";
 import StudentIdVerify from "./pages/StudentIdVerify";
+import AdminExamPayments from "./admin/pages/AdminExamPayments";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/admin/exam-payments" element={<AdminExamPayments />} />
         <Route path="/verify/student/:studentId" element={<StudentIdVerify />} />
         <Route path="/" element={<Home />} />
         <Route path="/about" element={<About />} />
