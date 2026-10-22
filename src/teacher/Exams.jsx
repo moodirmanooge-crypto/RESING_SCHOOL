@@ -16,7 +16,16 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
-import { FileEdit, FileText, Send } from "lucide-react";
+import {
+  FileEdit,
+  FileText,
+  FileSpreadsheet,
+  Image as ImageIcon,
+  File as FileIcon,
+  Send,
+  Download,
+  ExternalLink,
+} from "lucide-react";
 
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
@@ -47,6 +56,55 @@ function getDayName(dateStr) {
   return WEEKDAYS[dateObj.getDay()];
 }
 
+// ---------- File helpers (PDF / Word / Excel / PowerPoint / sawir / wax kasta) ----------
+const MIME_BY_EXT = {
+  pdf: "application/pdf",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  txt: "text/plain",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+const OFFICE_EXTS = ["doc", "docx", "xls", "xlsx", "ppt", "pptx"];
+const IMAGE_EXTS = ["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic"];
+
+function getFileExt(name) {
+  if (!name || !name.includes(".")) return "";
+  return name.split(".").pop().toLowerCase();
+}
+// Mobile-ka badanaa wuxuu bixiyaa file.type madhan, marka extension-ka ayaan ka akhrinaa
+function getContentType(file) {
+  if (file.type) return file.type;
+  return MIME_BY_EXT[getFileExt(file.name)] || "application/octet-stream";
+}
+// Magaca fayl-ka u nadiifi Storage path (meel bannaan, jilicsan, iwm)
+function safeFileName(name) {
+  return (name || "file").replace(/[^\w.\-]+/g, "_");
+}
+function getFileIcon(name) {
+  const ext = getFileExt(name);
+  if (ext === "xls" || ext === "xlsx") return FileSpreadsheet;
+  if (IMAGE_EXTS.includes(ext)) return ImageIcon;
+  if (ext === "pdf" || ext === "doc" || ext === "docx" || ext === "txt") return FileText;
+  return FileIcon;
+}
+// Link-ga la furayo: PDF/sawir si toos ah; Word/Excel/PPT iyada oo loo marinayo viewer
+// si ay mobile iyo laptop labadaba si sax ah ugu muuqdaan
+function getViewUrl(exam) {
+  const ext = getFileExt(exam.fileName);
+  if (OFFICE_EXTS.includes(ext)) {
+    return `https://docs.google.com/gview?url=${encodeURIComponent(exam.fileUrl)}&embedded=false`;
+  }
+  return exam.fileUrl;
+}
+
 function ExamsStyles() {
   return (
     <style>{`
@@ -59,6 +117,8 @@ function ExamsStyles() {
         gap: 16px;
       }
       .ex-history-row { display: flex; align-items: center; gap: 14px; }
+      .ex-file-name { word-break: break-all; }
+      .ex-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
       @media (max-width: 900px) {
         .ex-body { padding: 0 14px 90px; }
@@ -71,6 +131,8 @@ function ExamsStyles() {
       @media (max-width: 480px) {
         .ex-filters-grid { grid-template-columns: 1fr; }
         .ex-history-row { flex-wrap: wrap; }
+        .ex-actions { width: 100%; }
+        .ex-actions a { flex: 1; justify-content: center; }
       }
     `}</style>
   );
@@ -82,7 +144,7 @@ export default function Exams() {
   );
   // Nuuca Exam-ka: Monthly One / Term / Monthly Two / Final
   const [examType, setExamType] = useState("");
-  // Fayl-ka PDF-ga exam-ka ee macallinku doorto
+  // Fayl-ka exam-ka ee macallinku doorto (PDF, Word, Excel, PowerPoint, sawir, iwm.)
   const [examFile, setExamFile] = useState(null);
   // Sawirka profile-ka macallinka - waxaa loo isticmaali doonaa fariinta Messages
   const [teacherPhoto, setTeacherPhoto] = useState("");
@@ -168,8 +230,8 @@ export default function Exams() {
     return date.toLocaleString();
   }
 
-  // Ku shub PDF-ga exam-ka Storage, kadibna hal fariin oo keliya
-  // ugu dir Admin - nuuca, taariikhda iyo PDF-ka.
+  // Ku shub fayl-ka exam-ka Storage, kadibna hal fariin oo keliya
+  // ugu dir Admin - nuuca, taariikhda iyo fayl-ka.
   const saveAndSendExam = async () => {
     if (!selectedClass || !subject) {
       alert("Fadlan dooro Class-ka iyo Subject-ka");
@@ -182,18 +244,21 @@ export default function Exams() {
     }
 
     if (!examFile) {
-      alert("Dooro PDF-ga Exam-ka");
+      alert("Dooro Fayl-ka Exam-ka (PDF, Word, ama nuuc kale)");
       return;
     }
 
     try {
       setSaving(true);
 
+      const contentType = getContentType(examFile);
+
       const storageRef = ref(
         storage,
-        `teacher-exams/${teacherName}/${Date.now()}_${examFile.name}`
+        `teacher-exams/${teacherName}/${Date.now()}_${safeFileName(examFile.name)}`
       );
-      await uploadBytes(storageRef, examFile);
+      // contentType waxaa la dhigayaa si fayl-ku si sax ah ugu furmo mobile iyo laptop
+      await uploadBytes(storageRef, examFile, { contentType });
       const pdfUrl = await getDownloadURL(storageRef);
 
       const partTime = isPartTimeDay(getDayName(examDate));
@@ -212,6 +277,7 @@ export default function Exams() {
         studentType: partTime ? "Part Time" : "Full Time",
         fileUrl: pdfUrl,
         fileName: examFile.name,
+        fileType: contentType,
         read: false,
         createdAt: serverTimestamp(),
       });
@@ -309,13 +375,21 @@ export default function Exams() {
               </div>
 
               <div>
-                <label style={label}>Exam PDF</label>
+                <label style={label}>Exam File (PDF, Word, ...)</label>
+                {/* accept lama dhigin: macallinku wuxuu dooran karaa nuuc kasta, mobile iyo laptop */}
                 <input
                   type="file"
-                  accept=".pdf"
-                  onChange={(e) => setExamFile(e.target.files[0])}
+                  onChange={(e) => setExamFile(e.target.files[0] || null)}
                   style={input}
                 />
+                {examFile && (
+                  <div
+                    className="ex-file-name"
+                    style={{ color: "#94A3B8", fontSize: 12, marginTop: 6 }}
+                  >
+                    {examFile.name}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -338,7 +412,7 @@ export default function Exams() {
             </div>
           </div>
 
-          {/* Exam history - dhammaan PDF-yada iyo taariiqda la diray */}
+          {/* Exam history - dhammaan fayl-yada iyo taariiqda la diray */}
           <div className="ex-panel" style={tableCard}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 20px 0" }}>
               <div style={iconCircle}>
@@ -355,31 +429,66 @@ export default function Exams() {
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: 20 }}>
-                {examHistory.map((exam) => (
-                  <a
-                    key={exam.id}
-                    href={exam.fileUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="ex-history-row"
-                    style={historyRow}
-                  >
-                    <div style={iconCircleSmall}>
-                      <FileText size={18} color="#8B5CF6" />
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>
-                        {exam.examType || "—"}
+                {examHistory.map((exam) => {
+                  const Icon = getFileIcon(exam.fileName);
+                  const ext = getFileExt(exam.fileName);
+                  return (
+                    <div
+                      key={exam.id}
+                      className="ex-history-row"
+                      style={historyRow}
+                    >
+                      <div style={iconCircleSmall}>
+                        <Icon size={18} color="#8B5CF6" />
                       </div>
-                      <div style={{ color: "#94A3B8", fontSize: 12.5, marginTop: 2 }}>
-                        Fasalka {exam.className || "—"} • {exam.subject || "—"} &nbsp;•&nbsp;
-                        Exam Date: {exam.examDate || "—"} &nbsp;•&nbsp; Sent:{" "}
-                        {formatDate(exam.createdAt)}
-                        {exam.studentType && <> &nbsp;•&nbsp; {exam.studentType}</>}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ color: "#fff", fontWeight: 600, fontSize: 14 }}>
+                          {exam.examType || "—"}
+                          {ext && (
+                            <span style={extBadge}>{ext.toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div style={{ color: "#94A3B8", fontSize: 12.5, marginTop: 2 }}>
+                          Fasalka {exam.className || "—"} • {exam.subject || "—"} &nbsp;•&nbsp;
+                          Exam Date: {exam.examDate || "—"} &nbsp;•&nbsp; Sent:{" "}
+                          {formatDate(exam.createdAt)}
+                          {exam.studentType && <> &nbsp;•&nbsp; {exam.studentType}</>}
+                        </div>
+                        {exam.fileName && (
+                          <div
+                            className="ex-file-name"
+                            style={{ color: "#64748B", fontSize: 12, marginTop: 2 }}
+                          >
+                            {exam.fileName}
+                          </div>
+                        )}
                       </div>
+                      {exam.fileUrl && (
+                        <div className="ex-actions">
+                          <a
+                            href={getViewUrl(exam)}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={actionBtn}
+                          >
+                            <ExternalLink size={14} style={{ marginRight: 6 }} />
+                            Fur
+                          </a>
+                          <a
+                            href={exam.fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            download={exam.fileName || true}
+                            style={actionBtn}
+                          >
+                            <Download size={14} style={{ marginRight: 6 }} />
+                            Download
+                          </a>
+                        </div>
+                      )}
                     </div>
-                  </a>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -463,6 +572,27 @@ const historyRow = {
   borderRadius: 14,
   padding: "12px 16px",
   textDecoration: "none",
-  cursor: "pointer",
   minWidth: 0,
+};
+const extBadge = {
+  marginLeft: 8,
+  padding: "2px 8px",
+  borderRadius: 999,
+  background: "rgba(139,92,246,0.18)",
+  color: "#C4B5FD",
+  fontSize: 10.5,
+  fontWeight: 700,
+  letterSpacing: 0.4,
+};
+const actionBtn = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "rgba(139,92,246,0.15)",
+  color: "#C4B5FD",
+  fontSize: 12.5,
+  fontWeight: 600,
+  textDecoration: "none",
+  cursor: "pointer",
 };

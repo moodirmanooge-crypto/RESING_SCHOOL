@@ -55,6 +55,27 @@ function ExamCardStyles() {
         gap: 6px;
         z-index: 5;
       }
+      .ec-select {
+        position: absolute;
+        top: -12px;
+        left: -12px;
+        z-index: 5;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        border: 2px solid #8b6cf5;
+        background: #151233;
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.35);
+        font-size: 18px;
+        font-weight: 900;
+        padding: 0;
+      }
+      .ec-select.on { background: #6d5df0; }
       .ec-icon-btn {
         width: 30px;
         height: 30px;
@@ -67,6 +88,7 @@ function ExamCardStyles() {
         box-shadow: 0 4px 10px rgba(0,0,0,0.35);
       }
       @media print {
+        /* Margin-ka browser-ka waa la daayay 0; boosaska waxaa lagu xakameeyay mm (hoos) si loo hubiyo isku-dheelitirka */
         @page { size: A4 portrait; margin: 0; }
         html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
         body * { visibility: hidden; }
@@ -80,41 +102,46 @@ function ExamCardStyles() {
         .ec-grid {
           display: block !important;
         }
-        /* 4 card / A4: 4 x 73.5mm = 294mm < 297mm; kaar kasta isku cabbir (65.5mm) */
+        /* Bog A4 (297mm): kor 12mm + 4 kaar x 62mm + 3 farqi x 8mm + hoos 13mm = 297mm.
+           Kaar kasta wuxuu leeyahay goob go'an, kaarka koowaad ee bog kasta wuxuu helaa 12mm kor. */
         .ec-card-wrap {
           box-sizing: border-box !important;
-          height: 73.5mm !important;
+          display: flex !important;
+          align-items: flex-end !important;
+          justify-content: center !important;
+          width: 100% !important;
+          height: 70mm !important;
           overflow: hidden !important;
-          padding: 4mm 8mm !important;
+          padding: 8mm 12mm 0 !important;
           margin: 0 !important;
           break-inside: avoid;
           page-break-inside: avoid;
         }
-        .ec-card-wrap:nth-child(4n) {
+        .ec-card-wrap.ec-first {
+          height: 74mm !important;
+          padding-top: 12mm !important;
+        }
+        /* Bog cusub kaliya kaarka 4-aad ee la daabacayo (xitaa haddii qaar la qariyay) */
+        .ec-card-wrap.ec-break-after {
           page-break-after: always;
           break-after: page;
-        }
-        .ec-card-wrap:last-child {
-          page-break-after: auto !important;
-          break-after: auto !important;
         }
         .ec-hide-print {
           display: none !important;
         }
+        /* zoom 0.76: cabbirka waa la qaybiyay 0.76 si kaarku u noqdo 186mm x 62mm */
         .ec-card {
-          zoom: 0.8 !important;
+          zoom: 0.76 !important;
           box-sizing: border-box !important;
-          width: 100% !important;
-          height: 81.8mm !important;
+          flex: none !important;
+          width: calc(186mm / 0.76) !important;
+          height: calc(62mm / 0.76) !important;
           padding: 8px 12px !important;
           break-inside: avoid;
           page-break-inside: avoid;
-          margin-bottom: 0 !important;
+          margin: 0 !important;
           box-shadow: none !important;
-        }
-        .ec-single-print .ec-card-wrap:nth-child(4n) {
-          page-break-after: auto !important;
-          break-after: auto !important;
+          outline: none !important;
         }
         .ec-inner {
           height: 100% !important;
@@ -124,10 +151,12 @@ function ExamCardStyles() {
           flex-direction: column !important;
           justify-content: space-between !important;
         }
+        .ec-note { font-size: 10.5px !important; line-height: 1.3 !important; }
         .ec-sig-box { height: 44px !important; }
         .ec-sig-img { max-height: 44px !important; }
-        .ec-card-actions { display: none !important; }
+        .ec-card-actions, .ec-select { display: none !important; }
       }
+
       @media (max-width: 900px) {
         .ec-page-pad { padding: 16px !important; }
         .ec-grid { grid-template-columns: 1fr; }
@@ -137,10 +166,21 @@ function ExamCardStyles() {
   );
 }
 
-function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
+function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden, breakAfter, firstInPage, selected, onToggleSelect }) {
   const examLabel = EXAM_TYPES.find((t) => t.key === normalizeExamType(card.examType))?.label || "Final";
   return (
-    <div className={`ec-card-wrap${isPrintHidden ? " ec-hide-print" : ""}`}>
+    <div
+      className={`ec-card-wrap${isPrintHidden ? " ec-hide-print" : ""}${breakAfter ? " ec-break-after" : ""}${firstInPage ? " ec-first" : ""}`}
+    >
+      <button
+        type="button"
+        className={`ec-select${selected ? " on" : ""}`}
+        onClick={() => onToggleSelect(card.id)}
+        title={selected ? "Ka saar doorashada" : "Dooro Card-kan"}
+      >
+        {selected ? "✔" : ""}
+      </button>
+
       <div className="ec-card-actions">
         <button
           className="ec-icon-btn"
@@ -167,6 +207,8 @@ function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
           border: "10px solid transparent",
           borderImage: "repeating-linear-gradient(45deg,#5c3a21 0 6px,#7a4e2a 6px 12px) 12",
           borderRadius: 4,
+          outline: selected ? "3px solid #8b6cf5" : "none",
+          outlineOffset: 3,
           padding: "18px 24px",
           position: "relative",
           color: "#1a1a1a",
@@ -259,7 +301,29 @@ function ExamCard({ card, onDelete, onPrintSingle, isPrintHidden }) {
             ))}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "flex-end",
+              gap: 16,
+              marginTop: 14,
+            }}
+          >
+            <div
+              className="ec-note"
+              style={{
+                flex: 1,
+                fontSize: 11.5,
+                lineHeight: 1.4,
+                fontStyle: "italic",
+                color: "#3b2a14",
+                paddingBottom: 4,
+              }}
+            >
+              <strong>F.G:</strong> Xafido Kaarka waa furaha imtixaankaaga. Haddii uu kaa lumo si deg
+              deg ah ula xiriir xafiiska imtixaanaadka.
+            </div>
             <div style={{ textAlign: "center", minWidth: 180 }}>
               <div
                 className="ec-sig-box"
@@ -303,6 +367,8 @@ export default function ExamCards() {
   const [deleting, setDeleting] = useState(false);
   const [confirmTarget, setConfirmTarget] = useState(null); // { type: "one"|"all", card? }
   const [printOnlyId, setPrintOnlyId] = useState(null); // card.id la doonayo in kaliya la daabaco
+  const [selectedIds, setSelectedIds] = useState([]); // card-yada la doortay
+  const [printSelected, setPrintSelected] = useState(false); // daabac kuwa la doortay kaliya
 
   useEffect(() => {
     load();
@@ -313,6 +379,7 @@ export default function ExamCards() {
   useEffect(() => {
     function handleAfterPrint() {
       setPrintOnlyId(null);
+      setPrintSelected(false);
     }
     window.addEventListener("afterprint", handleAfterPrint);
     return () => window.removeEventListener("afterprint", handleAfterPrint);
@@ -356,7 +423,41 @@ export default function ExamCards() {
       .sort((a, b) => (a.studentName || "").localeCompare(b.studentName || ""));
   }, [cards, selectedClass, search]);
 
+  const selectedInView = cardsForClass.filter((c) => selectedIds.includes(c.id));
+  const allSelected = cardsForClass.length > 0 && selectedInView.length === cardsForClass.length;
+
+  function isPrintable(c) {
+    if (printOnlyId) return c.id === printOnlyId;
+    if (printSelected) return selectedIds.includes(c.id);
+    return true;
+  }
+  const printableIds = cardsForClass.filter(isPrintable).map((c) => c.id);
+
+  function toggleSelect(id) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function toggleSelectAll() {
+    if (allSelected) {
+      const visible = cardsForClass.map((c) => c.id);
+      setSelectedIds((prev) => prev.filter((id) => !visible.includes(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...cardsForClass.map((c) => c.id)])]);
+    }
+  }
+
+  function handlePrintSelected() {
+    if (selectedInView.length === 0) return;
+    setPrintOnlyId(null);
+    setPrintSelected(true);
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  }
+
   function handlePrint() {
+    setPrintSelected(false);
+    setPrintOnlyId(null);
     window.print();
   }
 
@@ -364,6 +465,7 @@ export default function ExamCards() {
   // caadi ah waa la qariyaa daabacaadda), kadibna daabacaadda ayaa
   // toos loo furayaa — hal card, hal warqad. ----
   function printSingleCard(card) {
+    setPrintSelected(false);
     setPrintOnlyId(card.id);
     requestAnimationFrame(() => {
       window.print();
@@ -493,7 +595,10 @@ export default function ExamCards() {
                 }}
               >
                 <button
-                  onClick={() => setSelectedClass(null)}
+                  onClick={() => {
+                    setSelectedClass(null);
+                    setSelectedIds([]);
+                  }}
                   style={{
                     background: "transparent",
                     border: "none",
@@ -528,6 +633,45 @@ export default function ExamCards() {
                       }}
                     />
                   </div>
+
+                  <button
+                    onClick={toggleSelectAll}
+                    disabled={cardsForClass.length === 0}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 12,
+                      border: "1px solid rgba(139,108,245,0.4)",
+                      background: "transparent",
+                      color: "#c4b8f7",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {allSelected ? "Ka Saar Dhammaan" : "Dooro Dhammaan"}
+                  </button>
+
+                  <button
+                    onClick={handlePrintSelected}
+                    disabled={selectedInView.length === 0}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 18px",
+                      borderRadius: 12,
+                      border: "none",
+                      background: "linear-gradient(135deg,#16a34a,#22c55e)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: selectedInView.length === 0 ? "not-allowed" : "pointer",
+                      opacity: selectedInView.length === 0 ? 0.5 : 1,
+                    }}
+                  >
+                    <Printer size={15} />
+                    Daabac Doortay ({selectedInView.length})
+                  </button>
 
                   <button
                     onClick={handlePrint}
@@ -583,7 +727,7 @@ export default function ExamCards() {
                   Cardad lama helin fasalkan/raadintan.
                 </div>
               ) : (
-                <div className={`ec-print-area${printOnlyId ? " ec-single-print" : ""}`}>
+                <div className="ec-print-area">
                   <div className="ec-grid">
                     {cardsForClass.map((c) => (
                       <ExamCard
@@ -591,7 +735,17 @@ export default function ExamCards() {
                         card={c}
                         onDelete={askDeleteOne}
                         onPrintSingle={printSingleCard}
-                        isPrintHidden={!!printOnlyId && printOnlyId !== c.id}
+                        isPrintHidden={!printableIds.includes(c.id)}
+                        breakAfter={
+                          printableIds.includes(c.id) &&
+                          printableIds.indexOf(c.id) % 4 === 3 &&
+                          printableIds.indexOf(c.id) !== printableIds.length - 1
+                        }
+                        firstInPage={
+                          printableIds.includes(c.id) && printableIds.indexOf(c.id) % 4 === 0
+                        }
+                        selected={selectedIds.includes(c.id)}
+                        onToggleSelect={toggleSelect}
                       />
                     ))}
                   </div>

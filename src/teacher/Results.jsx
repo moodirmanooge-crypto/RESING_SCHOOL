@@ -70,6 +70,21 @@ function getDayName(dateStr) {
   const dateObj = new Date(`${dateStr}T00:00:00`);
   return WEEKDAYS[dateObj.getDay()];
 }
+// ---- Marks-ka imtixaanka (examMarksConfig) ----
+// Waa isla qaabka ExamTimetable.jsx (admin). Maamulku haddii uu dhigo waa
+// "admin"; haddii kale macalinka ugu horreeya ee dhiga ayaa "teacher" noqda
+// dhamaan macalimiintuna isla midkaas ayay isticmaalaan.
+const EXAM_TYPE_KEY = {
+  "Monthly One": "monthly1",
+  Term: "midterm",
+  "Monthly Two": "monthly2",
+  Final: "final",
+};
+// Hal qiime fasal + nuuca imtixaanka (dhamaan maadooyinka isku mid).
+function marksConfigIdFor(className, examType) {
+  const typeKey = EXAM_TYPE_KEY[examType] || String(examType || "final").toLowerCase();
+  return `${String(className).toUpperCase()}__${typeKey}`;
+}
 function isPartTimeExam(exam) {
   if (!exam) return false;
   if (exam.studentType) return exam.studentType === "Part Time";
@@ -90,7 +105,10 @@ export default function Results() {
   const [saving, setSaving] = useState(false);
 
   const [teacherPhoto, setTeacherPhoto] = useState("");
-
+  const [maxMarks, setMaxMarks] = useState(null); // imisa lagu saxayaa (null = weli lama dhigin)
+  const [maxSource, setMaxSource] = useState(""); // "admin" | "teacher"
+  const [maxInput, setMaxInput] = useState("");
+  const [savingMax, setSavingMax] = useState(false);
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
 
@@ -117,6 +135,9 @@ export default function Results() {
     } else {
       setStudents([]);
       setMarks({});
+      setMaxMarks(null);
+      setMaxSource("");
+      setMaxInput("");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedExam]);
@@ -217,10 +238,72 @@ export default function Results() {
         initial[s.id] = existing[s.id] !== undefined ? String(existing[s.id]) : "";
       });
       setMarks(initial);
+      await loadMaxConfig(examObj, className);
     } catch (err) {
       console.log(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Soo qaad imisa lagu saxayo imtixaankan (admin ama macalin hore ayaa dhigay)
+  const fetchMaxConfig = async (examObj, className) => {
+    if (!examObj) return null;
+    const id = marksConfigIdFor(className, examObj.examType);
+    const snap = await getDoc(doc(db, "examMarksConfig", id));
+    return snap.exists() ? { id, ...snap.data() } : { id, maxMarks: null };
+  };
+
+  const loadMaxConfig = async (examObj, className) => {
+    try {
+      const cfg = await fetchMaxConfig(examObj, className);
+      if (cfg && Number(cfg.maxMarks) > 0) {
+        setMaxMarks(Number(cfg.maxMarks));
+        setMaxSource(cfg.source || "");
+      } else {
+        setMaxMarks(null);
+        setMaxSource("");
+      }
+      setMaxInput("");
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  // Macalinka ugu horreeya ee imisa lagu saxayo dhiga (haddii maamulku ka tago).
+  const saveMaxMarks = async () => {
+    const n = Number(maxInput);
+    if (!(n > 0)) {
+      alert("Fadlan geli tiro ka weyn 0 (tusaale: 50 ama 100).");
+      return;
+    }
+    try {
+      setSavingMax(true);
+      const exam = currentExam || {};
+      const cfg = await fetchMaxConfig(exam, selectedClass);
+      // Haddii mid kale (admin ama macalin) hore u dhigay, isagaa la qaadanayaa.
+      if (cfg && Number(cfg.maxMarks) > 0) {
+        setMaxMarks(Number(cfg.maxMarks));
+        setMaxSource(cfg.source || "");
+        alert(`Imtixaankan hore ayaa loo dhigay ${cfg.maxMarks} marks. Isla kaas ayaa la isticmaalayaa.`);
+        return;
+      }
+      await setDoc(doc(db, "examMarksConfig", cfg.id), {
+        className: selectedClass,
+        examType: EXAM_TYPE_KEY[exam.examType] || exam.examType || "final",
+        maxMarks: n,
+        source: "teacher",
+        setByTeacherId: teacherId,
+        setByTeacherName: teacherName,
+        updatedAt: new Date(),
+      });
+      setMaxMarks(n);
+      setMaxSource("teacher");
+    } catch (err) {
+      console.log(err);
+      alert(err.message);
+    } finally {
+      setSavingMax(false);
     }
   };
 
@@ -331,9 +414,27 @@ export default function Results() {
 
     try {
       setSaving(true);
-
       const exam = currentExam || {};
-      const maxMarks = Number(exam.maxMarks) || 100;
+      // Marks-ka ugu dambeeya (maamulku wuu beddeli karaa), kaasna la qaado.
+      const cfg = await fetchMaxConfig(exam, selectedClass);
+      const maxMarks = Number(cfg?.maxMarks) || 0;
+      if (!(maxMarks > 0)) {
+        alert("Marka hore dhig imisa lagu saxayo imtixaankan (Total Marks).");
+        setSaving(false);
+        return;
+      }
+      setMaxMarks(maxMarks);
+      setMaxSource(cfg.source || "");
+      const tooHigh = studentsWithMarks.filter((s) => Number(marks[s.id]) > maxMarks || Number(marks[s.id]) < 0);
+      if (tooHigh.length > 0) {
+        alert(
+          `Marks-ka ma dhaafi karo ${maxMarks}. Hubi: ${tooHigh
+            .map((s) => s.fullName)
+            .join(", ")}`
+        );
+        setSaving(false);
+        return;
+      }
       // Fall back to the exam's own subject field, and if that's empty too,
       // avoid saving another blank string into every result document.
       const subjectName = (exam.subject || "").trim() || "General";
@@ -566,6 +667,42 @@ export default function Results() {
             )}
           </div>
 
+          {/* Total Marks (imisa lagu saxayo) */}
+          {selectedExam && students.length > 0 && !isLocked && (
+            <div className="res-panel" style={{ ...filterCard, padding: "14px 20px" }}>
+              {maxMarks ? (
+                <div style={{ color: "#C4B5FD", fontSize: 14, fontWeight: 600 }}>
+                  Imtixaankan waxaa lagu saxayaa{" "}
+                  <span style={{ color: "#fff", fontSize: 16 }}>{maxMarks}</span> marks
+                  {maxSource === "admin" ? " (maamulka ayaa dhigay)" : " (macalin ayaa dhigay)"}
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
+                  <div style={{ flex: "1 1 220px" }}>
+                    <label style={label}>
+                      Imtixaanku waa imisa lagu saxayaa? (Total Marks)
+                    </label>
+                    <input
+                      style={input}
+                      type="number"
+                      min="1"
+                      placeholder="tusaale: 50"
+                      value={maxInput}
+                      onChange={(e) => setMaxInput(e.target.value)}
+                    />
+                  </div>
+                  <button style={btnPrimarySmall} onClick={saveMaxMarks} disabled={savingMax}>
+                    {savingMax ? "Saving..." : "Dhig"}
+                  </button>
+                  <div style={{ width: "100%", color: "#F59E0B", fontSize: 12 }}>
+                    Maamulku wuu ka tegay. Marka aad dhigto, dhamaan macalimiinta kale iyo maadooyinka
+                    fasalkan isla midkaas ayay isticmaali doonaan.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Results table */}
           <div className="res-panel" style={tableCard}>
             {loading ? (
@@ -600,10 +737,19 @@ export default function Results() {
                         <td style={td}>{s.studentId}</td>
                         <td style={td}>
                           <input
-                            style={{ ...input, width: 90 }}
+                            style={{
+                              ...input,
+                              width: 90,
+                              ...(maxMarks && Number(marks[s.id]) > maxMarks
+                                ? { borderColor: "#EF4444" }
+                                : {}),
+                            }}
                             type="number"
-                            disabled={isLocked}
-                            value={marks[s.id] || ""}
+                            min="0"
+                            max={maxMarks || undefined}
+                            placeholder={maxMarks ? `/ ${maxMarks}` : ""}
+                            disabled={isLocked || !maxMarks}
+                            value={marks[s.id] ?? ""}
                             onChange={(e) => setMark(s.id, e.target.value)}
                           />
                         </td>

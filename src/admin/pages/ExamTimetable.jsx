@@ -53,6 +53,15 @@ function examTypeLabel(key) {
   return EXAM_TYPES.find((t) => t.key === key)?.label || "Final";
 }
 
+// ---- Marks-ka imtixaanka (examMarksConfig) ----
+// Hal qiime fasal + nuuca imtixaanka kasta (dhamaan maadooyinka). Maamulku
+// haddii uu dhigo waa "admin"; haddii uu banaan ka dayo, macalinka ugu horreeya
+// ee Results.jsx ka dhiga ayaa "teacher" noqda, dhamaan macalimiintuna isla
+// midkaas ayay isticmaalaan.
+function marksConfigId(className, examTypeKey) {
+  return `${String(className).toUpperCase()}__${examTypeKey}`;
+}
+
 function emptyExamSlot() {
   return {
     id: `e_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
@@ -222,6 +231,8 @@ export default function ExamTimetable() {
   const [teachers, setTeachers] = useState({}); // id -> { fullName, subject, classes }
   const [examDocs, setExamDocs] = useState({}); // `${className}__${day}` -> { slots: [] }
   const [examWeekDates, setExamWeekDates] = useState({}); // className -> { startDate, endDate, examType }
+  const [marksConfig, setMarksConfig] = useState({}); // `${class}__${examType}` -> { maxMarks, source }
+  const [draftMaxMarks, setDraftMaxMarks] = useState("");
   const [selectedClass, setSelectedClass] = useState(null);
   const [activeDay, setActiveDay] = useState(DAYS[0].key);
   const [draftSlots, setDraftSlots] = useState([]);
@@ -240,10 +251,11 @@ export default function ExamTimetable() {
   async function load() {
     try {
       setLoading(true);
-      const [teachersSnap, examSnap, examWeekSnap] = await Promise.all([
+      const [teachersSnap, examSnap, examWeekSnap, marksCfgSnap] = await Promise.all([
         getDocs(collection(db, "teachers")),
         getDocs(collection(db, "examTimetable")),
         getDocs(collection(db, "examWeek")),
+        getDocs(collection(db, "examMarksConfig")),
       ]);
 
       const teacherMap = {};
@@ -268,6 +280,12 @@ export default function ExamTimetable() {
         weekMap[d.id] = d.data();
       });
       setExamWeekDates(weekMap);
+
+      const cfgMap = {};
+      marksCfgSnap.docs.forEach((d) => {
+        cfgMap[d.id] = d.data();
+      });
+      setMarksConfig(cfgMap);
     } catch (err) {
       console.log(err);
       alert("Khalad ayaa dhacay marka xogta la soo qaadanayay: " + err.message);
@@ -313,7 +331,9 @@ export default function ExamTimetable() {
     setDraftStartDate(wk?.startDate || "");
     setDraftEndDate(wk?.endDate || "");
     setDraftExamType(wk?.examType || "final");
-  }, [selectedClass, examWeekDates]);
+    const cfg = marksConfig[marksConfigId(selectedClass, wk?.examType || "final")];
+    setDraftMaxMarks(cfg?.maxMarks ? String(cfg.maxMarks) : "");
+  }, [selectedClass, examWeekDates, marksConfig]);
 
   function openClass(cls) {
     setSelectedClass(cls);
@@ -382,6 +402,11 @@ export default function ExamTimetable() {
       return;
     }
 
+    if (draftMaxMarks !== "" && !(Number(draftMaxMarks) > 0)) {
+      alert("Marks-ku waa inuu noqdaa tiro ka weyn 0 (tusaale: 50 ama 100).");
+      return;
+    }
+
     setSavingDates(true);
     try {
       const payload = {
@@ -394,6 +419,20 @@ export default function ExamTimetable() {
       };
       await setDoc(doc(db, "examWeek", selectedClass), payload);
       setExamWeekDates((prev) => ({ ...prev, [selectedClass]: payload }));
+
+      // Marks-ka (hal qiime dhamaan maadooyinka fasalkan) -> examMarksConfig
+      if (draftMaxMarks !== "") {
+        const cfgId = marksConfigId(selectedClass, draftExamType);
+        const cfgPayload = {
+          className: selectedClass,
+          examType: draftExamType,
+          maxMarks: Number(draftMaxMarks),
+          source: "admin",
+          updatedAt: new Date(),
+        };
+        await setDoc(doc(db, "examMarksConfig", cfgId), cfgPayload);
+        setMarksConfig((prev) => ({ ...prev, [cfgId]: cfgPayload }));
+      }
 
       const studentsSnap = await getDocs(
         query(collection(db, "students"), where("className", "==", selectedClass))
@@ -844,7 +883,11 @@ export default function ExamTimetable() {
                   </div>
                   <select
                     value={draftExamType}
-                    onChange={(e) => setDraftExamType(e.target.value)}
+                    onChange={(e) => {
+                      setDraftExamType(e.target.value);
+                      const cfg = marksConfig[marksConfigId(selectedClass, e.target.value)];
+                      setDraftMaxMarks(cfg?.maxMarks ? String(cfg.maxMarks) : "");
+                    }}
                     style={fieldStyle}
                   >
                     {EXAM_TYPES.map((t) => (
@@ -853,6 +896,24 @@ export default function ExamTimetable() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div style={{ flex: "1 1 160px" }}>
+                  <div style={{ color: "#8b87ad", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
+                    Marks (imisa lagu saxayaa)
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="tusaale: 50"
+                    value={draftMaxMarks}
+                    onChange={(e) => setDraftMaxMarks(e.target.value)}
+                    style={fieldStyle}
+                  />
+                  {marksConfig[marksConfigId(selectedClass, draftExamType)]?.source === "teacher" && (
+                    <div style={{ color: "#F59E0B", fontSize: 11, marginTop: 4 }}>
+                      Macalin ayaa dhigay — halkan ku beddeli kartaa.
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={saveExamWeekDates}
@@ -901,6 +962,15 @@ export default function ExamTimetable() {
                     <strong style={{ color: "#fff" }}>
                       {examTypeLabel(examWeekDates[selectedClass].examType)}
                     </strong>
+                    {marksConfig[marksConfigId(selectedClass, examWeekDates[selectedClass].examType || "final")]
+                      ?.maxMarks && (
+                      <>
+                        {" "}— Marks:{" "}
+                        <strong style={{ color: "#fff" }}>
+                          {marksConfig[marksConfigId(selectedClass, examWeekDates[selectedClass].examType || "final")].maxMarks}
+                        </strong>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
