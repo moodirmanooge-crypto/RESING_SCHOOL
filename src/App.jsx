@@ -15,6 +15,7 @@ import AdminOtp from "./admin/AdminOtp";
 import AdminRoute from "./admin/AdminRoute";
 import TeacherOtp from "./teacher/TeacherOtp";
 import TeacherRoute from "./teacher/TeacherRoute";
+import ExamRooms from "./admin/pages/ExamRooms";
 
 // ADMIN
 import Dashboard from "./admin/pages/Dashboard";
@@ -38,6 +39,7 @@ import EditTeacher from "./admin/pages/EditTeacher";
 import Shifts from "./admin/pages/Shifts";
 import Certificates from "./admin/pages/Certificates";
 import ResultsByClass from "./admin/pages/ResultsByClass";
+import ResultsSubmission from "./admin/pages/ResultsSubmission";
 import Holidays from "./admin/pages/Holidays";
 import GalleryManager from "./admin/pages/GalleryManager";
 import NewsManager from "./admin/pages/NewsManager";
@@ -106,20 +108,15 @@ function App() {
         <Route path="/student-login" element={<Login role="Student" />} />
         <Route path="/parent-login" element={<Login role="Parent" />} />
         <Route path="/cashier-login" element={<Login role="Cashier" />} />
+        <Route path="/admin/exam-rooms" element={<ExamRooms />} />
 
-        {/* Public certificate verification page — QR code on the Class 8
-            leaving certificate links here. No login required. */}
+        {/* Public certificate verification page */}
         <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
 
-        {/* Public teacher ID verification page — QR code on the Teacher
-            ID card (front + back) links here. No login required. Reads
-            the teacher_id/{teacherUsername} Firestore snapshot and shows
-            the same details printed on the card. */}
+        {/* Public teacher ID verification page */}
         <Route path="/verify/teacher/:teacherUsername" element={<TeacherVerify />} />
 
-        {/* ===== ADMIN (ilaalinta OTP) =====
-            Dhammaan /admin/* waxay ku jiraan AdminRoute: Firebase Auth session
-            + claims role=admin & otpVerified=true (kaddib email OTP sax ah). */}
+        {/* ===== ADMIN (ilaalinta OTP) ===== */}
         <Route element={<AdminRoute />}>
           <Route path="/admin/pending-deletions" element={<PendingDeletions />} />
           <Route path="/admin/receipts" element={<Receipts />} />
@@ -127,20 +124,15 @@ function App() {
           <Route path="/admin/exam-cards" element={<ExamCards />} />
           <Route path="/admin/id-cards" element={<AllIdCards />} />
           <Route path="/admin/results-by-class" element={<ResultsByClass />} />
+          {/* Waqtiga gudbinta natiijada + cidda gudbisay / dhiman + fasaxyada update */}
+          <Route path="/admin/results-submission" element={<ResultsSubmission />} />
           <Route path="/admin/holidays" element={<Holidays />} />
           <Route path="/admin/gallery" element={<GalleryManager />} />
           <Route path="/admin/news" element={<NewsManager />} />
           <Route path="/admin/add-sub-admin" element={<AddSubAdmin />} />
           <Route path="/admin/manage-admins" element={<ManageAdmins />} />
           <Route path="/admin/library" element={<LibraryManager />} />
-          {/* Admin page for uploading the single photo/video shown on the
-              public homepage hero section — writes to the
-              `settings/homepage` Firestore doc that Home.jsx reads live. */}
           <Route path="/admin/upload-certificate" element={<UploadCertificate />} />
-          {/* Admin view of all admission applications submitted from the
-              public /admissions page — lists every applicant, shows a
-              pending-count badge in the sidebar, and lets the admin
-              approve a submission. */}
           <Route path="/admin/admissions" element={<AdmissionsList />} />
           <Route path="/admin/dashboard" element={<Dashboard />} />
           <Route path="/admin/add-student" element={<AddStudent />} />
@@ -162,7 +154,6 @@ function App() {
           <Route path="/admin/timetable" element={<Timetable />} />
           <Route path="/admin/exam-timetable" element={<ExamTimetable />} />
           <Route path="/admin/shifts" element={<Shifts />} />
-          {/* Class 8 Leaving Certificates — admin generates/manages them here */}
           <Route path="/admin/certificates" element={<Certificates />} />
         </Route>
 
@@ -170,13 +161,7 @@ function App() {
         <Route path="/parent/dashboard" element={<ParentDashboard />} />
         <Route path="/cashier/exam-payments" element={<ExamPayments />} />
 
-        {/* Dhammaan boggagga Teacher waxay ku jiraan MessagesProvider hal mar,
-            si Sidebar/Topbar/Messages ay isku wadaagaan xogta fariimaha.
-            /teacher/timetable sidoo kale waa in lagu duubaa MessagesProvider
-            maxaa yeelay Sidebar.jsx wuxuu isticmaalaa useMessages(). */}
-        {/* ===== TEACHER (ilaalinta OTP) =====
-            Dhammaan /teacher/* waxay ku jiraan TeacherRoute: Firebase Auth session
-            + claims role=teacher & otpVerified=true (kaddib email OTP sax ah). */}
+        {/* ===== TEACHER (ilaalinta OTP) ===== */}
         <Route element={<TeacherRoute />}>
           <Route
             path="/teacher/dashboard"
@@ -254,7 +239,6 @@ function App() {
           <Route path="receipts" element={<CashierReceipts />} />
           <Route path="recycle-bin" element={<CashierRecycleBin />} />
         </Route>
-
       </Routes>
     </BrowserRouter>
   );

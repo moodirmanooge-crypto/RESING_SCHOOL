@@ -24,9 +24,39 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  getDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { Image as ImageIcon, Upload, Trash2, Heart, MessageCircle, Pencil, X, Save, ChevronLeft, ChevronRight } from "lucide-react";
+
+// ---- Faallooyinka (comments) ----
+// Comments-ku waxay ku jiraan array-ga `comments` ee doc-ga gallery. Ma
+// laha id, sidaas darteed mid kasta waxaa lagu aqoonsadaa magaca + qoraalka
+// + waqtiga. Marka la tirtiro, doc-ga waxaa laga soo akhriyaa Firestore
+// (ma aha state-ka) si aan faallo cusub oo dhexda ku soo dhacday loo lumin.
+// Bogga Gallery-ga dadweynaha wuxuu isticmaalaa onSnapshot, markaa faallada
+// la tirtiray isla markiiba way ka baaba'daa qof kasta.
+function commentMs(c) {
+  const t = c?.createdAt;
+  if (!t) return 0;
+  if (typeof t.seconds === "number") return t.seconds * 1000 + Math.floor((t.nanoseconds || 0) / 1e6);
+  const d = t instanceof Date ? t : new Date(t);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+function commentKey(c) {
+  return `${c?.name || ""}|${c?.text || ""}|${commentMs(c)}`;
+}
+function formatDateTime(c) {
+  const ms = commentMs(c);
+  if (!ms) return "";
+  return new Date(ms).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 
@@ -74,6 +104,12 @@ export default function GalleryManager() {
   const [editItems, setEditItems] = useState([]);
   const [removedOriginalPaths, setRemovedOriginalPaths] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // ---- Comments modal state ----
+  const [commentsPostId, setCommentsPostId] = useState(null);
+  const [confirmCommentKey, setConfirmCommentKey] = useState(null);
+  const [busyCommentKey, setBusyCommentKey] = useState(null);
+  const [confirmClearAll, setConfirmClearAll] = useState(false);
 
   useEffect(() => {
     const q = query(collection(db, "gallery"), orderBy("createdAt", "desc"));
@@ -182,6 +218,63 @@ export default function GalleryManager() {
       const cur = prev[itemId] || 0;
       return { ...prev, [itemId]: cur < count - 1 ? cur + 1 : 0 };
     });
+  }
+
+  // ---- Faallooyinka: fur / xir ----
+  function openComments(item) {
+    setCommentsPostId(item.id);
+    setConfirmCommentKey(null);
+    setConfirmClearAll(false);
+  }
+  function closeComments() {
+    setCommentsPostId(null);
+    setConfirmCommentKey(null);
+    setConfirmClearAll(false);
+  }
+
+  // Tirtir hal faallo — qofna mar dambe ma arki doono.
+  async function deleteComment(postId, comment) {
+    const key = commentKey(comment);
+    try {
+      setBusyCommentKey(key);
+      const postRef = doc(db, "gallery", postId);
+      const snap = await getDoc(postRef);
+      if (!snap.exists()) return;
+      const list = Array.isArray(snap.data().comments) ? snap.data().comments : [];
+      let removed = false;
+      const next = list.filter((c) => {
+        if (!removed && commentKey(c) === key) {
+          removed = true;
+          return false;
+        }
+        return true;
+      });
+      if (!removed) {
+        alert("Faalladan lama helin — waxaa laga yaabaa in hore loo tirtiray.");
+        return;
+      }
+      await updateDoc(postRef, { comments: next });
+      setConfirmCommentKey(null);
+    } catch (err) {
+      console.error(err);
+      alert("Khalad ayaa dhacay marka faallada la tirtirayay: " + err.message);
+    } finally {
+      setBusyCommentKey(null);
+    }
+  }
+
+  // Tirtir dhammaan faallooyinka post-kan
+  async function deleteAllComments(postId) {
+    try {
+      setBusyCommentKey("__all__");
+      await updateDoc(doc(db, "gallery", postId), { comments: [] });
+      setConfirmClearAll(false);
+    } catch (err) {
+      console.error(err);
+      alert("Khalad ayaa dhacay: " + err.message);
+    } finally {
+      setBusyCommentKey(null);
+    }
   }
 
   // ---- Fur modal-ka wax-ka-bedelka post-ga ----
@@ -565,6 +658,29 @@ export default function GalleryManager() {
                         <span>{formatDate(item.createdAt)}</span>
                       </div>
 
+                      <button
+                        onClick={() => openComments(item)}
+                        style={{
+                          width: "100%",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 6,
+                          border: "1px solid rgba(34,197,94,0.35)",
+                          background: "rgba(34,197,94,0.1)",
+                          color: "#4ade80",
+                          fontWeight: 700,
+                          fontSize: 11.5,
+                          padding: "7px 0",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                          marginBottom: 6,
+                        }}
+                      >
+                        <MessageCircle size={12} />
+                        Faallooyinka ({(item.comments || []).length})
+                      </button>
+
                       <div style={{ display: "flex", gap: 6, marginBottom: confirmDelete === item.id ? 6 : 0 }}>
                         <button
                           onClick={() => openEdit(item)}
@@ -655,6 +771,321 @@ export default function GalleryManager() {
           )}
         </div>
       </div>
+
+      {/* ---- Comments modal ---- */}
+      {commentsPostId && (() => {
+        // Ka akhri items (onSnapshot) si liisku si toos ah u cusboonaado
+        const post = items.find((it) => it.id === commentsPostId);
+        if (!post) return null;
+        const comments = [...(post.comments || [])].sort((a, b) => commentMs(b) - commentMs(a));
+        const thumb = getMediaList(post)[0];
+        return (
+          <div
+            onClick={closeComments}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.65)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+              padding: 20,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: "linear-gradient(160deg,#151233,#181341)",
+                border: "1px solid rgba(139,108,245,0.3)",
+                borderRadius: 20,
+                width: "100%",
+                maxWidth: 620,
+                maxHeight: "90vh",
+                display: "flex",
+                flexDirection: "column",
+                overflow: "hidden",
+              }}
+            >
+              {/* Header */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "16px 20px",
+                  borderBottom: "1px solid rgba(139,108,245,0.2)",
+                }}
+              >
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 10,
+                    overflow: "hidden",
+                    background: "#000",
+                    flexShrink: 0,
+                  }}
+                >
+                  {thumb?.type === "video" ? (
+                    <video src={thumb.url} style={{ width: "100%", height: "100%", objectFit: "cover" }} muted />
+                  ) : thumb ? (
+                    <img src={thumb.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : null}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h2 style={{ color: "#fff", margin: 0, fontSize: 17 }}>
+                    Faallooyinka ({comments.length})
+                  </h2>
+                  <div
+                    style={{
+                      color: "#8b87ad",
+                      fontSize: 12,
+                      marginTop: 2,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {post.caption || "—"}
+                  </div>
+                </div>
+                <button
+                  onClick={closeComments}
+                  style={{
+                    background: "rgba(255,255,255,0.05)",
+                    border: "none",
+                    color: "#fff",
+                    width: 32,
+                    height: 32,
+                    borderRadius: 8,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* List */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "14px 20px" }}>
+                {comments.length === 0 ? (
+                  <div style={{ textAlign: "center", color: "#8b87ad", padding: "40px 10px", fontSize: 13.5 }}>
+                    <MessageCircle size={30} color="#5a5680" style={{ marginBottom: 8 }} />
+                    <div>Post-kan weli faallo lagama qorin.</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {comments.map((c) => {
+                      const key = commentKey(c);
+                      const confirming = confirmCommentKey === key;
+                      const busy = busyCommentKey === key;
+                      return (
+                        <div
+                          key={key}
+                          style={{
+                            display: "flex",
+                            gap: 12,
+                            alignItems: "flex-start",
+                            background: confirming ? "rgba(239,68,68,0.08)" : "rgba(255,255,255,0.03)",
+                            border: `1px solid ${confirming ? "rgba(239,68,68,0.35)" : "rgba(139,108,245,0.15)"}`,
+                            borderRadius: 12,
+                            padding: 12,
+                          }}
+                        >
+                          {c.photoUrl ? (
+                            <img
+                              src={c.photoUrl}
+                              alt=""
+                              style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: 36,
+                                height: 36,
+                                borderRadius: "50%",
+                                background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+                                color: "#fff",
+                                fontWeight: 800,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {(c.name || "?").charAt(0).toUpperCase()}
+                            </div>
+                          )}
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ color: "#fff", fontWeight: 700, fontSize: 13.5 }}>
+                                {c.name || "Visitor"}
+                              </span>
+                              <span style={{ color: "#6b6890", fontSize: 11 }}>{formatDateTime(c)}</span>
+                            </div>
+                            <div
+                              style={{
+                                color: "#d4d2ea",
+                                fontSize: 13.5,
+                                marginTop: 4,
+                                lineHeight: 1.5,
+                                wordBreak: "break-word",
+                                whiteSpace: "pre-wrap",
+                              }}
+                            >
+                              {c.text}
+                            </div>
+                          </div>
+
+                          <div style={{ flexShrink: 0, display: "flex", gap: 6 }}>
+                            {confirming ? (
+                              <>
+                                <button
+                                  onClick={() => deleteComment(post.id, c)}
+                                  disabled={busy}
+                                  style={{
+                                    border: "none",
+                                    background: "#ef4444",
+                                    color: "#fff",
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    cursor: busy ? "not-allowed" : "pointer",
+                                    opacity: busy ? 0.7 : 1,
+                                  }}
+                                >
+                                  {busy ? "..." : "Xaqiiji"}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmCommentKey(null)}
+                                  disabled={busy}
+                                  style={{
+                                    border: "1px solid rgba(255,255,255,0.15)",
+                                    background: "transparent",
+                                    color: "#a9a6c4",
+                                    fontWeight: 700,
+                                    fontSize: 11.5,
+                                    padding: "6px 10px",
+                                    borderRadius: 8,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Jooji
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmCommentKey(key)}
+                                title="Tirtir faalladan"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 5,
+                                  border: "1px solid rgba(239,68,68,0.3)",
+                                  background: "rgba(239,68,68,0.12)",
+                                  color: "#f87171",
+                                  fontWeight: 700,
+                                  fontSize: 11.5,
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <Trash2 size={12} />
+                                Tirtir
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              {comments.length > 0 && (
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 20px",
+                    borderTop: "1px solid rgba(139,108,245,0.2)",
+                    flexWrap: "wrap",
+                  }}
+                >
+                  <span style={{ color: "#8b87ad", fontSize: 12 }}>
+                    Faallada la tirtiro isla markiiba way ka baaba'aysaa bogga Gallery-ga.
+                  </span>
+                  {confirmClearAll ? (
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        onClick={() => deleteAllComments(post.id)}
+                        disabled={busyCommentKey === "__all__"}
+                        style={{
+                          border: "none",
+                          background: "#ef4444",
+                          color: "#fff",
+                          fontWeight: 700,
+                          fontSize: 12,
+                          padding: "8px 12px",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                        }}
+                      >
+                        {busyCommentKey === "__all__" ? "..." : `Haa, tirtir ${comments.length}`}
+                      </button>
+                      <button
+                        onClick={() => setConfirmClearAll(false)}
+                        style={{
+                          border: "1px solid rgba(255,255,255,0.15)",
+                          background: "transparent",
+                          color: "#a9a6c4",
+                          fontWeight: 700,
+                          fontSize: 12,
+                          padding: "8px 12px",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                        }}
+                      >
+                        Jooji
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmClearAll(true)}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        border: "1px solid rgba(239,68,68,0.3)",
+                        background: "rgba(239,68,68,0.12)",
+                        color: "#f87171",
+                        fontWeight: 700,
+                        fontSize: 12,
+                        padding: "8px 12px",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Trash2 size={13} />
+                      Tirtir dhammaan
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ---- Edit modal ---- */}
       {editTarget && (

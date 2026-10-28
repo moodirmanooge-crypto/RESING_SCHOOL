@@ -1,7 +1,13 @@
 // src/pages/Academics.jsx
 //
-// Public "Academics" page — supports both Full Time and Part Time students
-// looking up their results using Student ID + parent/student password.
+// Public "Academics" page — Full Time iyo Part Time ardayda waxay ku
+// eegayaan natiijadooda Student ID + password.
+//
+// Natiijadu waxay ka furmaysaa SHAASHAD GOONI AH (full-screen) oo dul
+// fadhida bogga — scroll hoos uma baahna. Waxay muujinaysaa:
+//   - 4-ta imtixaan (Monthly One, Term, Monthly Two, Final) mid mid
+//   - Dhibcaha saxda ah ee macalimiintu soo gudbiyeen (tusaale 45 / 50)
+//   - Wadarta imtixaan kasta iyo wadarta guud ee dhammaan imtixaannada
 
 import { useState, useEffect } from "react";
 import "../styles/academics.css";
@@ -16,7 +22,18 @@ import {
   doc,
   getDoc,
 } from "firebase/firestore";
-import { Hash, User, Building2, BarChart3, Award, GraduationCap } from "lucide-react";
+import {
+  X,
+  Printer,
+  Layers,
+  BookOpen,
+  Trophy,
+  TrendingUp,
+  TrendingDown,
+  Hash,
+  School,
+  User,
+} from "lucide-react";
 
 const SCHOOL_NAME = "RISING STAR SCHOOL";
 
@@ -32,7 +49,22 @@ const NAV_LINKS = [
 
 const ACADEMIC_YEARS = ["2025-2026", "2024-2025", "2023-2024"];
 
-const currentMonthKey = () => new Date().toISOString().slice(0, 7); // "2026-09"
+// 4-ta imtixaan ee dugsiga, sida ay u kala horreeyaan sanadka
+const EXAM_ORDER = ["Monthly One", "Term", "Monthly Two", "Final"];
+const EXAM_COLORS = {
+  "Monthly One": "#2563eb",
+  Term: "#7c3aed",
+  "Monthly Two": "#0891b2",
+  Final: "#ea580c",
+};
+const EXAM_SHORT = {
+  "Monthly One": "M1",
+  Term: "Term",
+  "Monthly Two": "M2",
+  Final: "Final",
+};
+
+const currentMonthKey = () => new Date().toISOString().slice(0, 7);
 
 const monthLabel = (key) => {
   if (!key) return "—";
@@ -53,13 +85,167 @@ function gradeFor(pct) {
   return { letter: "F", color: "#991b1b", remark: "U baahan taageero dheeraad ah" };
 }
 
-// Go'aanka ugu dambeeya: Celceliska (average) haddii uu yahay D ama ka sarreeya
-// (A/B/B-/C+/C/C-/D) waa la GUDBAY; haddii uu yahay E ama F waa la DHACAY.
+// D ama ka sarreeya = Gudbay; E ama F = Ku Dhacay
 function verdictFor(letter) {
-  if (letter === "E" || letter === "F") {
-    return { label: "Ku Dhacay", color: "#dc2626" };
-  }
+  if (letter === "E" || letter === "F") return { label: "Ku Dhacay", color: "#dc2626" };
   return { label: "Gudbay", color: "#16a34a" };
+}
+
+const fmt = (n) => {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+};
+const pctOf = (marks, max) => (max > 0 ? (marks / max) * 100 : 0);
+const tsOf = (r) => {
+  const u = r?.updatedAt;
+  if (!u) return 0;
+  if (typeof u.seconds === "number") return u.seconds;
+  const d = u instanceof Date ? u : new Date(u);
+  return isNaN(d) ? 0 : d.getTime() / 1000;
+};
+
+// Natiijooyinka u kala saar: imtixaan -> maado (kan ugu dambeeyay maado kasta)
+function buildReport(rows) {
+  const byExam = {};
+  rows.forEach((r) => {
+    const subject = String(r.subject || "").trim();
+    if (!subject) return;
+    const type = String(r.examType || "").trim() || "Exam";
+    const key = subject.toLowerCase();
+    byExam[type] = byExam[type] || {};
+    const prev = byExam[type][key];
+    if (!prev || tsOf(r) >= tsOf(prev)) {
+      byExam[type][key] = {
+        subject,
+        marks: Number(r.marks) || 0,
+        maxMarks: Number(r.maxMarks) || 100,
+        teacherName: r.teacherName || "",
+        updatedAt: r.updatedAt,
+      };
+    }
+  });
+
+  // Had iyo jeer 4-ta imtixaan; nooc kale haddii uu jiro dabadooda ayuu galayaa
+  const extraTypes = Object.keys(byExam).filter((t) => !EXAM_ORDER.includes(t));
+  const examTypes = [...EXAM_ORDER, ...extraTypes];
+
+  const exams = examTypes.map((type) => {
+    const subjects = Object.values(byExam[type] || {}).sort((a, b) =>
+      a.subject.localeCompare(b.subject)
+    );
+    const total = subjects.reduce((s, x) => s + x.marks, 0);
+    const max = subjects.reduce((s, x) => s + x.maxMarks, 0);
+    const pct = pctOf(total, max);
+    return {
+      type,
+      color: EXAM_COLORS[type] || "#475569",
+      short: EXAM_SHORT[type] || type,
+      subjects,
+      total,
+      max,
+      pct,
+      grade: gradeFor(pct),
+      hasData: subjects.length > 0,
+    };
+  });
+
+  // Liiska maadooyinka oo dhan (isku dar)
+  const subjectNames = {};
+  exams.forEach((e) =>
+    e.subjects.forEach((s) => {
+      subjectNames[s.subject.toLowerCase()] = s.subject;
+    })
+  );
+
+  const combined = Object.entries(subjectNames)
+    .map(([key, name]) => {
+      const perExam = {};
+      let total = 0;
+      let max = 0;
+      exams.forEach((e) => {
+        const hit = e.subjects.find((s) => s.subject.toLowerCase() === key);
+        if (hit) {
+          perExam[e.type] = hit;
+          total += hit.marks;
+          max += hit.maxMarks;
+        }
+      });
+      const pct = pctOf(total, max);
+      return { subject: name, perExam, total, max, pct, grade: gradeFor(pct) };
+    })
+    .sort((a, b) => b.pct - a.pct);
+
+  const grandTotal = exams.reduce((s, e) => s + e.total, 0);
+  const grandMax = exams.reduce((s, e) => s + e.max, 0);
+  const grandPct = pctOf(grandTotal, grandMax);
+
+  return {
+    exams,
+    combined,
+    grandTotal,
+    grandMax,
+    grandPct,
+    grandGrade: gradeFor(grandPct),
+    examsTaken: exams.filter((e) => e.hasData).length,
+    hasAny: combined.length > 0,
+  };
+}
+
+function ScoreRing({ pct, color, size = 132, label = "Guud" }) {
+  const stroke = 11;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const off = c - (Math.min(Math.max(pct, 0), 100) / 100) * c;
+  return (
+    <div className="acr-ring" style={{ width: size, height: size }}>
+      <svg width={size} height={size}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="rgba(255,255,255,0.18)"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={off}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          className="acr-ring-progress"
+        />
+      </svg>
+      <div className="acr-ring-label">
+        <strong>{pct.toFixed(1)}%</strong>
+        <span>{label}</span>
+      </div>
+    </div>
+  );
+}
+
+function Bar({ pct, color }) {
+  return (
+    <div className="acr-bar">
+      <div
+        className="acr-bar-fill"
+        style={{ width: `${Math.min(pct, 100)}%`, background: color }}
+      />
+    </div>
+  );
+}
+
+function GradePill({ grade }) {
+  return (
+    <span className="acr-pill" style={{ "--pill": grade.color }}>
+      {grade.letter}
+    </span>
+  );
 }
 
 export default function Academics() {
@@ -70,9 +256,9 @@ export default function Academics() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [student, setStudent] = useState(null);
-  const [results, setResults] = useState([]);
+  const [report, setReport] = useState(null);
+  const [activeTab, setActiveTab] = useState("all");
 
-  const [showCelebration, setShowCelebration] = useState(false);
   const [feeBlocked, setFeeBlocked] = useState(false);
   const [feeInfo, setFeeInfo] = useState(null);
 
@@ -81,56 +267,62 @@ export default function Academics() {
     function handleContextMenu(e) {
       e.preventDefault();
     }
-
     function handleKeyDown(e) {
       const key = (e.key || "").toLowerCase();
-
       if (key === "f12") {
         e.preventDefault();
         return;
       }
-
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        e.shiftKey &&
-        (key === "i" || key === "j" || key === "c")
-      ) {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (key === "i" || key === "j" || key === "c")) {
         e.preventDefault();
         return;
       }
-
       if ((e.ctrlKey || e.metaKey) && (key === "u" || key === "s")) {
         e.preventDefault();
-        return;
       }
     }
-
     document.addEventListener("contextmenu", handleContextMenu);
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, []);
 
-  const resetLookup = () => {
+  // Marka shaashadda natiijadu furan tahay, bogga hoose ha scroll-gareyn,
+  // Escape-na ha xiro.
+  const overlayOpen = Boolean(student && report);
+  useEffect(() => {
+    if (!overlayOpen) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEsc = (e) => {
+      if (e.key === "Escape") resetLookup();
+    };
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onEsc);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayOpen]);
+
+  function resetLookup() {
     setStudent(null);
-    setResults([]);
+    setReport(null);
     setStudentId("");
     setPassword("");
     setError("");
     setFeeBlocked(false);
     setFeeInfo(null);
-    setShowCelebration(false);
-  };
+    setActiveTab("all");
+  }
 
   const handleLookup = async (e) => {
     e.preventDefault();
     setError("");
     setFeeBlocked(false);
     setFeeInfo(null);
-    setShowCelebration(false);
 
     const idInput = studentId.trim();
     if (!idInput) {
@@ -145,131 +337,77 @@ export default function Academics() {
     try {
       setLoading(true);
 
-      let foundStudentData = null;
-      let finalStudentId = idInput;
-
-      // Raadin sugan oo ka baadi-goobaysa collection-yada 'students' iyo 'partTimeStudents'
       async function findStudentInCollection(collName, targetId) {
-        const variants = [
-          targetId,
-          targetId.toUpperCase(),
-          targetId.toLowerCase(),
-          targetId.padStart(4, "0"),
-        ];
-
-        // 1. Ku baaro Document ID ahaan
+        const variants = Array.from(
+          new Set([
+            targetId,
+            targetId.toUpperCase(),
+            targetId.toLowerCase(),
+            targetId.padStart(4, "0"),
+          ])
+        );
         for (const v of variants) {
           const snap = await getDoc(doc(db, collName, v));
-          if (snap.exists()) {
-            return { id: snap.id, data: snap.data() };
-          }
+          if (snap.exists()) return { id: snap.id, data: snap.data() };
         }
-
-        // 2. Ku baaro 'studentId' field ahaan
         for (const v of variants) {
-          const q = query(collection(db, collName), where("studentId", "==", v));
-          const querySnap = await getDocs(q);
-          if (!querySnap.empty) {
-            const d = querySnap.docs[0];
-            return { id: d.id, data: d.data() };
-          }
+          const qs = await getDocs(
+            query(collection(db, collName), where("studentId", "==", v))
+          );
+          if (!qs.empty) return { id: qs.docs[0].id, data: qs.docs[0].data() };
         }
         return null;
       }
 
-      // Marka hore ka raadi 'students' kadibna 'partTimeStudents' (Private)
+      let studentType = "Full Time";
       let match = await findStudentInCollection("students", idInput);
       if (!match) {
         match = await findStudentInCollection("partTimeStudents", idInput);
+        studentType = "Part Time";
       }
 
       if (!match) {
         setError("Lambarka Ardayga lama helin. Fadlan hubi oo isku day mar kale.");
-        setLoading(false);
         return;
       }
 
-      foundStudentData = match.data;
-      finalStudentId = match.id || match.data.studentId || idInput;
+      const data = match.data;
+      const finalStudentId = match.id || data.studentId || idInput;
 
-      // Password check (Taageeraya labada field ee kala ah 'password' ama 'parentPassword')
-      const dbPassword = String(
-        foundStudentData.password || foundStudentData.parentPassword || ""
-      );
+      const dbPassword = String(data.password || data.parentPassword || "");
       if (dbPassword !== password.trim()) {
         setError("Password-ku waa khalad. Fadlan isku day mar kale.");
-        setLoading(false);
         return;
       }
 
-      // ---- Fee gate: Hubinta lacagta bisha ----
-      if (foundStudentData.feeType !== "Free") {
+      // ---- Fee gate ----
+      if (data.feeType !== "Free") {
         const monthKey = currentMonthKey();
-        const paymentDocId = `${finalStudentId}_${monthKey}`;
-        const paymentSnap = await getDoc(doc(db, "payments", paymentDocId));
-
-        const monthlyFee = Number(foundStudentData.monthlyFee || 0);
-        const paidAmount = paymentSnap.exists()
-          ? Number(paymentSnap.data().paidAmount || 0)
-          : 0;
+        const paymentSnap = await getDoc(doc(db, "payments", `${finalStudentId}_${monthKey}`));
+        const monthlyFee = Number(data.monthlyFee || 0);
+        const paidAmount = paymentSnap.exists() ? Number(paymentSnap.data().paidAmount || 0) : 0;
         const remaining = Math.max(monthlyFee - paidAmount, 0);
         const isFullyPaid =
-          paymentSnap.exists() &&
-          paymentSnap.data().status === "Paid" &&
-          remaining <= 0;
+          paymentSnap.exists() && paymentSnap.data().status === "Paid" && remaining <= 0;
 
         if (!isFullyPaid) {
           setFeeBlocked(true);
-          setFeeInfo({
-            monthlyFee,
-            paidAmount,
-            remaining,
-            monthLabel: monthLabel(monthKey),
-          });
-          setLoading(false);
+          setFeeInfo({ monthlyFee, paidAmount, remaining, monthLabel: monthLabel(monthKey) });
           return;
         }
       }
 
-      // Soo qaadashada natiijooyinka ardaygan
-      const resultsSnap = await getDocs(
-        query(collection(db, "results"), where("studentId", "==", finalStudentId))
-      );
+      // Natiijooyinka labada collection ka soo qaad (results + resultsPartTime),
+      // si aan natiijo looga waayin haddii mid si khaldan loogu kaydiyay.
+      const [ftSnap, ptSnap] = await Promise.all([
+        getDocs(query(collection(db, "results"), where("studentId", "==", finalStudentId))),
+        getDocs(query(collection(db, "resultsPartTime"), where("studentId", "==", finalStudentId))),
+      ]);
+      const rows = [...ftSnap.docs, ...ptSnap.docs].map((d) => ({ id: d.id, ...d.data() }));
 
-      const subjectRows = resultsSnap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((r) => r.subject && String(r.subject).trim() !== "");
-
-      const bySubject = {};
-      subjectRows.forEach((r) => {
-        const key = String(r.subject).toLowerCase();
-        const existing = bySubject[key];
-        const rTime = r.updatedAt?.seconds || 0;
-        const eTime = existing?.updatedAt?.seconds || 0;
-        if (!existing || rTime >= eTime) {
-          bySubject[key] = r;
-        }
-      });
-
-      const combined = Object.values(bySubject).sort((a, b) => {
-        const aMax = Number(a.maxMarks) || 100;
-        const bMax = Number(b.maxMarks) || 100;
-        const aPct = aMax > 0 ? (Number(a.marks) || 0) / aMax : 0;
-        const bPct = bMax > 0 ? (Number(b.marks) || 0) / bMax : 0;
-        return bPct - aPct;
-      });
-
-      setStudent({ ...foundStudentData, studentId: finalStudentId });
-      setResults(combined);
-
-      if (combined.length > 0) {
-        const tMarks = combined.reduce((s, r) => s + (Number(r.marks) || 0), 0);
-        const tMax = combined.reduce((s, r) => s + (Number(r.maxMarks) || 0), 0);
-        const avg = tMax > 0 ? (tMarks / tMax) * 100 : 0;
-        if (avg >= 65) {
-          setShowCelebration(true);
-        }
-      }
+      setStudent({ ...data, studentId: data.studentId || finalStudentId, studentType });
+      setReport(buildReport(rows));
+      setActiveTab("all");
     } catch (err) {
       console.error(err);
       setError("Khalad ayaa dhacay. Fadlan isku day mar kale.");
@@ -278,14 +416,13 @@ export default function Academics() {
     }
   };
 
-  const totalMarks = results.reduce((sum, r) => sum + (Number(r.marks) || 0), 0);
-  const totalMax = results.reduce((sum, r) => sum + (Number(r.maxMarks) || 0), 0);
-  const averagePct = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
-  const averageGrade = gradeFor(averagePct);
-  const verdict = verdictFor(averageGrade.letter);
-  const halfway = Math.ceil(results.length / 2);
-  const resultsColLeft = results.slice(0, halfway);
-  const resultsColRight = results.slice(halfway);
+  const activeExam =
+    report && activeTab !== "all" ? report.exams.find((x) => x.type === activeTab) : null;
+  const verdict = report ? verdictFor(report.grandGrade.letter) : null;
+  const celebrate = report && report.hasAny && report.grandPct >= 65;
+  const bestSubject = report?.combined[0];
+  const weakSubject =
+    report && report.combined.length > 1 ? report.combined[report.combined.length - 1] : null;
 
   return (
     <div className="aca-page">
@@ -294,9 +431,7 @@ export default function Academics() {
           <img src={logo} className="brand-logo" alt="Rising Star School logo" />
           <div className="brand-text">
             <span className="brand-name">RISING STAR SCHOOL</span>
-            <span className="brand-tagline">
-              RISING STAR PRIMARY &amp; SECONDARY SCHOOL
-            </span>
+            <span className="brand-tagline">RISING STAR PRIMARY &amp; SECONDARY SCHOOL</span>
           </div>
         </Link>
 
@@ -305,9 +440,7 @@ export default function Academics() {
             <Link
               key={l.to}
               to={l.to}
-              className={
-                "home-nav-link" + (l.to === "/academics" ? " active" : "")
-              }
+              className={"home-nav-link" + (l.to === "/academics" ? " active" : "")}
             >
               {l.label}
             </Link>
@@ -328,14 +461,14 @@ export default function Academics() {
         <div className="aca-hero-badge">Academics</div>
         <h1 className="aca-hero-title">Check Student Results</h1>
         <p className="aca-hero-sub">
-          Enter the Student ID and password to view every subject result
-          for the selected academic year.
+          Geli Student ID-ga iyo password-ka si aad u aragto natiijada dhammaan
+          imtixaannada — Monthly One, Term, Monthly Two iyo Final.
         </p>
       </section>
 
       <div className="aca-content">
         <div className="aca-lookup-card">
-          <h2 className="aca-lookup-title">Tira-taxaneha Ardeyga</h2>
+          <h2 className="aca-lookup-title">Tira-taxaneha Ardayga</h2>
           <p className="aca-lookup-sub">
             U gudub aragtida natiijadaada — geli lambarkaaga iyo password-kaaga.
           </p>
@@ -388,229 +521,400 @@ export default function Academics() {
               </h3>
               <p className="aca-fee-lock-text">
                 Ardaygan wali wuxuu ka leeyahay lacagta dugsiga bishan{" "}
-                <strong>${feeInfo.remaining.toFixed(2)}</strong> oo aan la
-                bixin. Natiijada ma la soo bandhigi karo ilaa lacagta oo
-                dhan la bixiyo.
+                <strong>${feeInfo.remaining.toFixed(2)}</strong> oo aan la bixin. Natiijada
+                ma la soo bandhigi karo ilaa lacagta oo dhan la bixiyo.
               </p>
               <div className="aca-fee-lock-grid">
                 <div className="aca-fee-lock-box">
                   <div className="aca-fee-lock-label">Fee-ga Bishii</div>
-                  <div className="aca-fee-lock-value">
-                    ${feeInfo.monthlyFee.toFixed(2)}
-                  </div>
+                  <div className="aca-fee-lock-value">${feeInfo.monthlyFee.toFixed(2)}</div>
                 </div>
                 <div className="aca-fee-lock-box">
                   <div className="aca-fee-lock-label">La Bixiyay</div>
-                  <div className="aca-fee-lock-value">
-                    ${feeInfo.paidAmount.toFixed(2)}
-                  </div>
+                  <div className="aca-fee-lock-value">${feeInfo.paidAmount.toFixed(2)}</div>
                 </div>
                 <div className="aca-fee-lock-box owed">
                   <div className="aca-fee-lock-label">Haray</div>
-                  <div className="aca-fee-lock-value">
-                    ${feeInfo.remaining.toFixed(2)}
-                  </div>
+                  <div className="aca-fee-lock-value">${feeInfo.remaining.toFixed(2)}</div>
                 </div>
               </div>
               <p className="aca-fee-lock-note">
-                Fadlan la xiriir Cashier-ka dugsiga si aad lacagta u bixiso,
-                kadibna dib u isku day.
+                Fadlan la xiriir Cashier-ka dugsiga si aad lacagta u bixiso, kadibna dib u isku day.
               </p>
             </div>
           </div>
         )}
+      </div>
 
-        {student && (
-          <div className="report-card-wrap">
-            {results.length === 0 ? (
-              <div className="aca-results-card">
-                <div style={{ padding: "40px 20px", textAlign: "center", color: "#475569" }}>
-                  <div style={{ fontSize: "45px", marginBottom: "12px" }}>📭</div>
-                  <h3 style={{ fontSize: "18px", fontWeight: "bold", marginBottom: "8px", color: "#1e293b" }}>
-                    Lama helin imtixaankaaga
-                  </h3>
-                  <p style={{ fontSize: "14px", color: "#64748b" }}>
-                    Ardaygan weli natiijo lagama gelin xilligan ama sanadkan la doortay ({year}).
-                  </p>
-                  <button className="aca-logout-btn" onClick={resetLookup} style={{ marginTop: 18 }}>
-                    Log Out
-                  </button>
+      {/* ================= SHAASHADDA NATIIJADA (full-screen) ================= */}
+      {overlayOpen && (
+        <div className="acr-overlay" role="dialog" aria-modal="true">
+          <div className="acr-shell">
+            {/* Top bar */}
+            <div className="acr-topbar acr-noprint">
+              <div className="acr-topbar-brand">
+                <img src={logo} alt="" />
+                <div>
+                  <strong>{SCHOOL_NAME}</strong>
+                  <span>Warqadda Natiijada · {year}</span>
                 </div>
               </div>
-            ) : (
-              <>
-                {showCelebration && (
-                  <div className="aca-celebrate-banner">
-                    <div className="aca-confetti" aria-hidden="true">
-                      {Array.from({ length: 30 }).map((_, i) => (
-                        <span
-                          key={i}
-                          className="aca-confetti-piece"
-                          style={{
-                            left: `${Math.random() * 100}%`,
-                            background: [
-                              "#f97316",
-                              "#22a05f",
-                              "#2563eb",
-                              "#eab308",
-                              "#7c3aed",
-                              "#ec4899",
-                            ][i % 6],
-                            animationDelay: `${Math.random() * 2}s`,
-                            animationDuration: `${2.5 + Math.random() * 2}s`,
-                          }}
-                        />
-                      ))}
+              <div className="acr-topbar-actions">
+                <button type="button" className="acr-icon-btn" onClick={() => window.print()}>
+                  <Printer size={17} /> <span>Print</span>
+                </button>
+                <button type="button" className="acr-icon-btn acr-close" onClick={resetLookup}>
+                  <X size={18} /> <span>Xir</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="acr-scroll">
+              {/* Hero: ardayga + wadarta guud */}
+              <section className="acr-hero">
+                {celebrate && (
+                  <div className="acr-confetti" aria-hidden="true">
+                    {Array.from({ length: 26 }).map((_, i) => (
+                      <span
+                        key={i}
+                        style={{
+                          left: `${(i * 37) % 100}%`,
+                          background: ["#facc15", "#34d399", "#60a5fa", "#f472b6", "#fb923c"][i % 5],
+                          animationDelay: `${(i % 9) * 0.3}s`,
+                          animationDuration: `${3 + (i % 5) * 0.5}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <div className="acr-hero-main">
+                  <div className="acr-avatar">
+                    {(student.fullName || "?").trim().charAt(0).toUpperCase()}
+                  </div>
+                  <div className="acr-hero-info">
+                    {celebrate && <div className="acr-congrats">🏆 Hambalyo! Horumar Wacan</div>}
+                    <h2>{student.fullName || "—"}</h2>
+                    <div className="acr-chips">
+                      <span><Hash size={13} /> {student.studentId}</span>
+                      {student.className && <span><School size={13} /> Fasalka {student.className}</span>}
+                      <span><User size={13} /> {student.studentType}</span>
                     </div>
-                    <div className="aca-celebrate-banner-inner">
-                      <div className="aca-celebrate-trophy">🏆</div>
-                      <div className="aca-celebrate-banner-text">
-                        <h3 className="aca-celebrate-title">Hambalyo!</h3>
-                        <p className="aca-celebrate-sub">Horumar Wacan!</p>
-                        <p className="aca-celebrate-text">
-                          {student?.fullName || "Ardaygan"}, waxaad gaadhay
-                          celceliska <strong>{averagePct.toFixed(1)}%</strong> —
-                          waxaad ka mid tahay ardayda ugu fiican! Sii wad shaqadan
-                          wanaagsan.
-                        </p>
+                  </div>
+                </div>
+
+                {report.hasAny && (
+                  <div className="acr-hero-score">
+                    <ScoreRing pct={report.grandPct} color="#facc15" />
+                    <div className="acr-hero-stats">
+                      <div>
+                        <span>Wadarta Guud</span>
+                        <strong>
+                          {fmt(report.grandTotal)} <small>/ {fmt(report.grandMax)}</small>
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Darajada Guud</span>
+                        <strong>{report.grandGrade.letter}</strong>
+                      </div>
+                      <div>
+                        <span>Go'aan</span>
+                        <strong className={verdict.label === "Gudbay" ? "ok" : "bad"}>
+                          {verdict.label}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>Imtixaanno</span>
+                        <strong>
+                          {report.examsTaken} <small>/ {EXAM_ORDER.length}</small>
+                        </strong>
                       </div>
                     </div>
                   </div>
                 )}
+              </section>
 
-                <div className="report-card">
-                  <div className="report-card-header">
-                    <div className="report-card-header-left">
-                      <GraduationCap size={38} className="report-card-header-icon" />
-                      <div>
-                        <h2 className="report-card-title">WARQADDA NATIJAADA</h2>
-                        <p className="report-card-subtitle">STUDENT REPORT CARD</p>
+              {!report.hasAny ? (
+                <div className="acr-empty">
+                  <div className="acr-empty-icon">📭</div>
+                  <h3>Weli natiijo lama soo gelin</h3>
+                  <p>
+                    Macalimiintu weli ma soo gudbin natiijada ardaygan ({year}). Fadlan dib u
+                    eeg marka imtixaannada la saxo.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Tabs */}
+                  <div className="acr-tabs acr-noprint">
+                    <button
+                      type="button"
+                      className={activeTab === "all" ? "active" : ""}
+                      onClick={() => setActiveTab("all")}
+                    >
+                      <Layers size={15} /> Dhammaan
+                    </button>
+                    {report.exams.map((ex) => (
+                      <button
+                        type="button"
+                        key={ex.type}
+                        className={activeTab === ex.type ? "active" : ""}
+                        style={{ "--tab": ex.color }}
+                        onClick={() => setActiveTab(ex.type)}
+                      >
+                        <i style={{ background: ex.color }} />
+                        {ex.type}
+                        {!ex.hasData && <em>—</em>}
+                      </button>
+                    ))}
+                  </div>
+
+                  {activeTab === "all" ? (
+                    <>
+                      {/* Kaararka 4-ta imtixaan */}
+                      <div className="acr-exam-cards">
+                        {report.exams.map((ex) => (
+                          <button
+                            type="button"
+                            key={ex.type}
+                            className={"acr-exam-card" + (ex.hasData ? "" : " empty")}
+                            style={{ "--accent": ex.color }}
+                            onClick={() => setActiveTab(ex.type)}
+                          >
+                            <div className="acr-exam-card-top">
+                              <span className="acr-exam-name">{ex.type}</span>
+                              {ex.hasData && <GradePill grade={ex.grade} />}
+                            </div>
+                            {ex.hasData ? (
+                              <>
+                                <div className="acr-exam-total">
+                                  {fmt(ex.total)}
+                                  <small> / {fmt(ex.max)}</small>
+                                </div>
+                                <Bar pct={ex.pct} color={ex.color} />
+                                <div className="acr-exam-meta">
+                                  <span>{ex.pct.toFixed(1)}%</span>
+                                  <span>{ex.subjects.length} maado</span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="acr-exam-pending">Weli lama soo gudbin</div>
+                            )}
+                          </button>
+                        ))}
                       </div>
-                    </div>
-                    <div className="report-card-ribbon">
-                      <GraduationCap size={20} />
-                      <span>Waxbarasho Mustaqbal Wanaagsan</span>
-                    </div>
+
+                      {/* Best / weakest subject */}
+                      {bestSubject && (
+                        <div className="acr-highlights">
+                          <div className="acr-highlight good">
+                            <TrendingUp size={20} />
+                            <div>
+                              <span>Maadada ugu fiican</span>
+                              <strong>{bestSubject.subject}</strong>
+                            </div>
+                            <b>{bestSubject.pct.toFixed(0)}%</b>
+                          </div>
+                          {weakSubject && (
+                            <div className="acr-highlight weak">
+                              <TrendingDown size={20} />
+                              <div>
+                                <span>U baahan dadaal</span>
+                                <strong>{weakSubject.subject}</strong>
+                              </div>
+                              <b>{weakSubject.pct.toFixed(0)}%</b>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Jadwalka isku darka ah */}
+                      <div className="acr-panel">
+                        <div className="acr-panel-head">
+                          <BookOpen size={18} />
+                          <h3>Dhibcaha Maado Kasta — Dhammaan Imtixaannada</h3>
+                        </div>
+                        <div className="acr-table-wrap">
+                          <table className="acr-table">
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th className="left">Maadada</th>
+                                {report.exams.map((ex) => (
+                                  <th key={ex.type}>
+                                    <span className="acr-th-dot" style={{ background: ex.color }} />
+                                    {ex.short}
+                                  </th>
+                                ))}
+                                <th>Wadar</th>
+                                <th>%</th>
+                                <th>Darajo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {report.combined.map((row, i) => (
+                                <tr key={row.subject}>
+                                  <td className="num">{i + 1}</td>
+                                  <td className="left subj">{row.subject}</td>
+                                  {report.exams.map((ex) => {
+                                    const cell = row.perExam[ex.type];
+                                    return (
+                                      <td key={ex.type} className="mark">
+                                        {cell ? (
+                                          <>
+                                            <b>{fmt(cell.marks)}</b>
+                                            <small>/{fmt(cell.maxMarks)}</small>
+                                          </>
+                                        ) : (
+                                          <span className="dash">—</span>
+                                        )}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="mark total">
+                                    <b>{fmt(row.total)}</b>
+                                    <small>/{fmt(row.max)}</small>
+                                  </td>
+                                  <td className="pct">{row.pct.toFixed(1)}%</td>
+                                  <td>
+                                    <GradePill grade={row.grade} />
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr>
+                                <td />
+                                <td className="left">Wadarta</td>
+                                {report.exams.map((ex) => (
+                                  <td key={ex.type} className="mark">
+                                    {ex.hasData ? (
+                                      <>
+                                        <b>{fmt(ex.total)}</b>
+                                        <small>/{fmt(ex.max)}</small>
+                                      </>
+                                    ) : (
+                                      <span className="dash">—</span>
+                                    )}
+                                  </td>
+                                ))}
+                                <td className="mark total">
+                                  <b>{fmt(report.grandTotal)}</b>
+                                  <small>/{fmt(report.grandMax)}</small>
+                                </td>
+                                <td className="pct">{report.grandPct.toFixed(1)}%</td>
+                                <td>
+                                  <GradePill grade={report.grandGrade} />
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* ----- Hal imtixaan ----- */
+                    activeExam && (
+                      <div className="acr-panel" style={{ "--accent": activeExam.color }}>
+                        <div className="acr-single-head">
+                          <div>
+                            <span className="acr-single-tag" style={{ background: activeExam.color }}>
+                              {activeExam.type}
+                            </span>
+                            <h3>Natiijada {activeExam.type}</h3>
+                          </div>
+                          {activeExam.hasData && (
+                            <ScoreRing
+                              pct={activeExam.pct}
+                              color={activeExam.color}
+                              size={96}
+                              label={activeExam.grade.letter}
+                            />
+                          )}
+                        </div>
+
+                        {!activeExam.hasData ? (
+                          <div className="acr-empty small">
+                            <div className="acr-empty-icon">⏳</div>
+                            <h3>Imtixaankan weli natiijo lama soo gudbin</h3>
+                            <p>Marka macalimiintu saxaan, halkan ayay ka muuqan doontaa.</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="acr-single-stats">
+                              <div>
+                                <span>Wadarta</span>
+                                <strong>
+                                  {fmt(activeExam.total)} <small>/ {fmt(activeExam.max)}</small>
+                                </strong>
+                              </div>
+                              <div>
+                                <span>Boqolley</span>
+                                <strong>{activeExam.pct.toFixed(1)}%</strong>
+                              </div>
+                              <div>
+                                <span>Darajo</span>
+                                <strong style={{ color: activeExam.grade.color }}>
+                                  {activeExam.grade.letter}
+                                </strong>
+                              </div>
+                              <div>
+                                <span>Maadooyin</span>
+                                <strong>{activeExam.subjects.length}</strong>
+                              </div>
+                            </div>
+
+                            <div className="acr-subject-list">
+                              {[...activeExam.subjects]
+                                .sort((a, b) => pctOf(b.marks, b.maxMarks) - pctOf(a.marks, a.maxMarks))
+                                .map((s, i) => {
+                                  const p = pctOf(s.marks, s.maxMarks);
+                                  const g = gradeFor(p);
+                                  return (
+                                    <div className="acr-subject-row" key={s.subject}>
+                                      <span className="acr-subject-rank">{i + 1}</span>
+                                      <div className="acr-subject-body">
+                                        <div className="acr-subject-line">
+                                          <strong>{s.subject}</strong>
+                                          <span className="acr-subject-marks">
+                                            {fmt(s.marks)}
+                                            <small> / {fmt(s.maxMarks)}</small>
+                                          </span>
+                                        </div>
+                                        <Bar pct={p} color={g.color} />
+                                        <div className="acr-subject-foot">
+                                          <span>{s.teacherName ? `Macalin: ${s.teacherName}` : g.remark}</span>
+                                          <span>{p.toFixed(1)}%</span>
+                                        </div>
+                                      </div>
+                                      <GradePill grade={g} />
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )
+                  )}
+
+                  <div className="acr-footer-quote">
+                    <Trophy size={18} />
+                    <p>"Aqoontu waa iftiin, waa furaha mustaqbalka." — Ku dadaal horumar ka wanaagsan!</p>
                   </div>
-
-                  <div className="report-info-card">
-                    <div className="report-info-row">
-                      <span className="report-info-icon"><Hash size={18} /></span>
-                      <span className="report-info-label">Rool Lambar</span>
-                      <span className="report-info-colon">:</span>
-                      <span className="report-info-value">{student.studentId}</span>
-                    </div>
-                    <div className="report-info-row">
-                      <span className="report-info-icon"><User size={18} /></span>
-                      <span className="report-info-label">M. Ardayga</span>
-                      <span className="report-info-colon">:</span>
-                      <span className="report-info-value">{student.fullName || "—"}</span>
-                    </div>
-                    <div className="report-info-row">
-                      <span className="report-info-icon"><Building2 size={18} /></span>
-                      <span className="report-info-label">Dugsiga</span>
-                      <span className="report-info-colon">:</span>
-                      <span className="report-info-value">{SCHOOL_NAME}</span>
-                    </div>
-                    <div className="report-info-row">
-                      <span className="report-info-icon"><BarChart3 size={18} /></span>
-                      <span className="report-info-label">Celceliska</span>
-                      <span className="report-info-colon">:</span>
-                      <span className="report-info-value">{averageGrade.letter}</span>
-                    </div>
-                    <div className="report-info-row">
-                      <span className="report-info-icon"><Award size={18} /></span>
-                      <span className="report-info-label">Go'aan</span>
-                      <span className="report-info-colon">:</span>
-                      <span className="report-info-value" style={{ color: verdict.color }}>{verdict.label}</span>
-                    </div>
-                  </div>
-
-                  <div className="report-subjects-grid">
-                    <table className="report-subjects-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>MAADADA</th>
-                          <th>DARAJO</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {resultsColLeft.map((r, i) => {
-                          const max = Number(r.maxMarks) || 100;
-                          const marks = Number(r.marks) || 0;
-                          const pct = max > 0 ? (marks / max) * 100 : 0;
-                          const g = gradeFor(pct);
-                          return (
-                            <tr key={r.id}>
-                              <td className="report-subj-num">{i + 1}</td>
-                              <td className="report-subj-name">{r.subject}</td>
-                              <td>
-                                <span className="grade-pill" style={{ "--pill-color": g.color }}>{g.letter}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-
-                    <table className="report-subjects-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>MAADADA</th>
-                          <th>DARAJO</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {resultsColRight.map((r, i) => {
-                          const max = Number(r.maxMarks) || 100;
-                          const marks = Number(r.marks) || 0;
-                          const pct = max > 0 ? (marks / max) * 100 : 0;
-                          const g = gradeFor(pct);
-                          return (
-                            <tr key={r.id}>
-                              <td className="report-subj-num">{halfway + i + 1}</td>
-                              <td className="report-subj-name">{r.subject}</td>
-                              <td>
-                                <span className="grade-pill" style={{ "--pill-color": g.color }}>{g.letter}</span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="report-footer-grid">
-                    <div className="report-quote-box">
-                      <GraduationCap size={22} />
-                      <p>"Aqoontu waa iftiin, waa furaha mustaqbalka."</p>
-                    </div>
-                    <div className="report-encourage-box">
-                      <BarChart3 size={22} />
-                      <p>Ku dadaal horumar ka wanaagsan!</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="report-card-actions">
-                  <button className="aca-logout-btn" onClick={resetLookup}>Log Out</button>
-                </div>
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <footer className="home-footer">
         <div className="home-footer-left">
           <img src={logo} className="footer-logo" alt="Rising Star School logo" />
           <div>
             <div className="footer-school-name">RISING STAR SCHOOL</div>
-            <div className="footer-school-tagline">
-              RISING STAR PRIMARY &amp; SECONDARY SCHOOL
-            </div>
+            <div className="footer-school-tagline">RISING STAR PRIMARY &amp; SECONDARY SCHOOL</div>
           </div>
         </div>
 

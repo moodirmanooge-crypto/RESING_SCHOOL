@@ -1,5 +1,9 @@
-// Sidebar.jsx — naqshad cagaar madow ah (dark green) oo logo weyn leh
-import { useEffect, useState } from "react";
+// Sidebar.jsx — dark green design, large logo
+// - Dashboard always stays at the top; the rest of the menu is sorted alphabetically (A → Z)
+// - "Teachers" was renamed to "Add Teachers"
+// - New page: "Exam Rooms" (exam seating rooms)
+// - New page: "Results Submission" (waqtiga gudbinta natiijada + la socodka macalimiinta)
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { signOutAdmin } from "../../services/adminOtpService";
 import { db } from "../../firebase/firebase";
@@ -17,6 +21,7 @@ import {
   CalendarCheck,
   ClipboardList,
   CalendarDays,
+  CalendarClock,
   FileEdit,
   IdCard,
   Award,
@@ -38,22 +43,25 @@ import {
   Mail,
   Upload,
   LogOut,
+  DoorOpen,
+  UserRoundPlus,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
 import { SCHOOL_NAME, SCHOOL_CITY } from "../schoolInfo";
 
-const menus = [
-  { name: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" },
+// Dashboard always stays at the top
+const dashboardMenu = { name: "Dashboard", icon: LayoutDashboard, path: "/admin/dashboard" };
+
+// The rest of the menu — order does not matter here, it gets sorted A → Z below.
+const otherMenus = [
   { name: "Admissions", icon: ClipboardCheck, path: "/admin/admissions" },
   { name: "Add Student", icon: UserPlus, path: "/admin/add-student" },
-  // Diiwaan-gelin badan hal mar (Bulk)
   { name: "Bulk Registration", icon: Upload, path: "/admin/bulk-registration" },
   { name: "Student List", icon: GraduationCap, path: "/admin/students" },
-  { name: "Teachers", icon: Users, path: "/admin/teachers" },
+  { name: "Add Teachers", icon: UserRoundPlus, path: "/admin/teachers" },
   { name: "Parents", icon: Users, path: "/admin/parents" },
   { name: "Classes", icon: School, path: "/admin/classes" },
-  // Hantida dugsiga: kuraasta, miisaska, sabuuradaha iwm + tirada wiilasha/gabdhaha
   { name: "School Assets", icon: Package, path: "/admin/school-assets" },
   { name: "Shifts", icon: Clock, path: "/admin/shifts" },
   { name: "Attendance", icon: CalendarCheck, path: "/admin/attendance" },
@@ -61,12 +69,15 @@ const menus = [
   { name: "Exams", icon: ClipboardList, path: "/admin/exams" },
   { name: "Timetable", icon: CalendarDays, path: "/admin/timetable" },
   { name: "Exam Timetable", icon: FileEdit, path: "/admin/exam-timetable" },
+  { name: "Exam Rooms", icon: DoorOpen, path: "/admin/exam-rooms" },
   { name: "Exam Cards", icon: IdCard, path: "/admin/exam-cards" },
   { name: "Exam Payments", icon: CreditCard, path: "/admin/exam-payments" },
   { name: "ID Cards", icon: IdCard, path: "/admin/id-cards" },
   { name: "Certificates", icon: Award, path: "/admin/certificates" },
   { name: "Upload Certificate", icon: UploadCloud, path: "/admin/upload-certificate" },
   { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
+  // NEW: waqtiga gudbinta natiijada + cidda gudbisay / dhiman + fasaxyada update
+  { name: "Results Submission", icon: CalendarClock, path: "/admin/results-submission" },
   { name: "Gallery", icon: ImageIcon, path: "/admin/gallery" },
   { name: "News", icon: Newspaper, path: "/admin/news" },
   { name: "Library", icon: BookOpen, path: "/admin/library" },
@@ -78,22 +89,24 @@ const menus = [
   { name: "Settings", icon: Settings, path: "/admin/settings" },
 ];
 
-// Super-Admin-only menu items — never filtered by permissions, never
-// shown to a sub-admin regardless of what was assigned to them.
+const byName = (a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" });
+
+const menus = [dashboardMenu, ...[...otherMenus].sort(byName)];
+
+// Super-Admin-only menu items
 const superAdminOnlyMenus = [
   { name: "Add Sub-Admin", icon: ShieldPlus, path: "/admin/add-sub-admin" },
   { name: "Manage Admins", icon: ShieldCheck, path: "/admin/manage-admins" },
-];
+].sort(byName);
 
-const SUPPORT_WHATSAPP = "252617390261"; // international format, no + or leading 0
+const SUPPORT_WHATSAPP = "252617390261";
 const SUPPORT_EMAIL = "risingstar0261@gmail.com";
 
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const navRef = useRef(null);
 
-  // Ka bax Firebase Auth session-ka (OTP) + xogta UI, kadib login-ka admin-ka.
-  // Dashboard-ka dib looma geli karo password + code cusub la'aantood.
   async function handleLogout() {
     await signOutAdmin();
     navigate("/admin-login");
@@ -120,7 +133,6 @@ export default function Sidebar() {
             permissions.includes("/admin/students")
           );
         }
-        // School Assets: sub-admin-ka haysta Classes ama Student List wuu arkaa
         if (m.path === "/admin/school-assets") {
           return (
             permissions.includes("/admin/school-assets") ||
@@ -128,14 +140,26 @@ export default function Sidebar() {
             permissions.includes("/admin/students")
           );
         }
+        if (m.path === "/admin/exam-rooms") {
+          return (
+            permissions.includes("/admin/exam-rooms") ||
+            permissions.includes("/admin/exam-timetable") ||
+            permissions.includes("/admin/exams")
+          );
+        }
+        // Results Submission: sub-admin leh Results by Class ama Exams ayaa arki kara
+        if (m.path === "/admin/results-submission") {
+          return (
+            permissions.includes("/admin/results-submission") ||
+            permissions.includes("/admin/results-by-class") ||
+            permissions.includes("/admin/exams")
+          );
+        }
         return permissions.includes(m.path);
       })
     : menus;
 
-  // Ilaalin: sub-admin ma geli karo bog aan loo ogolaan (Dashboard-ka oo ay ku jirto),
-  // hadduu URL-ka gacanta ku qoro ama login-ka kadib halkaas u gudbo. Haddii bogga
-  // hadda furan ee menu-ga ku jira aan loo ogolaan, waxaa loo gudbiyaa bogga ugu horreeya
-  // ee loo ogolaaday. Boggaga aan menu-ga ku jirin waa la taaban maayo.
+  // Protection: a sub-admin cannot open a page they are not permitted to see.
   useEffect(() => {
     if (!isSubAdmin) return;
     const path = location.pathname.replace(/\/+$/, "");
@@ -152,6 +176,11 @@ export default function Sidebar() {
       navigate(visibleMenus[0].path, { replace: true });
     }
   }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const el = navRef.current?.querySelector(".rs-nav.active");
+    if (el) el.scrollIntoView({ block: "nearest" });
+  }, [location.pathname]);
 
   const [pendingAdmissions, setPendingAdmissions] = useState(0);
 
@@ -170,13 +199,13 @@ export default function Sidebar() {
     ({ isActive }) => ({
       display: "flex",
       alignItems: "center",
-      gap: 14,
-      padding: "11px 16px",
+      gap: 13,
+      padding: "10px 14px",
       marginBottom: 3,
       textDecoration: "none",
-      color: isActive ? "#fff" : "rgba(255,255,255,0.82)",
+      color: isActive ? "#fff" : "rgba(255,255,255,0.8)",
       borderRadius: 12,
-      transition: "background .2s ease, color .2s ease",
+      transition: "background .2s ease, color .2s ease, transform .2s ease",
       fontWeight: isActive ? 700 : 500,
       fontSize: 14.5,
       background: isActive
@@ -192,14 +221,13 @@ export default function Sidebar() {
 
   return (
     <aside className="rs-sidebar" style={aside}>
-      {/* Xariiqyo qurxin ah (diagonal light streaks) */}
       <div style={streak1} />
       <div style={streak2} />
 
       {/* ---------- LOGO ---------- */}
-      <div style={{ padding: "26px 20px 18px", textAlign: "center", position: "relative" }}>
+      <div style={{ padding: "22px 18px 12px", textAlign: "center", position: "relative" }}>
         <div style={logoRing}>
-          <img src={logo} alt="" style={{ width: "86%", height: "86%", objectFit: "contain" }} />
+          <img src={logo} alt="" style={{ width: "88%", height: "88%", objectFit: "contain" }} />
         </div>
         <div style={schoolName}>{SCHOOL_NAME}</div>
         <div style={schoolCity}>{SCHOOL_CITY}</div>
@@ -207,16 +235,25 @@ export default function Sidebar() {
       </div>
 
       {/* ---------- MENU ---------- */}
-      <nav className="rs-sidebar-scroll" style={{ padding: "4px 14px", overflowY: "auto", flex: 1, position: "relative" }}>
-        {visibleMenus.map((item) => {
+      <nav
+        ref={navRef}
+        className="rs-sidebar-scroll"
+        style={{ padding: "2px 12px 10px", overflowY: "auto", flex: 1, position: "relative" }}
+      >
+        {visibleMenus.map((item, i) => {
           const Icon = item.icon;
           const showBadge = item.path === "/admin/admissions" && pendingAdmissions > 0;
           return (
-            <NavLink key={item.path} to={item.path} className="rs-nav" style={linkStyle("green")}>
-              <Icon size={19} />
-              <span style={{ flex: 1 }}>{item.name}</span>
-              {showBadge && <span style={badge}>{pendingAdmissions}</span>}
-            </NavLink>
+            <div key={item.path}>
+              <NavLink to={item.path} className="rs-nav" style={linkStyle("green")}>
+                <Icon size={19} />
+                <span style={{ flex: 1 }}>{item.name}</span>
+                {showBadge && <span style={badge}>{pendingAdmissions}</span>}
+              </NavLink>
+              {i === 0 && item.path === dashboardMenu.path && visibleMenus.length > 1 && (
+                <div style={azLabel}>Menu · A → Z</div>
+              )}
+            </div>
           );
         })}
 
@@ -236,17 +273,16 @@ export default function Sidebar() {
         )}
       </nav>
 
-      {/* ---------- KAARKA HOOSE ---------- */}
-      <div style={{ padding: 16, position: "relative" }}>
+      {/* ---------- BOTTOM CARD ---------- */}
+      <div style={{ padding: "10px 14px 14px", position: "relative", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
         <div style={bottomCard}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ fontSize: 34, lineHeight: 1 }}>🎓</div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", lineHeight: 1.35, textAlign: "left" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 24, lineHeight: 1 }}>🎓</div>
+            <div style={{ fontSize: 12.5, fontWeight: 600, color: "#fff", lineHeight: 1.3, textAlign: "left" }}>
               Education Empowers Communities
             </div>
           </div>
-          <div style={{ width: 70, height: 3, background: "#facc15", borderRadius: 4, margin: "10px 0 12px" }} />
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <a href={`https://wa.me/${SUPPORT_WHATSAPP}`} target="_blank" rel="noopener noreferrer" style={supportBtn}>
               <MessageSquare size={13} /> Support
             </a>
@@ -256,13 +292,14 @@ export default function Sidebar() {
           </div>
         </div>
 
-        <button type="button" onClick={handleLogout} style={logoutBtn}>
+        <button type="button" onClick={handleLogout} style={logoutBtn} className="rs-logout">
           <LogOut size={16} /> Log Out
         </button>
       </div>
 
       <style>{`
-        .rs-nav:not(.active):hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; }
+        .rs-nav:not(.active):hover { background: rgba(255,255,255,0.08) !important; color: #fff !important; transform: translateX(3px); }
+        .rs-logout:hover { background: rgba(239,68,68,0.22) !important; }
         .rs-sidebar-scroll::-webkit-scrollbar { width: 6px; }
         .rs-sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 6px; }
         .rs-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -300,8 +337,8 @@ const streak1 = {
 };
 const streak2 = { ...streak1, top: 520, right: -140, opacity: 0.6 };
 const logoRing = {
-  width: 128,
-  height: 128,
+  width: 104,
+  height: 104,
   margin: "0 auto",
   borderRadius: "50%",
   background: "#fff",
@@ -312,21 +349,21 @@ const logoRing = {
   overflow: "hidden",
 };
 const schoolName = {
-  marginTop: 14,
-  fontSize: 15,
+  marginTop: 12,
+  fontSize: 14,
   fontWeight: 800,
   color: "#fff",
   lineHeight: 1.3,
   letterSpacing: "0.01em",
 };
 const schoolCity = {
-  marginTop: 6,
-  fontSize: 11,
+  marginTop: 5,
+  fontSize: 10.5,
   fontWeight: 700,
   letterSpacing: "0.18em",
   color: "#86efac",
 };
-const divider = { height: 1, background: "rgba(255,255,255,0.12)", marginTop: 16 };
+const divider = { height: 1, background: "rgba(255,255,255,0.12)", marginTop: 14 };
 const badge = {
   minWidth: 20,
   height: 20,
@@ -339,6 +376,16 @@ const badge = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+};
+const azLabel = {
+  margin: "10px 8px 8px",
+  fontSize: 10.5,
+  fontWeight: 700,
+  color: "rgba(255,255,255,0.45)",
+  letterSpacing: "0.1em",
+  textTransform: "uppercase",
+  borderTop: "1px solid rgba(255,255,255,0.1)",
+  paddingTop: 10,
 };
 const sectionLabel = {
   margin: "14px 6px 8px",
@@ -353,8 +400,8 @@ const sectionLabel = {
 const bottomCard = {
   background: "rgba(255,255,255,0.06)",
   border: "1px solid rgba(255,255,255,0.14)",
-  borderRadius: 16,
-  padding: "14px 16px",
+  borderRadius: 14,
+  padding: "11px 12px",
 };
 const supportBtn = {
   flex: 1,
@@ -362,7 +409,7 @@ const supportBtn = {
   alignItems: "center",
   justifyContent: "center",
   gap: 6,
-  padding: "8px 0",
+  padding: "7px 0",
   borderRadius: 9,
   background: "#16a34a",
   color: "#fff",
@@ -371,13 +418,13 @@ const supportBtn = {
   textDecoration: "none",
 };
 const logoutBtn = {
-  marginTop: 12,
+  marginTop: 10,
   width: "100%",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   gap: 8,
-  padding: "11px 0",
+  padding: "10px 0",
   borderRadius: 12,
   border: "1px solid rgba(248,113,113,0.45)",
   background: "rgba(239,68,68,0.12)",
@@ -385,4 +432,5 @@ const logoutBtn = {
   fontSize: 14,
   fontWeight: 700,
   cursor: "pointer",
+  transition: "background .2s ease",
 };

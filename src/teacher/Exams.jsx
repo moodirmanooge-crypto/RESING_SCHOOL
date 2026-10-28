@@ -35,9 +35,7 @@ import MobileBottomNav from "./MobileBottomNav";
 const examTypes = ["Monthly One", "Term", "Monthly Two", "Final"];
 
 // PART-TIME classes run Thursday & Friday (same rule already used for
-// timetablePartTime/attendancePartTime). Every other day is FULL-TIME.
-// The exam's own Exam Date decides which type it belongs to — no extra
-// picker needed.
+// timetablePartTime/attendancePartTime).
 const WEEKDAYS = [
   "Sunday",
   "Monday",
@@ -54,6 +52,26 @@ function getDayName(dateStr) {
   if (!dateStr) return "";
   const dateObj = new Date(`${dateStr}T00:00:00`);
   return WEEKDAYS[dateObj.getDay()];
+}
+
+// employmentType wuxuu noqon karaa array (["Full Time"]) ama string (xog hore).
+function normalizeTypes(employmentType) {
+  if (Array.isArray(employmentType)) return employmentType;
+  if (typeof employmentType === "string" && employmentType) return [employmentType];
+  return [];
+}
+
+// Nooca exam-ka waxaa go'aamiya nooca shaqada ee macalinku ku diiwaan
+// gashan yahay — MAALINTA KELIYA lama isticmaalo:
+//   - Full Time keliya  -> had iyo jeer "Full Time"
+//   - Part Time keliya  -> had iyo jeer "Part Time"
+//   - Labadaba          -> maalinta exam-ka ayaa default ah (Thu/Fri = Part Time)
+function resolveStudentType(employmentTypes, examDate) {
+  const ft = employmentTypes.includes("Full Time");
+  const pt = employmentTypes.includes("Part Time");
+  if (ft && !pt) return "Full Time";
+  if (pt && !ft) return "Part Time";
+  return isPartTimeDay(getDayName(examDate)) ? "Part Time" : "Full Time";
 }
 
 // ---------- File helpers (PDF / Word / Excel / PowerPoint / sawir / wax kasta) ----------
@@ -149,6 +167,11 @@ export default function Exams() {
   // Sawirka profile-ka macallinka - waxaa loo isticmaali doonaa fariinta Messages
   const [teacherPhoto, setTeacherPhoto] = useState("");
 
+  // Nooca shaqada macalinka (Full Time / Part Time / labadaba)
+  const [employmentTypes, setEmploymentTypes] = useState([]);
+  // Kaliya macalinka labadaba ah ayaa doorta Student Type
+  const [studentType, setStudentType] = useState("");
+
   // Class-yada macallinku wax ku dhigo, iyo doorashada class/subject
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]); // <-- subjects-ka waxaa laga soo saarayaa Firestore
@@ -164,6 +187,9 @@ export default function Exams() {
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
 
+  const isBothTypes =
+    employmentTypes.includes("Full Time") && employmentTypes.includes("Part Time");
+
   useEffect(() => {
     loadTeacherPhoto();
     loadExamHistory();
@@ -176,7 +202,8 @@ export default function Exams() {
       const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
       if (teacherSnap.exists()) {
         const data = teacherSnap.data();
-        setTeacherPhoto(data.photoUrl || "");
+        setTeacherPhoto(data.photoUrl || data.teacherPhoto || "");
+        setEmploymentTypes(normalizeTypes(data.employmentType));
 
         const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
 
@@ -261,7 +288,11 @@ export default function Exams() {
       await uploadBytes(storageRef, examFile, { contentType });
       const pdfUrl = await getDownloadURL(storageRef);
 
-      const partTime = isPartTimeDay(getDayName(examDate));
+      // Nooca saxda ah: waxaa laga qaadayaa diiwaanka macalinka
+      const finalStudentType =
+        isBothTypes && studentType
+          ? studentType
+          : resolveStudentType(employmentTypes, examDate);
 
       await addDoc(collection(db, "messages"), {
         senderName: teacherName,
@@ -274,7 +305,7 @@ export default function Exams() {
         examDate,
         className: selectedClass,
         subject,
-        studentType: partTime ? "Part Time" : "Full Time",
+        studentType: finalStudentType,
         fileUrl: pdfUrl,
         fileName: examFile.name,
         fileType: contentType,
@@ -288,6 +319,7 @@ export default function Exams() {
       setExamFile(null);
       setSelectedClass("");
       setSubject("");
+      setStudentType("");
       loadExamHistory();
     } catch (err) {
       console.log(err);
@@ -374,6 +406,21 @@ export default function Exams() {
                 />
               </div>
 
+              {/* Student Type: kaliya macalinka Full Time + Part Time ah */}
+              {isBothTypes && (
+                <div>
+                  <label style={label}>Student Type</label>
+                  <select
+                    style={input}
+                    value={studentType || resolveStudentType(employmentTypes, examDate)}
+                    onChange={(e) => setStudentType(e.target.value)}
+                  >
+                    <option value="Full Time">Full Time</option>
+                    <option value="Part Time">Part Time</option>
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label style={label}>Exam File (PDF, Word, ...)</label>
                 {/* accept lama dhigin: macallinku wuxuu dooran karaa nuuc kasta, mobile iyo laptop */}
@@ -432,6 +479,11 @@ export default function Exams() {
                 {examHistory.map((exam) => {
                   const Icon = getFileIcon(exam.fileName);
                   const ext = getFileExt(exam.fileName);
+                  // Muuji nooca saxda ah (xog hore oo khaldan waa la saxayaa)
+                  const shownType =
+                    employmentTypes.length > 0 && !isBothTypes
+                      ? resolveStudentType(employmentTypes, exam.examDate)
+                      : exam.studentType;
                   return (
                     <div
                       key={exam.id}
@@ -452,7 +504,7 @@ export default function Exams() {
                           Fasalka {exam.className || "—"} • {exam.subject || "—"} &nbsp;•&nbsp;
                           Exam Date: {exam.examDate || "—"} &nbsp;•&nbsp; Sent:{" "}
                           {formatDate(exam.createdAt)}
-                          {exam.studentType && <> &nbsp;•&nbsp; {exam.studentType}</>}
+                          {shownType && <> &nbsp;•&nbsp; {shownType}</>}
                         </div>
                         {exam.fileName && (
                           <div

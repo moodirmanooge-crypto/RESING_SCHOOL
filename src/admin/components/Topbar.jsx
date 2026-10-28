@@ -6,8 +6,9 @@ import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, storage } from "../../firebase/firebase";
 import { SCHOOL_NAME } from "../schoolInfo";
 
-// `title` (ikhtiyaari): boggaga kale waxay soo diri karaan magaca boggooda.
-// Haddii aan la soo dirin (sida Dashboard), magaca dugsiga ayaa la muujinayaa.
+// The Topbar now sits on its own white card — so the title and the admin's name
+// are readable on every page, whether its background is light (Dashboard)
+// or dark (Teachers, Exam Timetable...).
 export default function Topbar({ title }) {
   const navigate = useNavigate();
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -71,14 +72,13 @@ export default function Topbar({ title }) {
       setPhotoUrl(url);
       setPhotoFailed(false);
     } catch (err) {
-      console.error("Khalad sawirka admin-ka la soo shubayay:", err);
+      console.error("Error uploading the admin photo:", err);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  // Raadinta: Enter -> bogga Student List
   function handleSearchKey(e) {
     if (e.key === "Enter" && searchText.trim()) {
       navigate(`/admin/students?q=${encodeURIComponent(searchText.trim())}`);
@@ -95,19 +95,24 @@ export default function Topbar({ title }) {
 
   return (
     <div style={bar}>
-      {/* LEFT: menu + magaca */}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, minWidth: 0, flex: "1 1 280px" }}>
+      {/* LEFT: menu + title */}
+      <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0, flex: "1 1 240px" }}>
         <div style={menuBtn}>
           <Menu size={20} />
         </div>
-        <div style={titleText} title={title || SCHOOL_NAME}>
-          {title || SCHOOL_NAME}
+        <div style={{ minWidth: 0 }}>
+          <div style={titleText} title={title || SCHOOL_NAME}>
+            {title || SCHOOL_NAME}
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 1 }}>
+            {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+          </div>
         </div>
       </div>
 
       {/* RIGHT */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={searchBox}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={searchBox} className="rs-top-search">
           <Search size={17} color="#6B7280" />
           <input
             value={searchText}
@@ -118,21 +123,21 @@ export default function Topbar({ title }) {
           />
         </div>
 
-        <IconButton onClick={() => navigate("/admin/messages")} badge={unreadNotifications}>
+        <IconButton onClick={() => navigate("/admin/messages")} badge={unreadNotifications} label="Notifications">
           <Bell size={19} color="#374151" />
         </IconButton>
-        <IconButton onClick={() => navigate("/admin/messages")} badge={unreadMessages}>
+        <IconButton onClick={() => navigate("/admin/messages")} badge={unreadMessages} label="Messages">
           <Mail size={19} color="#374151" />
         </IconButton>
-        <IconButton onClick={() => navigate("/admin/holidays")}>
+        <IconButton onClick={() => navigate("/admin/holidays")} label="Holidays">
           <Calendar size={19} color="#374151" />
         </IconButton>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingLeft: 4 }}>
+        <div style={profileChip}>
           <div
             onClick={() => fileInputRef.current?.click()}
-            style={{ position: "relative", width: 46, height: 46, flexShrink: 0, cursor: "pointer" }}
-            title="Beddel sawirka profile-ka"
+            style={{ position: "relative", width: 42, height: 42, flexShrink: 0, cursor: "pointer" }}
+            title="Change profile photo"
           >
             {photoUrl && !photoFailed ? (
               <img
@@ -142,7 +147,7 @@ export default function Topbar({ title }) {
                 style={{ ...avatarBase, objectFit: "cover", opacity: uploading ? 0.5 : 1 }}
               />
             ) : (
-              <div style={{ ...avatarBase, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#16a34a,#0f4a2c)", color: "#fff", fontWeight: 800, fontSize: 15, opacity: uploading ? 0.5 : 1 }}>
+              <div style={{ ...avatarBase, display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#16a34a,#0f4a2c)", color: "#fff", fontWeight: 800, fontSize: 14, opacity: uploading ? 0.5 : 1 }}>
                 {initials}
               </div>
             )}
@@ -151,20 +156,28 @@ export default function Topbar({ title }) {
             </div>
             <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoChange} style={{ display: "none" }} />
           </div>
-          <div style={{ lineHeight: 1.25 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#111827", whiteSpace: "nowrap" }}>{adminName}</div>
-            <div style={{ fontSize: 12, color: "#6B7280" }}>{adminRoleLabel}</div>
+          <div style={{ lineHeight: 1.25, minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: "#111827", whiteSpace: "nowrap", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>
+              {adminName}
+            </div>
+            <div style={{ fontSize: 11.5, color: "#15803d", fontWeight: 600 }}>{adminRoleLabel}</div>
           </div>
-          <ChevronDown size={17} color="#374151" />
+          <ChevronDown size={16} color="#374151" />
         </div>
       </div>
+
+      <style>{`
+        .rs-icon-btn { transition: transform .15s ease, background .15s ease; }
+        .rs-icon-btn:hover { transform: translateY(-2px); background: #e8f5ec !important; }
+        @media (max-width: 1100px) { .rs-top-search { width: 240px !important; } }
+      `}</style>
     </div>
   );
 }
 
-function IconButton({ children, onClick, badge }) {
+function IconButton({ children, onClick, badge, label }) {
   return (
-    <div onClick={onClick} style={iconBtn}>
+    <div onClick={onClick} style={iconBtn} className="rs-icon-btn" title={label}>
       {children}
       {badge > 0 && <span style={badgeStyle}>{badge > 9 ? "9+" : badge}</span>}
     </div>
@@ -176,11 +189,16 @@ const bar = {
   justifyContent: "space-between",
   alignItems: "center",
   flexWrap: "wrap",
-  gap: 16,
+  gap: 14,
+  background: "#ffffff",
+  borderRadius: 20,
+  padding: "12px 16px",
+  border: "1px solid rgba(17,24,39,0.06)",
+  boxShadow: "0 8px 24px rgba(17,24,39,0.08)",
 };
 const menuBtn = {
-  width: 46,
-  height: 46,
+  width: 44,
+  height: 44,
   borderRadius: 13,
   background: "linear-gradient(135deg,#0f4a2c,#0a2f1c)",
   display: "flex",
@@ -192,7 +210,7 @@ const menuBtn = {
   boxShadow: "0 6px 14px rgba(10,47,28,0.25)",
 };
 const titleText = {
-  fontSize: 16,
+  fontSize: 17,
   fontWeight: 800,
   color: "#0f2a1c",
   letterSpacing: "0.01em",
@@ -204,22 +222,20 @@ const searchBox = {
   display: "flex",
   alignItems: "center",
   gap: 10,
-  width: 340,
+  width: 320,
   maxWidth: "100%",
-  height: 46,
-  borderRadius: 14,
-  background: "#fff",
-  border: "1px solid rgba(17,24,39,0.08)",
-  boxShadow: "0 2px 10px rgba(17,24,39,0.05)",
-  padding: "0 16px",
+  height: 44,
+  borderRadius: 13,
+  background: "#f4f7f5",
+  border: "1px solid rgba(17,24,39,0.06)",
+  padding: "0 14px",
 };
 const iconBtn = {
-  width: 46,
-  height: 46,
+  width: 44,
+  height: 44,
   borderRadius: "50%",
-  background: "#fff",
-  border: "1px solid rgba(17,24,39,0.08)",
-  boxShadow: "0 2px 10px rgba(17,24,39,0.05)",
+  background: "#f4f7f5",
+  border: "1px solid rgba(17,24,39,0.06)",
   display: "flex",
   justifyContent: "center",
   alignItems: "center",
@@ -243,7 +259,16 @@ const badgeStyle = {
   border: "2px solid #fff",
   padding: "0 4px",
 };
-const avatarBase = { width: 46, height: 46, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" };
+const profileChip = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "4px 12px 4px 4px",
+  borderRadius: 999,
+  background: "#f4f7f5",
+  border: "1px solid rgba(17,24,39,0.06)",
+};
+const avatarBase = { width: 42, height: 42, borderRadius: "50%", border: "2px solid #fff", boxShadow: "0 2px 8px rgba(0,0,0,0.15)" };
 const camBadge = {
   position: "absolute",
   bottom: -1,

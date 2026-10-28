@@ -1,12 +1,19 @@
 // src/admin/pages/ResultsByClass.jsx
+//
+// Natiijooyinka fasal kasta, imtixaan kasta (Monthly One / Term / Monthly Two / Final).
+// - Labada collection: results (Full Time) + resultsPartTime (Part Time)
+// - Maado kasta waxaa la qaataa natiijada UGU DAMBEYSAY (updatedAt), sidaas
+//   darteed marka macalinku update sameeyo (fasax maamul), halkan si sax ah
+//   ayay isu beddeshaa.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs } from "firebase/firestore";
 import { Printer, Download, RefreshCcw } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import logo from "../../assets/logo.png";
+import { EXAM_TYPES, examTypeKeyOf, examTypeLabelOf } from "../../utils/resultsSubmission";
 
 // ---- grade helper -----------------------------------------------------
 function gradeFor(percent) {
@@ -18,10 +25,9 @@ function gradeFor(percent) {
   return { label: "D", bg: "#ffffff", color: "#000000", border: "#000000" };
 }
 
-// ---- taariikh/wakhti helpers -------------------------------------------
 function toDateSafe(value) {
   if (!value) return null;
-  if (typeof value?.toDate === "function") return value.toDate(); // Firestore Timestamp
+  if (typeof value?.toDate === "function") return value.toDate();
   if (value?.seconds) return new Date(value.seconds * 1000);
   const d = new Date(value);
   return isNaN(d.getTime()) ? null : d;
@@ -38,27 +44,24 @@ function formatDateTime(date) {
   });
 }
 
-function extractSubmittedDate(r) {
-  const candidates = [
-    r.createdAt,
-    r.submittedAt,
-    r.examDate,
-    r.dateSubmitted,
-    r.timestamp,
-    r.updatedAt,
-  ];
-  for (const c of candidates) {
-    const d = toDateSafe(c);
-    if (d) return d;
-  }
-  return null;
+// Goorta ugu dambeysay ee natiijadan la kaydiyay (update-ka ayaa ka horreeya)
+function latestDate(r) {
+  return (
+    toDateSafe(r.updatedAt) ||
+    toDateSafe(r.submittedAt) ||
+    toDateSafe(r.createdAt) ||
+    toDateSafe(r.timestamp) ||
+    null
+  );
 }
 
 export default function ResultsByClass() {
   const [loading, setLoading] = useState(true);
-  const [classGroups, setClassGroups] = useState([]); 
-  const printRefs = useRef({}); 
-  const [pendingAction, setPendingAction] = useState({}); 
+  const [rawResults, setRawResults] = useState([]);
+  const [studentsById, setStudentsById] = useState({});
+  const [examFilter, setExamFilter] = useState("");
+  const printRefs = useRef({});
+  const [pendingAction, setPendingAction] = useState({});
   const [orientation, setOrientation] = useState({});
 
   useEffect(() => {
@@ -77,54 +80,77 @@ export default function ResultsByClass() {
     try {
       setLoading(true);
 
-      // 1) Dhammaan xogta ardayda Full Time ("students") iyo Part Time ("partTimeStudents")
-      const [studentsSnap, partTimeStudentsSnap] = await Promise.all([
+      const [studentsSnap, partTimeStudentsSnap, resultsSnap, resultsPtSnap] = await Promise.all([
         getDocs(collection(db, "students")),
         getDocs(collection(db, "partTimeStudents")),
+        getDocs(collection(db, "results")),
+        getDocs(collection(db, "resultsPartTime")),
       ]);
 
-      const studentsById = {};
-
+      const map = {};
       studentsSnap.docs.forEach((d) => {
         const data = d.data();
-        studentsById[d.id] = {
-          docId: d.id,
+        map[d.id] = {
           studentId: data.studentId || d.id,
           fullName: data.fullName || data.name || "—",
           studentPhoto: data.studentPhoto || data.photoUrl || "",
-          className: data.className || "",
           studentType: "Full Time",
         };
       });
-
       partTimeStudentsSnap.docs.forEach((d) => {
         const data = d.data();
-        studentsById[d.id] = {
-          docId: d.id,
+        map[d.id] = {
           studentId: data.studentId || d.id,
           fullName: data.fullName || data.name || "—",
           studentPhoto: data.studentPhoto || data.photoUrl || "",
-          className: data.className || "",
           studentType: "Part Time",
         };
       });
+      setStudentsById(map);
 
-      // 2) Dhammaan natiijooyinka
-      const resultsSnap = await getDocs(collection(db, "results"));
-      const resultsList = resultsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const list = [
+        ...resultsSnap.docs.map((d) => ({ id: d.id, _coll: "results", ...d.data() })),
+        ...resultsPtSnap.docs.map((d) => ({ id: d.id, _coll: "resultsPartTime", ...d.data() })),
+      ].map((r) => ({ ...r, _typeKey: r.examTypeKey || examTypeKeyOf(r.examType) }));
+      setRawResults(list);
 
-      // 3) U kala saar className iyo studentType (Tusaale: "Class 1 (Full Time)" ama "Class 1 (Part Time)")
-      const byClass = {};
-      resultsList.forEach((r) => {
+      // Default: imtixaanka natiijadiisa ugu dambeysay la soo gudbiyay
+      if (!examFilter && list.length > 0) {
+        const newest = [...list].sort(
+          (a, b) => (latestDate(b)?.getTime() || 0) - (latestDate(a)?.getTime() || 0)
+        )[0];
+        setExamFilter(newest._typeKey);
+      }
+    } catch (error) {
+      console.error("Khalad ayaa dhacay markii natiijooyinka la soo qaadanayay:", error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Imtixaannada xog leh (tab-yada)
+  const availableTypes = useMemo(() => {
+    const set = new Set(rawResults.map((r) => r._typeKey));
+    const ordered = EXAM_TYPES.map((t) => t.key).filter((k) => set.has(k));
+    const extra = [...set].filter((k) => !EXAM_TYPES.some((t) => t.key === k));
+    return [...ordered, ...extra];
+  }, [rawResults]);
+
+  const classGroups = useMemo(() => {
+    const byClass = {};
+
+    rawResults
+      .filter((r) => !examFilter || r._typeKey === examFilter)
+      .forEach((r) => {
         const rawClass = (r.className || "Unassigned").toString().trim();
         const linkedStudent = studentsById[r.studentId] || null;
-        const studentType = linkedStudent?.studentType || r.studentType || "Full Time";
-        
-        // Magaca fasalka oo ay ku jirto nooca si loo kala saaro haddii uu yahay Full Time ama Part Time
+        const studentType =
+          linkedStudent?.studentType ||
+          r.studentType ||
+          (r._coll === "resultsPartTime" ? "Part Time" : "Full Time");
         const cls = `${rawClass} (${studentType})`;
 
         if (!byClass[cls]) byClass[cls] = {};
-
         const studentKey = r.studentId || r.studentName || r.id;
 
         if (!byClass[cls][studentKey]) {
@@ -133,94 +159,76 @@ export default function ResultsByClass() {
             studentId: linkedStudent?.studentId || r.studentId || "—",
             studentName: linkedStudent?.fullName || r.studentName || "Unknown",
             studentPhoto: linkedStudent?.studentPhoto || "",
-            studentType: studentType,
+            studentType,
             subjects: {},
-            totalMarks: 0,
-            totalMax: 0,
           };
         }
 
         const subjectLabel = (r.subject || "—").toString().trim().replace(/\s+/g, " ");
         const subjectKey = subjectLabel.toLowerCase();
-        const marks = Number(r.marks) || 0;
-        const maxMarks = Number(r.maxMarks) || 0;
-        const submittedAt = extractSubmittedDate(r);
+        const when = latestDate(r);
+        const prev = byClass[cls][studentKey].subjects[subjectKey];
 
-        byClass[cls][studentKey].subjects[subjectKey] = {
-          marks,
-          maxMarks,
-          submittedAt,
-          label: subjectLabel,
+        // Kan ugu dambeeyay ayaa guuleysta (update-ka macalinka)
+        if (!prev || (when?.getTime() || 0) >= (prev.submittedAt?.getTime() || 0)) {
+          byClass[cls][studentKey].subjects[subjectKey] = {
+            marks: Number(r.marks) || 0,
+            maxMarks: Number(r.maxMarks) || 0,
+            submittedAt: when,
+            label: subjectLabel,
+          };
+        }
+      });
+
+    const groups = Object.entries(byClass).map(([className, studentsMap]) => {
+      const subjectLabels = {};
+      Object.values(studentsMap).forEach((s) =>
+        Object.entries(s.subjects).forEach(([subj, v]) => {
+          if (!subjectLabels[subj]) subjectLabels[subj] = v.label;
+        })
+      );
+      const subjects = Object.keys(subjectLabels).sort((a, b) =>
+        subjectLabels[a].localeCompare(subjectLabels[b], undefined, { sensitivity: "base" })
+      );
+
+      let latestSubmitted = null;
+      const rows = Object.values(studentsMap).map((s) => {
+        let totalMarks = 0;
+        let totalMax = 0;
+        subjects.forEach((subj) => {
+          const v = s.subjects[subj];
+          if (v) {
+            totalMarks += v.marks;
+            totalMax += v.maxMarks;
+            if (v.submittedAt && (!latestSubmitted || v.submittedAt > latestSubmitted)) {
+              latestSubmitted = v.submittedAt;
+            }
+          }
+        });
+        const average = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
+        return {
+          ...s,
+          totalMarks,
+          totalMax,
+          average: Math.round(average * 100) / 100,
         };
       });
 
-      // 4) Isku dar xogta fasalada
-      const classGroupsArr = Object.entries(byClass).map(([className, studentsMap]) => {
-        const subjectSet = new Set();
-        const subjectLabels = {}; 
-        Object.values(studentsMap).forEach((s) => {
-          Object.entries(s.subjects).forEach(([subj, v]) => {
-            subjectSet.add(subj);
-            if (!subjectLabels[subj]) subjectLabels[subj] = v.label;
-          });
-        });
-        const subjects = Array.from(subjectSet).sort((a, b) =>
-          subjectLabels[a].localeCompare(subjectLabels[b], undefined, { sensitivity: "base" })
-        );
-
-        let earliestSubmitted = null;
-
-        const rows = Object.values(studentsMap).map((s) => {
-          let totalMarks = 0;
-          let totalMax = 0;
-          let studentEarliest = null;
-          subjects.forEach((subj) => {
-            const v = s.subjects[subj];
-            if (v) {
-              totalMarks += v.marks;
-              totalMax += v.maxMarks;
-              if (v.submittedAt) {
-                if (!studentEarliest || v.submittedAt < studentEarliest) {
-                  studentEarliest = v.submittedAt;
-                }
-                if (!earliestSubmitted || v.submittedAt < earliestSubmitted) {
-                  earliestSubmitted = v.submittedAt;
-                }
-              }
-            }
-          });
-          const average = totalMax > 0 ? (totalMarks / totalMax) * 100 : 0;
-          return {
-            ...s,
-            totalMarks,
-            totalMax,
-            average: Math.round(average * 100) / 100,
-            submittedAt: studentEarliest,
-          };
-        });
-
-        rows.sort((a, b) =>
-          (a.studentId || "").toString().localeCompare((b.studentId || "").toString(), undefined, {
-            numeric: true,
-          })
-        );
-
-        return { className, subjects, subjectLabels, rows, submittedAt: earliestSubmitted };
-      });
-
-      classGroupsArr.sort((a, b) =>
-        a.className.localeCompare(b.className, undefined, { numeric: true })
+      rows.sort((a, b) =>
+        (a.studentId || "").toString().localeCompare((b.studentId || "").toString(), undefined, {
+          numeric: true,
+        })
       );
 
-      setClassGroups(classGroupsArr);
-    } catch (error) {
-      console.error("Khalad ayaa dhacay markii natiijooyinka la soo qaadanayay:", error);
-    } finally {
-      setLoading(false);
-    }
-  }
+      return { className, subjects, subjectLabels, rows, submittedAt: latestSubmitted };
+    });
 
-  // B&W Ready HTML Builder
+    groups.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }));
+    return groups;
+  }, [rawResults, studentsById, examFilter]);
+
+  const examLabel = examFilter ? examTypeLabelOf(examFilter) : "Dhammaan";
+
   function buildPrintHtml(classNamesList, pageOrientation) {
     const sections = classNamesList
       .map((className) => {
@@ -235,61 +243,19 @@ export default function ResultsByClass() {
         <head>
           <title>Results - ${classNamesList.join(", ")}</title>
           <style>
-            * {
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
-              box-sizing: border-box;
-            }
-            body { 
-              font-family: Arial, sans-serif; 
-              padding: 10px;
-              color: #000;
-              background: #fff;
-            }
-            table { 
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-top: 10px;
-            }
-            th, td { 
-              border: 1px solid #000 !important; 
-              padding: 6px 6px; 
-              font-size: 11px; 
-              text-align: center; 
-              color: #000 !important;
-            }
-            th { 
-              background-color: #000 !important; 
-              color: #fff !important; 
-              font-weight: bold;
-            }
+            * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; padding: 10px; color: #000; background: #fff; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #000 !important; padding: 6px 6px; font-size: 11px; text-align: center; color: #000 !important; }
+            th { background-color: #000 !important; color: #fff !important; font-weight: bold; }
             td.name-cell { text-align: left; }
-            img.avatar { 
-              width: 24px; 
-              height: 24px; 
-              border-radius: 50%; 
-              object-fit: cover;
-              filter: grayscale(100%);
-            }
-            .grade-badge {
-              border: 1px solid #000 !important;
-              background: transparent !important;
-              color: #000 !important;
-              font-weight: bold;
-              padding: 2px 6px;
-              border-radius: 4px;
-            }
+            img.avatar { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; filter: grayscale(100%); }
+            .grade-badge { border: 1px solid #000 !important; background: transparent !important; color: #000 !important; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
             .class-page { page-break-after: always; }
             .class-page:last-child { page-break-after: auto; }
-            
             @media print {
-              @page { 
-                size: ${pageOrientation === "portrait" ? "A4 portrait" : "landscape"}; 
-                margin: 10mm; 
-              }
-              body { 
-                filter: grayscale(100%);
-              }
+              @page { size: ${pageOrientation === "portrait" ? "A4 portrait" : "landscape"}; margin: 10mm; }
+              body { filter: grayscale(100%); }
             }
           </style>
         </head>
@@ -358,12 +324,8 @@ export default function ResultsByClass() {
       const imgData = canvas.toDataURL("image/png");
 
       const pageOrientation = getOrientation(className);
-      const pdf = new jsPDF({
-        orientation: pageOrientation,
-        unit: "pt",
-        format: "a4",
-      });
-      
+      const pdf = new jsPDF({ orientation: pageOrientation, unit: "pt", format: "a4" });
+
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const imgRatio = canvas.height / canvas.width;
@@ -376,7 +338,7 @@ export default function ResultsByClass() {
       }
 
       pdf.addImage(imgData, "PNG", 20, 20, renderWidth, renderHeight);
-      pdf.save(`Class-${className.replace(/[\s()]/g, "_")}-Results.pdf`);
+      pdf.save(`Class-${className.replace(/[\s()]/g, "_")}-${examLabel.replace(/\s/g, "_")}-Results.pdf`);
     } catch (err) {
       console.error("Khalad ayaa dhacay markii PDF-ka la sameynayay:", err);
       window.alert("Khalad ayaa dhacay markii PDF-ka la soo saarayay.");
@@ -411,7 +373,7 @@ export default function ResultsByClass() {
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
-              marginBottom: 20,
+              marginBottom: 16,
               flexWrap: "wrap",
               gap: 12,
             }}
@@ -421,7 +383,8 @@ export default function ResultsByClass() {
                 Results by Class (Full Time & Part Time)
               </h1>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>
-                Natiijooyinka oo kala soocan fasallada iyo nooca ardayda (Full Time / Part Time).
+                Natiijooyinka fasal kasta iyo imtixaan kasta — update-ka macalimiinta si toos ah
+                ayuu halkan uga muuqdaa.
               </p>
             </div>
             <button
@@ -444,6 +407,33 @@ export default function ResultsByClass() {
               Refresh
             </button>
           </div>
+
+          {/* Imtixaan doorasho */}
+          {!loading && availableTypes.length > 0 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+              {availableTypes.map((k) => {
+                const active = examFilter === k;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setExamFilter(k)}
+                    style={{
+                      padding: "9px 16px",
+                      borderRadius: 11,
+                      border: active ? "1.5px solid #14532d" : "1.5px solid rgba(17,24,39,0.1)",
+                      background: active ? "#14532d" : "#fff",
+                      color: active ? "#fff" : "#374151",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {examTypeLabelOf(k)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {loading && (
             <div style={{ background: "#fff", borderRadius: 16, padding: 40, textAlign: "center", color: "#9CA3AF" }}>
@@ -485,12 +475,10 @@ export default function ResultsByClass() {
                       gap: 10,
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                      <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
-                        Class: {group.className} · {group.rows.length} student
-                        {group.rows.length !== 1 ? "s" : ""}
-                      </span>
-                    </div>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
+                      Class: {group.className} · {examLabel} · {group.rows.length} student
+                      {group.rows.length !== 1 ? "s" : ""}
+                    </span>
 
                     <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                       <div
@@ -536,7 +524,6 @@ export default function ResultsByClass() {
 
                       <button
                         onClick={() => handlePrintClass(group.className)}
-                        title="Print this class results"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -556,7 +543,6 @@ export default function ResultsByClass() {
                       </button>
                       <button
                         onClick={() => handleDownloadPdf(group.className)}
-                        title="Download PDF"
                         style={{
                           display: "inline-flex",
                           alignItems: "center",
@@ -599,12 +585,15 @@ export default function ResultsByClass() {
                             RISING STAR SCHOOL
                           </h2>
                           <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "#6B7280" }}>
-                            Submitted: {formatDateTime(group.submittedAt)}
+                            Last updated: {formatDateTime(group.submittedAt)}
                           </p>
                         </div>
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", textAlign: "right" }}>
                         CLASS: {group.className}
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#4B5563" }}>
+                          EXAM: {examLabel.toUpperCase()}
+                        </div>
                       </div>
                     </div>
 
@@ -670,7 +659,9 @@ export default function ResultsByClass() {
                               </td>
                               {group.subjects.map((subj) => (
                                 <td key={subj} style={tdStyle}>
-                                  {row.subjects[subj] ? row.subjects[subj].marks : "—"}
+                                  {row.subjects[subj]
+                                    ? `${row.subjects[subj].marks}/${row.subjects[subj].maxMarks}`
+                                    : "—"}
                                 </td>
                               ))}
                               <td style={{ ...tdStyle, fontWeight: 700 }}>

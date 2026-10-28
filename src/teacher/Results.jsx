@@ -11,14 +11,31 @@ import {
   doc,
   getDoc,
   serverTimestamp,
+  increment,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import jsPDF from "jspdf";
-import { BarChart3, Printer, Send, Lock } from "lucide-react";
+import {
+  BarChart3,
+  Printer,
+  Send,
+  Lock,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  ShieldCheck,
+} from "lucide-react";
 
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
+import {
+  examTypeKeyOf,
+  norm,
+  permissionId,
+  submissionStatus,
+  formatDT,
+} from "../utils/resultsSubmission";
 
 function ResultsStyles() {
   return (
@@ -49,10 +66,7 @@ function ResultsStyles() {
 }
 
 // PART-TIME classes run Thursday & Friday (same rule already used for
-// timetablePartTime/attendancePartTime/Exams.jsx). An exam message doc is
-// tagged with studentType when it's created (see Exams.jsx); older exam
-// docs that predate that tag fall back to reading the day-of-week off the
-// exam's own Exam Date.
+// timetablePartTime/attendancePartTime/Exams.jsx).
 const WEEKDAYS = [
   "Sunday",
   "Monday",
@@ -71,25 +85,34 @@ function getDayName(dateStr) {
   return WEEKDAYS[dateObj.getDay()];
 }
 // ---- Marks-ka imtixaanka (examMarksConfig) ----
-// Waa isla qaabka ExamTimetable.jsx (admin). Maamulku haddii uu dhigo waa
-// "admin"; haddii kale macalinka ugu horreeya ee dhiga ayaa "teacher" noqda
-// dhamaan macalimiintuna isla midkaas ayay isticmaalaan.
-const EXAM_TYPE_KEY = {
-  "Monthly One": "monthly1",
-  Term: "midterm",
-  "Monthly Two": "monthly2",
-  Final: "final",
-};
-// Hal qiime fasal + nuuca imtixaanka (dhamaan maadooyinka isku mid).
+// Waa isla qaabka ExamTimetable.jsx (admin).
 function marksConfigIdFor(className, examType) {
-  const typeKey = EXAM_TYPE_KEY[examType] || String(examType || "final").toLowerCase();
-  return `${String(className).toUpperCase()}__${typeKey}`;
+  return `${String(className).toUpperCase()}__${examTypeKeyOf(examType)}`;
 }
-function isPartTimeExam(exam) {
+
+function normalizeTypes(employmentType) {
+  if (Array.isArray(employmentType)) return employmentType;
+  if (typeof employmentType === "string" && employmentType) return [employmentType];
+  return [];
+}
+
+// Nooca macalinka ayaa ka horreeya (eeg Exams.jsx).
+function isPartTimeExam(exam, employmentTypes = []) {
+  const ft = employmentTypes.includes("Full Time");
+  const pt = employmentTypes.includes("Part Time");
+  if (ft && !pt) return false;
+  if (pt && !ft) return true;
   if (!exam) return false;
   if (exam.studentType) return exam.studentType === "Part Time";
   return isPartTimeDay(getDayName(exam.examDate));
 }
+
+const TONES = {
+  success: { bg: "rgba(34,197,94,0.1)", border: "rgba(34,197,94,0.35)", color: "#4ADE80", Icon: CheckCircle2 },
+  info: { bg: "rgba(59,130,246,0.12)", border: "rgba(59,130,246,0.4)", color: "#93C5FD", Icon: ShieldCheck },
+  warn: { bg: "rgba(245,158,11,0.1)", border: "rgba(245,158,11,0.35)", color: "#FBBF24", Icon: Clock },
+  danger: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.4)", color: "#F87171", Icon: AlertTriangle },
+};
 
 export default function Results() {
   const [classes, setClasses] = useState([]);
@@ -105,16 +128,27 @@ export default function Results() {
   const [saving, setSaving] = useState(false);
 
   const [teacherPhoto, setTeacherPhoto] = useState("");
-  const [maxMarks, setMaxMarks] = useState(null); // imisa lagu saxayaa (null = weli lama dhigin)
-  const [maxSource, setMaxSource] = useState(""); // "admin" | "teacher"
+  const [employmentTypes, setEmploymentTypes] = useState([]);
+  const [maxMarks, setMaxMarks] = useState(null);
+  const [maxSource, setMaxSource] = useState("");
   const [maxInput, setMaxInput] = useState("");
   const [savingMax, setSavingMax] = useState(false);
+
+  // Waqtiga gudbinta (maamulka) + fasaxa macalinkan
+  const [submitWin, setSubmitWin] = useState(null);
+  const [permission, setPermission] = useState(null);
+  const [now, setNow] = useState(() => new Date());
+
   const teacherId = localStorage.getItem("teacherId") || "";
   const teacherName = localStorage.getItem("teacherName") || "Teacher";
 
   useEffect(() => {
     loadClasses();
     loadTeacherPhoto();
+    // Saacadda ha socoto si xaaladdu isku beddesho marka waqtigu furmo/xirmo
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -138,16 +172,19 @@ export default function Results() {
       setMaxMarks(null);
       setMaxSource("");
       setMaxInput("");
+      setSubmitWin(null);
+      setPermission(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedExam]);
+  }, [selectedExam, employmentTypes]);
 
   const loadTeacherPhoto = async () => {
     try {
       if (!teacherId) return;
       const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
       if (teacherSnap.exists()) {
-        setTeacherPhoto(teacherSnap.data().photoUrl || "");
+        const data = teacherSnap.data();
+        setTeacherPhoto(data.photoUrl || data.teacherPhoto || "");
       }
     } catch (err) {
       console.log(err);
@@ -160,27 +197,19 @@ export default function Results() {
         setClasses([]);
         return;
       }
-
       const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
-
       if (!teacherSnap.exists()) {
         setClasses([]);
         return;
       }
-
       const data = teacherSnap.data();
-      const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
+      setEmploymentTypes(normalizeTypes(data.employmentType));
 
+      const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
       const uniqueClassNames = Array.from(
         new Set(teacherClasses.map((c) => c.className).filter(Boolean))
       );
-
-      const classList = uniqueClassNames.map((className) => ({
-        id: className,
-        className,
-      }));
-
-      setClasses(classList);
+      setClasses(uniqueClassNames.map((className) => ({ id: className, className })));
     } catch (err) {
       console.log(err);
     }
@@ -209,35 +238,54 @@ export default function Results() {
     }
   };
 
+  // Soo qaad waqtiga gudbinta imtixaankan iyo fasaxa macalinkan
+  const fetchSubmissionContext = async (examObj, className) => {
+    if (!examObj) return { win: null, perm: null, key: "" };
+    const key = examTypeKeyOf(examObj.examType);
+    const subj = (examObj.subject || "").trim() || "General";
+    const [wSnap, pSnap] = await Promise.all([
+      getDoc(doc(db, "resultsWindow", key)),
+      getDoc(doc(db, "resultsPermissions", permissionId(key, teacherId, className, subj))),
+    ]);
+    return {
+      key,
+      win: wSnap.exists() ? wSnap.data() : null,
+      perm: pSnap.exists() ? { id: pSnap.id, ...pSnap.data() } : null,
+    };
+  };
+
   const loadStudentsAndResults = async (className, examId) => {
     try {
       setLoading(true);
 
       const examObj = exams.find((e) => e.id === examId) || null;
-      const partTime = isPartTimeExam(examObj);
+      const partTime = isPartTimeExam(examObj, employmentTypes);
       const studentCollectionName = partTime ? "partTimeStudents" : "students";
       const resultsCollectionName = partTime ? "resultsPartTime" : "results";
 
-      const studentsSnap = await getDocs(
-        query(collection(db, studentCollectionName), where("className", "==", className))
-      );
+      const [studentsSnap, resultsSnap, ctx] = await Promise.all([
+        getDocs(query(collection(db, studentCollectionName), where("className", "==", className))),
+        getDocs(query(collection(db, resultsCollectionName), where("examId", "==", examId))),
+        fetchSubmissionContext(examObj, className),
+      ]);
+
       const studentList = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setStudents(studentList);
 
-      const resultsSnap = await getDocs(
-        query(collection(db, resultsCollectionName), where("examId", "==", examId))
-      );
       const existing = {};
       resultsSnap.docs.forEach((d) => {
         const r = d.data();
         existing[r.studentId] = r.marks;
       });
-
       const initial = {};
       studentList.forEach((s) => {
         initial[s.id] = existing[s.id] !== undefined ? String(existing[s.id]) : "";
       });
       setMarks(initial);
+
+      setSubmitWin(ctx.win);
+      setPermission(ctx.perm);
+
       await loadMaxConfig(examObj, className);
     } catch (err) {
       console.log(err);
@@ -246,7 +294,6 @@ export default function Results() {
     }
   };
 
-  // Soo qaad imisa lagu saxayo imtixaankan (admin ama macalin hore ayaa dhigay)
   const fetchMaxConfig = async (examObj, className) => {
     if (!examObj) return null;
     const id = marksConfigIdFor(className, examObj.examType);
@@ -270,7 +317,6 @@ export default function Results() {
     }
   };
 
-  // Macalinka ugu horreeya ee imisa lagu saxayo dhiga (haddii maamulku ka tago).
   const saveMaxMarks = async () => {
     const n = Number(maxInput);
     if (!(n > 0)) {
@@ -281,7 +327,6 @@ export default function Results() {
       setSavingMax(true);
       const exam = currentExam || {};
       const cfg = await fetchMaxConfig(exam, selectedClass);
-      // Haddii mid kale (admin ama macalin) hore u dhigay, isagaa la qaadanayaa.
       if (cfg && Number(cfg.maxMarks) > 0) {
         setMaxMarks(Number(cfg.maxMarks));
         setMaxSource(cfg.source || "");
@@ -290,7 +335,7 @@ export default function Results() {
       }
       await setDoc(doc(db, "examMarksConfig", cfg.id), {
         className: selectedClass,
-        examType: EXAM_TYPE_KEY[exam.examType] || exam.examType || "final",
+        examType: examTypeKeyOf(exam.examType),
         maxMarks: n,
         source: "teacher",
         setByTeacherId: teacherId,
@@ -307,15 +352,27 @@ export default function Results() {
     }
   };
 
-  const setMark = (studentId, value) => {
-    setMarks({ ...marks, [studentId]: value });
+  // Marks-ka: 0 ilaa maxMarks oo keliya. Wax ka badan lama qori karo.
+  const setMark = (studentId, raw) => {
+    const v = String(raw).replace(",", ".").trim();
+    if (v === "") {
+      setMarks((prev) => ({ ...prev, [studentId]: "" }));
+      return;
+    }
+    if (!/^\d+(\.\d{0,2})?$/.test(v)) return; // kaliya tiro (0, 1, 2 ... ama 7.5)
+    if (maxMarks && Number(v) > maxMarks) return; // kama badan karo xadka maamulka
+    setMarks((prev) => ({ ...prev, [studentId]: v }));
   };
 
   const currentExam = exams.find((e) => e.id === selectedExam);
-  const isLocked = currentExam?.resultsSent === true;
+  const alreadySubmitted = currentExam?.resultsSent === true;
+  const status = selectedExam
+    ? submissionStatus({ win: submitWin, permission, submitted: alreadySubmitted, now })
+    : null;
+  const canEdit = Boolean(status?.canEdit);
 
-  const getGrade = (m, maxMarks) => {
-    const pct = (m / maxMarks) * 100;
+  const getGrade = (m, max) => {
+    const pct = (m / max) * 100;
     if (pct >= 90) return "A+";
     if (pct >= 80) return "A";
     if (pct >= 70) return "B";
@@ -324,10 +381,7 @@ export default function Results() {
     return "F";
   };
 
-  // Builds ONE PDF sheet containing every student in the class,
-  // ranked from the highest marks (position #1) to the lowest.
   const buildSummaryPdf = (studentsWithMarks, exam) => {
-    // Sort by marks descending so the top scorer becomes rank 1.
     const ranked = [...studentsWithMarks].sort((a, b) => b.marks - a.marks);
 
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
@@ -368,14 +422,7 @@ export default function Results() {
       }
       const grade = getGrade(s.marks, Number(s.maxMarks) || 100);
       const position = i + 1;
-
-      // Highlight the top student (position 1) in bold.
-      if (position === 1) {
-        pdf.setFont(undefined, "bold");
-      } else {
-        pdf.setFont(undefined, "normal");
-      }
-
+      pdf.setFont(undefined, position === 1 ? "bold" : "normal");
       pdf.text(String(position), 40, y);
       pdf.text(String(s.studentName || "-"), 80, y);
       pdf.text(String(s.studentId || "-"), 300, y);
@@ -406,7 +453,6 @@ export default function Results() {
     const studentsWithMarks = students.filter(
       (s) => marks[s.id] !== "" && marks[s.id] !== undefined
     );
-
     if (studentsWithMarks.length === 0) {
       alert("Fadlan geli buundooyinka ugu yaraan hal arday");
       return;
@@ -415,49 +461,64 @@ export default function Results() {
     try {
       setSaving(true);
       const exam = currentExam || {};
-      // Marks-ka ugu dambeeya (maamulku wuu beddeli karaa), kaasna la qaado.
-      const cfg = await fetchMaxConfig(exam, selectedClass);
-      const maxMarks = Number(cfg?.maxMarks) || 0;
-      if (!(maxMarks > 0)) {
-        alert("Marka hore dhig imisa lagu saxayo imtixaankan (Total Marks).");
-        setSaving(false);
+
+      // 1) Dib u hubi waqtiga + fasaxa (server-ka ka soo qaad, ha ku kalsoonaan state-ka)
+      const ctx = await fetchSubmissionContext(exam, selectedClass);
+      setSubmitWin(ctx.win);
+      setPermission(ctx.perm);
+      const st = submissionStatus({
+        win: ctx.win,
+        permission: ctx.perm,
+        submitted: exam.resultsSent === true,
+        now: new Date(),
+      });
+      if (!st.canEdit) {
+        alert(st.text);
         return;
       }
-      setMaxMarks(maxMarks);
+
+      // 2) Xadka marks-ka
+      const cfg = await fetchMaxConfig(exam, selectedClass);
+      const max = Number(cfg?.maxMarks) || 0;
+      if (!(max > 0)) {
+        alert("Marka hore dhig imisa lagu saxayo imtixaankan (Total Marks).");
+        return;
+      }
+      setMaxMarks(max);
       setMaxSource(cfg.source || "");
-      const tooHigh = studentsWithMarks.filter((s) => Number(marks[s.id]) > maxMarks || Number(marks[s.id]) < 0);
-      if (tooHigh.length > 0) {
+      const invalid = studentsWithMarks.filter((s) => {
+        const n = Number(marks[s.id]);
+        return isNaN(n) || n > max || n < 0;
+      });
+      if (invalid.length > 0) {
         alert(
-          `Marks-ka ma dhaafi karo ${maxMarks}. Hubi: ${tooHigh
+          `Marks-ku waa inuu u dhexeeyaa 0 iyo ${max}. Hubi: ${invalid
             .map((s) => s.fullName)
             .join(", ")}`
         );
-        setSaving(false);
         return;
       }
-      // Fall back to the exam's own subject field, and if that's empty too,
-      // avoid saving another blank string into every result document.
+
       const subjectName = (exam.subject || "").trim() || "General";
-      // Nuuca exam-ka (Monthly One / Term / Monthly Two / Final) - waxa
-      // laga soo qaatay messages document-kii macallinku abuuray marka
-      // uu Exams.jsx ka dhigay "Send Exam".
       const examTypeName = exam.examType || "";
-      // FULL-TIME results go to "results", PART-TIME results go to their
-      // own "resultsPartTime" collection — same pattern already used for
-      // students/timetable/attendance.
-      const partTime = isPartTimeExam(exam);
+      const typeKey = examTypeKeyOf(examTypeName);
+      const partTime = isPartTimeExam(exam, employmentTypes);
       const resultsCollectionName = partTime ? "resultsPartTime" : "results";
       const studentTypeLabel = partTime ? "Part Time" : "Full Time";
+      const isUpdate = st.code === "update";
+      const isLate = st.code === "late";
 
       const resultsForPdf = [];
 
+      // Isla doc-ga ayaa la cusbooneysiiyaa (examId_studentId), sidaas darteed
+      // update-ku si toos ah ayuu uga muuqdaa Academics iyo Results by Class.
       for (const student of studentsWithMarks) {
         const scoreValue = Number(marks[student.id]);
         resultsForPdf.push({
           studentId: student.studentId || student.id,
           studentName: student.fullName,
           marks: scoreValue,
-          maxMarks,
+          maxMarks: max,
         });
 
         // eslint-disable-next-line no-await-in-loop
@@ -465,21 +526,20 @@ export default function Results() {
           examId: selectedExam,
           examName: exam.examName || "",
           examType: examTypeName,
+          examTypeKey: typeKey,
           subject: subjectName,
           className: selectedClass,
           studentId: student.id,
           studentName: student.fullName,
           studentType: studentTypeLabel,
           marks: scoreValue,
-          maxMarks,
+          maxMarks: max,
           teacherId,
           teacherName,
           updatedAt: new Date(),
         });
       }
 
-      // Build ONE PDF containing every student in this class for this exam,
-      // ranked from highest to lowest marks.
       const pdf = buildSummaryPdf(resultsForPdf, {
         ...exam,
         subject: subjectName,
@@ -490,14 +550,10 @@ export default function Results() {
       const timestamp = Date.now();
       const fileName = `${timestamp}_${selectedClass}_${examTypeName || exam.examName || "exam"}_results.pdf`;
 
-      // 1) Keep the teacher's own copy (unchanged behaviour)
       const teacherStorageRef = ref(storage, `teacher-results/${teacherName}/${fileName}`);
       await uploadBytes(teacherStorageRef, pdfBlob);
       const pdfUrl = await getDownloadURL(teacherStorageRef);
 
-      // 2) ALSO drop a copy into a shared admin folder so that every
-      //    teacher's results land in one place the admin can browse,
-      //    instead of each teacher's PDFs being scattered separately.
       const adminStorageRef = ref(storage, `admin-results/${selectedClass}/${fileName}`);
       await uploadBytes(adminStorageRef, pdfBlob);
       const adminPdfUrl = await getDownloadURL(adminStorageRef);
@@ -507,7 +563,9 @@ export default function Results() {
         senderRole: "Teacher",
         senderId: teacherId,
         senderPhoto: teacherPhoto,
-        text: `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka (${examTypeName || exam.examName}) - Fasalka ${selectedClass} (${subjectName}). Kani waa exam-kii ugu dambeeyay ee la saxay.`,
+        text: isUpdate
+          ? `Macallinka ${teacherName} wuxuu cusbooneysiiyay (update) natiijada exam-ka (${examTypeName || exam.examName}) - Fasalka ${selectedClass} (${subjectName}).`
+          : `Macallinka ${teacherName} wuxuu dhammaystiray sax-gareynta exam-ka (${examTypeName || exam.examName}) - Fasalka ${selectedClass} (${subjectName})${isLate ? " — gudbin daahday (fasax maamul)" : ""}.`,
         type: "results",
         examId: selectedExam,
         examName: exam.examName || "",
@@ -517,6 +575,8 @@ export default function Results() {
         subject: subjectName,
         studentType: studentTypeLabel,
         isLatestExam: true,
+        isUpdate,
+        isLate,
         fileUrl: pdfUrl,
         adminFileUrl: adminPdfUrl,
         fileName: `${examTypeName || exam.examName || "exam"}_results.pdf`,
@@ -525,38 +585,64 @@ export default function Results() {
         createdAt: serverTimestamp(),
       });
 
-      // 3) Also keep a lightweight index doc admins can query directly,
-      //    grouped by class, so all teachers' latest result files for a
-      //    class show up together without scanning every teacher folder.
+      // Index-ka maamulka: cidda gudbisay, goorta, imisa jeer
+      const idxRef = doc(db, "adminResultsIndex", `${selectedClass}_${selectedExam}`);
+      const idxSnap = await getDoc(idxRef);
+      const prevIdx = idxSnap.exists() ? idxSnap.data() : {};
       await setDoc(
-        doc(db, "adminResultsIndex", `${selectedClass}_${selectedExam}`),
+        idxRef,
         {
           className: selectedClass,
+          classKey: String(selectedClass).toUpperCase(),
           examId: selectedExam,
           examName: exam.examName || "",
           examType: examTypeName,
+          examTypeKey: typeKey,
           subject: subjectName,
+          subjectKey: norm(subjectName),
           studentType: studentTypeLabel,
           teacherId,
           teacherName,
           fileUrl: adminPdfUrl,
           studentCount: resultsForPdf.length,
+          late: Boolean(prevIdx.late) || isLate,
+          wasUpdated: Boolean(prevIdx.wasUpdated) || isUpdate,
+          submitCount: increment(1),
+          lastSubmittedAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
+          ...(prevIdx.firstSubmittedAt ? {} : { firstSubmittedAt: serverTimestamp() }),
         },
         { merge: true }
       );
 
+      // Xir imtixaanka
       await setDoc(
         doc(db, "messages", selectedExam),
-        { resultsSent: true },
+        { resultsSent: true, resultsSentAt: serverTimestamp(), studentType: studentTypeLabel },
         { merge: true }
       );
 
+      // Fasaxa waa la isticmaalay -> mar kale ayuu xirmayaa
+      if (ctx.perm && (isUpdate || isLate)) {
+        await setDoc(
+          doc(db, "resultsPermissions", ctx.perm.id),
+          { used: true, usedAt: new Date() },
+          { merge: true }
+        );
+        setPermission({ ...ctx.perm, used: true });
+      }
+
       setExams((prev) =>
-        prev.map((e) => (e.id === selectedExam ? { ...e, resultsSent: true } : e))
+        prev.map((e) =>
+          e.id === selectedExam ? { ...e, resultsSent: true, studentType: studentTypeLabel } : e
+        )
       );
 
-      alert("Natiijooyinka waa la kaydiyay oo warqad PDF ah ayaa Admin loo diray.");
+      alert(
+        isUpdate
+          ? "Natiijada waa la cusbooneysiiyay. Meel kasta oo laga eego waa la beddelay."
+          : "Natiijooyinka waa la kaydiyay oo warqad PDF ah ayaa Admin loo diray."
+      );
     } catch (err) {
       console.log(err);
       alert(err.message);
@@ -568,6 +654,8 @@ export default function Results() {
   const printResults = () => {
     window.print();
   };
+
+  const tone = status ? TONES[status.tone] : null;
 
   return (
     <div className="res-layout">
@@ -620,21 +708,28 @@ export default function Results() {
                   <option value="">Select Exam</option>
                   {exams.map((e, i) => (
                     <option key={e.id} value={e.id}>
-                      {e.examType || e.examName || "Exam"} ({e.subject || "no subject"}) — {isPartTimeExam(e) ? "Part Time" : "Full Time"}{i === 0 ? " - Ugu dambeeyay" : ""}
+                      {e.examType || e.examName || "Exam"} ({e.subject || "no subject"}) —{" "}
+                      {isPartTimeExam(e, employmentTypes) ? "Part Time" : "Full Time"}
+                      {e.resultsSent ? " ✓ La gudbiyay" : ""}
+                      {i === 0 ? " - Ugu dambeeyay" : ""}
                     </option>
                   ))}
                 </select>
               </div>
 
-              {students.length > 0 && !isLocked && (
+              {students.length > 0 && canEdit && (
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 10 }}>
                   <button
                     style={btnPrimarySmall}
                     onClick={saveAndSendResults}
-                    disabled={saving}
+                    disabled={saving || !maxMarks}
                   >
                     <Send size={14} style={{ marginRight: 6 }} />
-                    {saving ? "Sending..." : "Save & Send"}
+                    {saving
+                      ? "Sending..."
+                      : status?.code === "update"
+                      ? "Update & Send"
+                      : "Save & Send"}
                   </button>
                 </div>
               )}
@@ -649,39 +744,57 @@ export default function Results() {
               )}
             </div>
 
-            {isLocked && (
-              <p
+            {/* Xaaladda gudbinta */}
+            {status && !loading && (
+              <div
                 style={{
-                  color: "#22C55E",
-                  fontSize: 13,
-                  marginTop: 14,
-                  marginBottom: 0,
+                  marginTop: 16,
                   display: "flex",
-                  alignItems: "center",
-                  gap: 6,
+                  alignItems: "flex-start",
+                  gap: 10,
+                  background: tone.bg,
+                  border: `1px solid ${tone.border}`,
+                  color: tone.color,
+                  borderRadius: 12,
+                  padding: "12px 14px",
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  lineHeight: 1.5,
                 }}
               >
-                <Lock size={14} />
-                Natiijooyinkan waa la diray Admin - lama beddeli karo.
-              </p>
+                {status.code === "locked" ? (
+                  <Lock size={17} style={{ flexShrink: 0, marginTop: 1 }} />
+                ) : (
+                  <tone.Icon size={17} style={{ flexShrink: 0, marginTop: 1 }} />
+                )}
+                <div>
+                  {status.text}
+                  {submitWin?.startAt && submitWin?.endAt && (
+                    <div style={{ fontSize: 12, fontWeight: 500, opacity: 0.85, marginTop: 4 }}>
+                      Waqtiga gudbinta: {formatDT(submitWin.startAt)} → {formatDT(submitWin.endAt)}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
           {/* Total Marks (imisa lagu saxayo) */}
-          {selectedExam && students.length > 0 && !isLocked && (
+          {selectedExam && students.length > 0 && canEdit && (
             <div className="res-panel" style={{ ...filterCard, padding: "14px 20px" }}>
               {maxMarks ? (
                 <div style={{ color: "#C4B5FD", fontSize: 14, fontWeight: 600 }}>
                   Imtixaankan waxaa lagu saxayaa{" "}
                   <span style={{ color: "#fff", fontSize: 16 }}>{maxMarks}</span> marks
                   {maxSource === "admin" ? " (maamulka ayaa dhigay)" : " (macalin ayaa dhigay)"}
+                  <div style={{ color: "#94A3B8", fontSize: 12, fontWeight: 500, marginTop: 4 }}>
+                    Arday kasta waxaad siin kartaa 0 ilaa {maxMarks} oo keliya — ka badan lama qori karo.
+                  </div>
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
                   <div style={{ flex: "1 1 220px" }}>
-                    <label style={label}>
-                      Imtixaanku waa imisa lagu saxayaa? (Total Marks)
-                    </label>
+                    <label style={label}>Imtixaanku waa imisa lagu saxayaa? (Total Marks)</label>
                     <input
                       style={input}
                       type="number"
@@ -708,13 +821,9 @@ export default function Results() {
             {loading ? (
               <p style={{ padding: 20, color: "#94A3B8" }}>Loading students...</p>
             ) : !selectedExam ? (
-              <p style={{ padding: 20, color: "#94A3B8" }}>
-                Select a class and exam to view results.
-              </p>
+              <p style={{ padding: 20, color: "#94A3B8" }}>Select a class and exam to view results.</p>
             ) : students.length === 0 ? (
-              <p style={{ padding: 20, color: "#94A3B8" }}>
-                No students found for this class.
-              </p>
+              <p style={{ padding: 20, color: "#94A3B8" }}>No students found for this class.</p>
             ) : (
               <div className="res-table-wrap">
                 <table className="res-table">
@@ -722,16 +831,14 @@ export default function Results() {
                     <tr>
                       <th style={th}>Name</th>
                       <th style={th}>ID</th>
-                      <th style={th}>Marks</th>
+                      <th style={th}>Marks{maxMarks ? ` (0 – ${maxMarks})` : ""}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {students.map((s) => (
                       <tr key={s.id}>
                         <td style={{ ...td, display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={avatar}>
-                            {(s.fullName || "?").charAt(0).toUpperCase()}
-                          </div>
+                          <div style={avatar}>{(s.fullName || "?").charAt(0).toUpperCase()}</div>
                           {s.fullName}
                         </td>
                         <td style={td}>{s.studentId}</td>
@@ -739,16 +846,14 @@ export default function Results() {
                           <input
                             style={{
                               ...input,
-                              width: 90,
-                              ...(maxMarks && Number(marks[s.id]) > maxMarks
-                                ? { borderColor: "#EF4444" }
-                                : {}),
+                              width: 100,
+                              opacity: canEdit && maxMarks ? 1 : 0.6,
                             }}
-                            type="number"
-                            min="0"
-                            max={maxMarks || undefined}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
                             placeholder={maxMarks ? `/ ${maxMarks}` : ""}
-                            disabled={isLocked || !maxMarks}
+                            disabled={!canEdit || !maxMarks}
                             value={marks[s.id] ?? ""}
                             onChange={(e) => setMark(s.id, e.target.value)}
                           />
@@ -763,7 +868,6 @@ export default function Results() {
         </div>
       </div>
 
-      {/* Bottom tab bar — mobile only (hidden via CSS on desktop) */}
       <MobileBottomNav />
     </div>
   );
