@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import { isRemoved } from "../../utils/activeRecords";
 
 // Fixed class order: 1 -> 8 (primary), then F1 -> F4 (secondary/form)
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
@@ -261,6 +262,8 @@ export default function ExamTimetable() {
       const teacherMap = {};
       teachersSnap.docs.forEach((d) => {
         const data = d.data();
+        // Macalin la tirtiray / Recycle Bin — jadwalka imtixaanka kama muuqdo
+        if (isRemoved(data)) return;
         teacherMap[d.id] = {
           fullName: data.fullName || data.username || d.id,
           subject: data.subject || data.subjectName || "",
@@ -497,8 +500,8 @@ export default function ExamTimetable() {
             startTime: s.startTime,
             endTime: s.endTime,
             subject: s.subject || "",
-            teacherId: s.teacherId,
-            teacherName: teachers[s.teacherId]?.fullName || s.teacherId,
+            teacherId: teachers[s.teacherId] ? s.teacherId : "",
+            teacherName: teachers[s.teacherId]?.fullName || "",
           }));
         return { day: d.key, dayLabel: d.label, slots };
       });
@@ -1161,7 +1164,7 @@ export default function ExamTimetable() {
                         style={fieldStyle}
                       />
                       <TeacherSelect
-                        value={slot.teacherId}
+                        value={teachers[slot.teacherId] ? slot.teacherId : ""}
                         options={Object.entries(teachersForSelectedClass).map(([tid, info]) => ({
                           id: tid,
                           fullName: info.fullName,
@@ -1262,7 +1265,7 @@ function ExamWeekSummary({ selectedClass, examDocs, teachers, onEditDay, onDelet
                     ) : (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {slots.map((s) => {
-                          const teacherName = teachers[s.teacherId]?.fullName || s.teacherId || "-";
+                          const teacherName = teachers[s.teacherId]?.fullName || "";
                           return (
                             <span
                               key={s.id}
@@ -1278,7 +1281,7 @@ function ExamWeekSummary({ selectedClass, examDocs, teachers, onEditDay, onDelet
                               }}
                             >
                               #{s.examNumber} · {s.startTime}–{s.endTime} · {s.subject}
-                              {s.teacherId ? ` (${teacherName})` : ""}
+                              {teacherName ? ` (${teacherName})` : ""}
                             </span>
                           );
                         })}

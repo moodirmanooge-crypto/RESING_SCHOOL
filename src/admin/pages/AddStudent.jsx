@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import { loadAllStudentsRaw, findSameStudent, isRemoved } from "../../utils/activeRecords";
 import { db, storage } from "../../firebase/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
@@ -87,21 +88,14 @@ export default function AddStudent() {
     });
   };
 
-  const normalizeName = (name) =>
-    name.trim().replace(/\s+/g, " ").toLowerCase();
-
-  const isDuplicateFullName = async (fullName) => {
-    const target = normalizeName(fullName);
-    if (!target) return false;
-
-    const [fullTimeSnap, partTimeSnap] = await Promise.all([
-      getDocs(collection(db, "students")),
-      getDocs(collection(db, "partTimeStudents")),
-    ]);
-    const allDocs = [...fullTimeSnap.docs, ...partTimeSnap.docs];
-    return allDocs.some((docSnap) => {
-      const existingName = docSnap.data().fullName || "";
-      return normalizeName(existingName) === target;
+  // Hal arday laba jeer (ama laba fasal) lama diiwaan gelin karo.
+  // Wuxuu hubiyaa labada collection, kuwa Recycle Bin-ka ku jirana.
+  const findExistingStudent = async () => {
+    const raw = await loadAllStudentsRaw();
+    return findSameStudent(raw, {
+      fullName: student.fullName,
+      motherName: student.motherName,
+      className: student.className,
     });
   };
 
@@ -110,6 +104,7 @@ export default function AddStudent() {
 
     for (const teacherDoc of teachersSnap.docs) {
       const data = teacherDoc.data();
+      if (isRemoved(data)) continue; // macalin la tirtiray ardayda cusub ma helo
       const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
 
       const teachesThisClass = teacherClasses.some(
@@ -173,10 +168,17 @@ export default function AddStudent() {
 
       setSaving(true);
 
-      const duplicate = await isDuplicateFullName(student.fullName);
-      if (duplicate) {
+      const existing = await findExistingStudent();
+      if (existing.active) {
         alert(
-          `Arday hore ayaa loo diiwaan geliyay magacan "${student.fullName}". Fadlan isticmaal magac kale ama hubi in ardaygan horey loo diiwaan gelin.`
+          `Ardaygan horey ayaa loo diiwaan geliyay: "${existing.active.fullName}" — ID ${existing.active.studentId || existing.active.id}, Class ${existing.active.className || "—"}.\nHal arday laba fasal kuma jiri karo. Haddii fasalkiisa la beddelayo, ka beddel Student List (Edit).`
+        );
+        setSaving(false);
+        return;
+      }
+      if (existing.removed) {
+        alert(
+          `Ardaygan "${existing.removed.fullName}" (ID ${existing.removed.studentId || existing.removed.id}) wuxuu ku jiraa Recycle Bin / Pending Deletion.\nDib uma diiwaan gelin karo — ka soo celi Recycle Bin-ka si uusan labanlaab u noqon.`
         );
         setSaving(false);
         return;

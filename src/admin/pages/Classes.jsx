@@ -4,8 +4,8 @@
 // XOGTA:
 //   - Ardayda waxaa laga soo akhriyaa LABADA collection: `students` (Full Time)
 //     iyo `partTimeStudents` (Part Time).
-//   - Ardayda la codsaday in la tirtiro (pendingDeletion) MARNABA halkan kuma
-//     soo muuqdaan — taasi waxay ahayd sababta ardaydii hore "dib u soo noqonayeen".
+//   - Ardayda la tirtiray (pendingDeletion / Recycle Bin) MARNABA halkan kuma
+//     soo muuqdaan ilaa laga soo celiyo (eeg utils/activeRecords.js).
 //
 // LABANLAAB (DUPLICATES):
 //   - Haddii arday isku magac ah (ama mid magaciisu yahay qayb ka mid ah magaca
@@ -17,8 +17,9 @@
 //     aad ku eegi karto si aad ugu tirtirto Student List.
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs, doc, writeBatch } from "firebase/firestore";
+import { doc, writeBatch } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
+import { loadActiveStudents, idCompare } from "../../utils/activeRecords";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import {
@@ -46,53 +47,9 @@ const GRADUATES_KEY = "Qalin Jabis";
 const renameTargetOptions = [...classOptions, GRADUATES_KEY];
 
 // ---------------- helpers ----------------
-const normalizeName = (n) => (n || "").trim().replace(/\s+/g, " ").toLowerCase();
-
+// Shuruucda "la tirtiray" iyo "labanlaab" waxay ku jiraan utils/activeRecords.js
+// si bog kasta (Admin, Cashier, Teacher) uu isla natiijo u helo.
 const photoOf = (s) => (s?.studentPhoto || s?.photoURL || s?.photoUrl || "").trim();
-
-function completeness(s) {
-  return ["motherName", "parentPhone", "studentPhone", "district", "shift", "previousSchool"].filter(
-    (k) => s[k]
-  ).length + (photoOf(s) ? 2 : 0);
-}
-
-function idCompare(a, b) {
-  return String(a.studentId || a.id).localeCompare(String(b.studentId || b.id), undefined, {
-    numeric: true,
-  });
-}
-
-// Ka saar ardayda labanlaabka ah. Wuxuu soo celinayaa { kept, hidden }.
-function dedupeStudents(list) {
-  const sorted = [...list].sort((a, b) => completeness(b) - completeness(a) || idCompare(a, b));
-  const kept = [];
-  const hidden = [];
-
-  for (const s of sorted) {
-    const n = normalizeName(s.fullName);
-    const dup = kept.find((k) => {
-      const kn = normalizeName(k.fullName);
-      if (!n || !kn) return false;
-      if (n === kn) return true;
-
-      // Mid magaciisu waa bilowga kan kale (tusaale "Ilwaad Xasan Maxamed"
-      // iyo "Ilwaad Xasan Maxamed Cabdulaahi") — kaliya haddii magaca gaaban
-      // uu leeyahay ugu yaraan 3 eray, oo ay isku fasal yihiin ama isku hooyo.
-      const shorter = n.length < kn.length ? n : kn;
-      const isPrefix = kn.startsWith(n + " ") || n.startsWith(kn + " ");
-      if (!isPrefix || shorter.split(" ").length < 3) return false;
-      const sameClass = String(k.className || "") === String(s.className || "");
-      const sameMother =
-        k.motherName && s.motherName && normalizeName(k.motherName) === normalizeName(s.motherName);
-      return sameClass || sameMother;
-    });
-
-    if (dup) hidden.push({ ...s, duplicateOfId: dup.id, duplicateOfCollection: dup.collection });
-    else kept.push(s);
-  }
-
-  return { kept, hidden };
-}
 
 const classLabel = (c) => (c === GRADUATES_KEY ? GRADUATES_KEY : `Class ${c}`);
 
@@ -207,26 +164,9 @@ export default function Classes() {
   async function fetchStudents() {
     try {
       setLoading(true);
-      const [fullSnap, partSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "partTimeStudents")),
-      ]);
-      const all = [
-        ...fullSnap.docs.map((d) => ({
-          id: d.id,
-          collection: "students",
-          studentType: d.data().studentType || "Full Time",
-          ...d.data(),
-        })),
-        ...partSnap.docs.map((d) => ({
-          id: d.id,
-          collection: "partTimeStudents",
-          studentType: d.data().studentType || "Part Time",
-          ...d.data(),
-        })),
-      ].filter((s) => !s.pendingDeletion); // ardayda la tirtiray marnaba ha soo noqon
-
-      const { kept, hidden } = dedupeStudents(all);
+      // Ardayda la tirtiray / Recycle Bin-ka ku jira marnaba ha soo noqon,
+      // labanlaabyaduna hal mar oo keliya ha muuqdeen (fasalkooda saxda ah).
+      const { students: kept, duplicates: hidden } = await loadActiveStudents();
       setStudents(kept);
       setDuplicates(hidden);
     } catch (err) {

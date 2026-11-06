@@ -16,6 +16,7 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
 import { getActiveHolidayToday, formatHolidayDate } from "../utils/holidayCheck";
+import { loadActiveStudents, isRemoved } from "../utils/activeRecords";
 
 function AttendanceStyles() {
   return (
@@ -195,6 +196,12 @@ export default function Attendance() {
       }
 
       const data = teacherSnap.data();
+      // Macalin la tirtiray (ama Recycle Bin ku jira) fasal ma laha
+      if (isRemoved(data)) {
+        setClasses([]);
+        setTeacherClassEntries([]);
+        return;
+      }
       setTeacherRawData(data); // Save complete teacher profile data
 
       const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
@@ -286,12 +293,12 @@ export default function Attendance() {
       const studentCollectionName = partTime ? "partTimeStudents" : "students";
       const attendanceCollectionName = partTime ? "attendancePartTime" : "attendance";
 
-      const snap = await getDocs(
-        query(collection(db, studentCollectionName), where("className", "==", className))
+      // Ardayda firfircoon oo keliya (la tirtiray / Recycle Bin ma jiraan), arday
+      // labanlaab ahna hal mar oo keliya — fasalkiisa saxda ah.
+      const { students: activeList } = await loadActiveStudents();
+      const list = activeList.filter(
+        (s) => s.collection === studentCollectionName && s.className === className
       );
-      const list = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        .filter((s) => !s.pendingDeletion);
       if (reqId !== loadReqRef.current) return; // fasal/taariikh kale ayaa la doortay
       setStudents(list);
       loadedForRef.current = { className, date: dateStr };

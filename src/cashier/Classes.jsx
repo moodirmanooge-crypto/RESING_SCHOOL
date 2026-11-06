@@ -31,6 +31,7 @@ import {
   LEDGER_START_SECONDS,
 } from "../utils/feeLedger.js";
 import { moveToRecycleBin, currentActor } from "../utils/recycleBin.js";
+import { splitStudents, isRemoved } from "../utils/activeRecords.js";
 
 const SCHOOL_NAME = "Rising Star School";
 
@@ -82,6 +83,12 @@ const buildReceiptRecord = (receiptNo, payment, paidDate) => ({
   monthlyFee: payment.monthlyFee ?? 0,
   creditBalanceBefore: payment.creditBalanceBefore ?? 0,
   creditBalanceAfter: payment.creditBalanceAfter ?? 0,
+  // Lacagta hore (bilihii hore ee qabyada ahaa) iyo haraaga kadib lacag bixintan
+  previousBalance: payment.previousBalance ?? 0,
+  previousMonths: Array.isArray(payment.previousMonths) ? payment.previousMonths : [],
+  currentMonthDue: payment.currentMonthDue ?? 0,
+  totalDue: payment.totalDue ?? 0,
+  remainingBalance: payment.remainingBalance ?? 0,
   receiptCashierId: payment.receiptCashierId || "",
   paymentMethod: payment.paymentMethod || "",
   evcNumber: payment.evcNumber || "",
@@ -219,6 +226,71 @@ function distributePayment({ entered, monthlyFee, fullyPaidSet, partialMap, star
   return updates;
 }
 
+// ---------------------------------------------------------------------------
+// LACAGTA HORE (ARREARS)
+// Bil kasta oo ka horraysa bishan (laga bilaabo bisha diiwaangelinta / bilowga
+// nidaamka) oo aan si buuxda loo bixin waa "lacag hore". Tusaale: bishii 18$,
+// bishii hore la bixiyay 11$  ->  7$ ayaa lagu leeyahay.
+// ---------------------------------------------------------------------------
+function computeArrears(student, fullyPaidSet, partialMap, thisMonthKey) {
+  const fee = Number(student.monthlyFee || 0);
+  const months = [];
+  if (fee <= 0) return { months, total: 0 };
+  let key = registrationMonthKey(student);
+  let guard = 0;
+  while (key < thisMonthKey && guard < 120) {
+    if (!fullyPaidSet.has(key)) {
+      const paid = Number(partialMap[key] || 0);
+      const owed = Math.max(fee - paid, 0);
+      if (owed > 0) months.push({ monthKey: key, label: monthLabel(key), paid, owed });
+    }
+    key = monthKeyAdd(key, 1);
+    guard += 1;
+  }
+  return { months, total: months.reduce((s, m) => s + m.owed, 0) };
+}
+
+// Lacagta la qaaday waxay marka hore daboolaysaa BISHAN, kadib bilihii hore
+// (kan ugu da'da weyn marka hore), kadibna bilaha soo socda (horay u bixin).
+// Sidaas: 18$ oo la qaado -> bishan waa Paid, 7$ hore ayaa sii haraya.
+function distributePaymentPriority({ cash, monthlyFee, fullyPaidSet, partialMap, thisMonthKey, arrearsKeys }) {
+  const updates = [];
+  const queue = [thisMonthKey, ...arrearsKeys];
+  let futureKey = monthKeyAdd(thisMonthKey, 1);
+  let guard = 0;
+
+  while (cash > 0 && guard < 240) {
+    guard += 1;
+    let key;
+    if (queue.length) key = queue.shift();
+    else {
+      key = futureKey;
+      futureKey = monthKeyAdd(futureKey, 1);
+    }
+    if (fullyPaidSet.has(key)) continue;
+
+    const already = Number(partialMap[key] || 0);
+    const needed = monthlyFee - already;
+    if (needed <= 0) continue;
+
+    const apply = Math.min(cash, needed);
+    const newPaid = already + apply;
+    const newRemaining = Math.max(monthlyFee - newPaid, 0);
+    const status = newRemaining <= 0 ? "Paid" : "Not Paid";
+    updates.push({ monthKey: key, paidAmount: newPaid, remaining: newRemaining, status });
+    cash -= apply;
+    if (status === "Paid") fullyPaidSet.add(key);
+    else partialMap[key] = newPaid;
+  }
+
+  return updates;
+}
+
+function money(n) {
+  const v = Number(n) || 0;
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
 export default function Classes() {
   const [regularStudents, setRegularStudents] = useState([]);
   const [partTimeStudents, setPartTimeStudents] = useState([]);
@@ -324,8 +396,20 @@ export default function Classes() {
     purgeDuplicateReceipts(fresh);
   }, [ledger]);
 
-  // Dhammaan ardayda jira (Full Time + Part Time), aan pendingDeletion ahayn
-  const students = ledger.allStudents;
+  // Ardayda la muujinayo: firfircoon (la tirtiray / Recycle Bin marnaba) oo
+  // labanlaab la'aan — arday kasta hal fasal oo keliya ayuu ka muuqdaa.
+  const visibleIds = useMemo(() => {
+    const raw = [
+      ...regularStudents.map((s) => ({ ...s, collection: "students", studentType: s.studentType || "Full Time" })),
+      ...partTimeStudents.map((s) => ({ ...s, collection: "partTimeStudents", studentType: s.studentType || "Part Time" })),
+    ];
+    return new Set(splitStudents(raw).students.map((s) => s.id));
+  }, [regularStudents, partTimeStudents]);
+
+  const students = useMemo(
+    () => ledger.allStudents.filter((s) => !isRemoved(s) && visibleIds.has(s.id)),
+    [ledger, visibleIds]
+  );
 
   const classGroups = useMemo(() => {
     const groups = {};
@@ -372,6 +456,23 @@ export default function Classes() {
     const student = ledger.studentsById[studentId] || { studentId, monthlyFee: 0 };
     const { records, fullyPaidSet, partialMap } = studentMonthState(ledger, student);
     return { records, fullyPaidSet, partialMap };
+  }
+
+  // Lacagta laga rabo ardayga hadda: bilihii hore ee dhiman + bishan
+  function getStudentDues(student) {
+    const fee = Number(student.monthlyFee || 0);
+    const thisMonthKey = currentMonthKey();
+    const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
+    const arrears = computeArrears(student, fullyPaidSet, partialMap, thisMonthKey);
+    const currentPaid = fullyPaidSet.has(thisMonthKey) ? fee : Number(partialMap[thisMonthKey] || 0);
+    const currentRemaining = Math.max(fee - currentPaid, 0);
+    return {
+      fee,
+      arrears,
+      currentPaid,
+      currentRemaining,
+      totalDue: arrears.total + currentRemaining,
+    };
   }
 
   const filteredClassStats = useMemo(() => {
@@ -638,11 +739,6 @@ export default function Classes() {
     const monthlyFee = Number(student.monthlyFee || 0);
     if (monthlyFee <= 0) return null;
 
-    let entered = Number(amounts[student.id] || 0);
-    if (entered <= 0) {
-      entered = monthlyFee;
-    }
-
     const isEditing = !!editingIds[student.id];
     const thisMonthKey = currentMonthKey();
     const { fullyPaidSet, partialMap } = getStudentMonthState(student.studentId);
@@ -654,20 +750,32 @@ export default function Classes() {
       delete workingPartialMap[thisMonthKey];
     }
 
-    // Edit: lacagta cusub waxay bilaabataa bishan (ma aha bil hore).
-    const startKey = isEditing
-      ? thisMonthKey
-      : findNextUnpaidMonth(workingFullyPaidSet, registrationMonthKey(student));
+    // Lacagta hore (bilihii hore ee dhiman) + bishan
+    const arrears = computeArrears(student, workingFullyPaidSet, workingPartialMap, thisMonthKey);
+    const currentMonthDue = workingFullyPaidSet.has(thisMonthKey)
+      ? 0
+      : Math.max(monthlyFee - Number(workingPartialMap[thisMonthKey] || 0), 0);
+    const totalDue = arrears.total + currentMonthDue;
+
+    // Haddii lacag aan la qorin: waxaa la qaadayaa wadarta laga rabo
+    // (bishan + lacagta hore). Haddii aan wax laga rabin -> hal bil horay.
+    let entered = Number(amounts[student.id] || 0);
+    if (entered <= 0) {
+      entered = totalDue > 0 ? totalDue : monthlyFee;
+    }
+
+    const startKey = thisMonthKey;
 
     const existingCredit = Number(student.creditBalance || 0);
     const cashToDistribute = entered + existingCredit;
 
-    let updates = distributePayment({
-      entered: cashToDistribute,
+    let updates = distributePaymentPriority({
+      cash: cashToDistribute,
       monthlyFee,
       fullyPaidSet: new Set(workingFullyPaidSet),
       partialMap: { ...workingPartialMap },
-      startKey,
+      thisMonthKey,
+      arrearsKeys: arrears.months.map((m) => m.monthKey),
     });
 
     if (updates.length === 0) {
@@ -685,16 +793,23 @@ export default function Classes() {
     }, 0);
     const newCreditBalance = Math.max(cashToDistribute - totalApplied, 0);
 
+    // Inta laga dabooley lacagta laga rabay (bishan + bilihii hore)
+    const appliedToDue = updates
+      .filter((u) => u.monthKey <= thisMonthKey)
+      .reduce((sum, u) => sum + (u.paidAmount - (workingPartialMap[u.monthKey] || 0)), 0);
+    const remainingBalance = Math.max(totalDue - appliedToDue, 0);
+
     const receiptMonthLabel = (() => {
       if (updates.length === 0) return monthLabel(startKey);
       if (updates.length === 1) return monthLabel(updates[0].monthKey);
 
-      const names = updates.map((u) => {
+      const ordered = [...updates].sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+      const names = ordered.map((u) => {
         const [, m] = u.monthKey.split("-");
         const d = new Date(2000, Number(m) - 1, 1);
         return d.toLocaleDateString("en-US", { month: "long" });
       });
-      const year = updates[updates.length - 1].monthKey.split("-")[0];
+      const year = ordered[ordered.length - 1].monthKey.split("-")[0];
 
       const joined =
         names.length === 2
@@ -713,7 +828,31 @@ export default function Classes() {
       existingCredit,
       newCreditBalance,
       receiptMonthLabel,
+      arrears,
+      currentMonthDue,
+      totalDue,
+      remainingBalance,
     };
+  }
+
+  // Fariinta ALERT-ka: lacagta hore + bishan + wadarta + haraaga
+  function duesWarningText(student, calc) {
+    const lines = [];
+    lines.push(`⚠️ ${student.fullName} (ID ${student.studentId}) — LACAG HORE AYAA KA DHIMAN`);
+    lines.push("");
+    calc.arrears.months.forEach((m) => {
+      lines.push(`• ${m.label}: waxaa lagu lahaa $${money(m.owed)}${m.paid > 0 ? ` (la bixiyay $${money(m.paid)} / $${money(calc.monthlyFee)})` : ""}`);
+    });
+    lines.push(`• Bishan (${monthLabel(calc.thisMonthKey)}): $${money(calc.currentMonthDue)}`);
+    lines.push("");
+    lines.push(`WADARTA LAGA RABO: $${money(calc.arrears.total)} + $${money(calc.currentMonthDue)} = $${money(calc.totalDue)}`);
+    lines.push(`Lacagta la qaadayo: $${money(calc.entered)}`);
+    lines.push(
+      calc.remainingBalance > 0
+        ? `Kadib: $${money(calc.remainingBalance)} ayaa ka hari doona (Remaining).`
+        : "Kadib: wax lacag ah kama harayso ✓"
+    );
+    return lines.join("\n");
   }
 
   // Ku dar batch-ka: cashier, payments, receiptCashier, receipts (hal mar)
@@ -728,6 +867,10 @@ export default function Classes() {
       existingCredit,
       newCreditBalance,
       receiptMonthLabel,
+      arrears,
+      currentMonthDue,
+      totalDue,
+      remainingBalance,
     } = calc;
 
     // Edit: rasiidkii hore ee bishan ka saar (lacag labanlaab ma dhacdo)
@@ -745,6 +888,8 @@ export default function Classes() {
         creditBalance: newCreditBalance,
         creditUpdatedAt: paidDate,
         className: student.className,
+        remainingBalance,
+        remainingUpdatedAt: paidDate,
       },
       { merge: true }
     );
@@ -792,7 +937,7 @@ export default function Classes() {
       schoolName: SCHOOL_NAME,
       studentPhone: student.studentPhone || "",
       monthLabel: receiptMonthLabel,
-      monthBreakdown: updates.map((u) => ({
+      monthBreakdown: [...updates].sort((a, b) => a.monthKey.localeCompare(b.monthKey)).map((u) => ({
         monthKey: u.monthKey,
         paidAmount: u.paidAmount,
         remaining: u.remaining,
@@ -802,6 +947,11 @@ export default function Classes() {
       monthlyFee,
       creditBalanceBefore: existingCredit,
       creditBalanceAfter: newCreditBalance,
+      previousBalance: arrears.total,
+      previousMonths: arrears.months.map((m) => ({ monthKey: m.monthKey, label: m.label, owed: m.owed })),
+      currentMonthDue,
+      totalDue,
+      remainingBalance,
       receiptCashierId: receiptCashierRef.id,
     };
 
@@ -825,6 +975,18 @@ export default function Classes() {
       if (!calc) {
         alert("Ardaygan Monthly Fee sax ah lama helin.");
         return;
+      }
+
+      // ALERT: haddii ardaygu leeyahay lacag hore oo ka dhiman
+      if (calc.arrears.total > 0) {
+        const ok = window.confirm(duesWarningText(student, calc) + "\n\nMa sii wadaa?");
+        if (!ok) return;
+      } else if (calc.remainingBalance > 0) {
+        const ok = window.confirm(
+          `${student.fullName}: bishan waxaa laga rabaa $${money(calc.totalDue)}, waxaad qaadaysaa $${money(calc.entered)}.\n` +
+            `$${money(calc.remainingBalance)} ayaa ka hari doona (Remaining) — bisha xigta waa lagu dari doonaa.\n\nMa sii wadaa?`
+        );
+        if (!ok) return;
       }
 
       setSavingId(student.id);
@@ -859,7 +1021,7 @@ export default function Classes() {
       if (isFreeStudent(s)) return false;
       const { fullyPaidSet } = getStudentMonthState(s.studentId);
       const paidThisMonth = fullyPaidSet.has(currentMonthKey());
-      return !paidThisMonth || editingIds[s.id];
+      return !paidThisMonth || editingIds[s.id] || getStudentDues(s).arrears.total > 0;
     });
 
     if (targets.length === 0) {
@@ -877,6 +1039,20 @@ export default function Classes() {
       if (prepared.length === 0) {
         alert("Ma jiro arday la kaydin karo.");
         return;
+      }
+
+      // ALERT: ardayda leh lacag hore / haraa
+      const withDues = prepared.filter(({ calc }) => calc.arrears.total > 0 || calc.remainingBalance > 0);
+      if (withDues.length > 0) {
+        const lines = withDues.slice(0, 15).map(({ student, calc }) => {
+          const prev = calc.arrears.total > 0 ? `hore $${money(calc.arrears.total)} + ` : "";
+          return `• ${student.fullName}: ${prev}bishan $${money(calc.currentMonthDue)} = $${money(calc.totalDue)} | la qaadayo $${money(calc.entered)} | haraa $${money(calc.remainingBalance)}`;
+        });
+        const more = withDues.length > 15 ? `\n...iyo ${withDues.length - 15} kale` : "";
+        const ok = window.confirm(
+          `⚠️ ${withDues.length} arday ayaa leh lacag hore ama haraa:\n\n${lines.join("\n")}${more}\n\nMa sii wadaa?`
+        );
+        if (!ok) return;
       }
 
       const receiptNos = await reserveReceiptNumbers(prepared.length);
@@ -979,6 +1155,21 @@ export default function Classes() {
             </div>
           </header>
 
+          {(() => {
+            const owing = currentClassStudents
+              .map((s) => ({ s, d: getStudentDues(s) }))
+              .filter(({ d }) => d.arrears.total > 0);
+            if (owing.length === 0) return null;
+            const sum = owing.reduce((t, { d }) => t + d.arrears.total, 0);
+            return (
+              <div style={styles.arrearsBanner}>
+                ⚠️ <strong>{owing.length}</strong> arday ayaa leh lacag hore oo ka dhiman (wadarta{" "}
+                <strong>${money(sum)}</strong>). Marka lacagta laga qaadayo, nidaamku wuxuu ku
+                tusayaa inta ku dhiman iyo wadarta laga rabo.
+              </div>
+            );
+          })()}
+
           <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
             <div style={{ ...styles.searchRow, marginBottom: 0, flex: "0 0 360px" }}>
               <span style={styles.searchIcon}>🔍</span>
@@ -1073,20 +1264,16 @@ export default function Classes() {
                     const fee = Number(student.monthlyFee || 0);
                     const { fullyPaidSet, partialMap, records } = getStudentMonthState(student.studentId);
                     
-                    const targetMonth = findNextUnpaidMonth(fullyPaidSet, registrationMonthKey(student));
                     const isCurrentMonthPaid = fullyPaidSet.has(currentMonthKey());
+                    const dues = getStudentDues(student);
+                    const hasArrears = !free && dues.arrears.total > 0;
 
                     const isEditing = !!editingIds[student.id];
-                    const locked = isCurrentMonthPaid && !isEditing;
+                    // Bishan la bixiyay laakiin lacag hore ayaa ka dhiman -> wali waa la qaadi karaa
+                    const locked = isCurrentMonthPaid && !isEditing && !hasArrears;
 
-                    const partialAmount = partialMap[targetMonth] || 0;
-                    const displayPaid = free
-                      ? 0
-                      : locked
-                      ? fee
-                      : partialAmount || (amounts[student.id] ? Number(amounts[student.id]) : 0);
-
-                    const displayRemaining = free ? 0 : Math.max(fee - displayPaid, 0);
+                    const displayPaid = free ? 0 : dues.currentPaid;
+                    const displayRemaining = free ? 0 : dues.totalDue;
 
                     const status = free
                       ? "Free"
@@ -1136,7 +1323,33 @@ export default function Classes() {
                           )}
                         </td>
                         <td style={{ ...styles.td, ...styles.money }}>
-                          {free ? "—" : `$${displayRemaining}`}
+                          {free ? (
+                            "—"
+                          ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span
+                                style={{
+                                  color: displayRemaining > 0 ? theme.colors.danger : theme.colors.mintDark,
+                                  fontWeight: 800,
+                                }}
+                              >
+                                ${money(displayRemaining)}
+                              </span>
+                              {hasArrears && (
+                                <span
+                                  style={styles.arrearsChip}
+                                  title={dues.arrears.months
+                                    .map((m) => `${m.label}: $${money(m.owed)}`)
+                                    .join("\n")}
+                                >
+                                  ⚠️ Hore: ${money(dues.arrears.total)}
+                                  {dues.arrears.months.length === 1
+                                    ? ` (${dues.arrears.months[0].label})`
+                                    : ` (${dues.arrears.months.length} bilood)`}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td style={{ ...styles.td, ...styles.money }}>
                           {free || Number(student.creditBalance || 0) <= 0 ? (
@@ -1186,7 +1399,12 @@ export default function Classes() {
                             <input
                               type="number"
                               value={amounts[student.id] || ""}
-                              placeholder={`$${fee}`}
+                              placeholder={`$${money(dues.totalDue > 0 ? dues.totalDue : fee)}`}
+                              title={
+                                hasArrears
+                                  ? `Laga rabo: hore $${money(dues.arrears.total)} + bishan $${money(dues.currentRemaining)} = $${money(dues.totalDue)}`
+                                  : ""
+                              }
                               onChange={(e) =>
                                 setAmounts({ ...amounts, [student.id]: e.target.value })
                               }
@@ -1242,7 +1460,7 @@ export default function Classes() {
                                 opacity: isSaving ? 0.7 : 1,
                               }}
                             >
-                              {locked ? "Paid" : isSaving ? "Saving…" : "Save"}
+                              {locked ? "Paid" : isSaving ? "Saving…" : hasArrears ? "Save ⚠️" : "Save"}
                             </button>
                           )}
                         </td>
@@ -1437,6 +1655,9 @@ function StudentPaymentProfileModal({ student, paymentState, onClose }) {
   const totalPaidAmount = records.reduce((sum, r) => sum + Number(r.paidAmount || 0), 0);
 
   const creditMonths = fee > 0 ? Math.floor(creditBalance / fee) : 0;
+  const arrears = isFree
+    ? { months: [], total: 0 }
+    : computeArrears(student, fullyPaidSet, partialMap, thisMonthKey);
 
   const firstPaymentRecord =
     records.length > 0
@@ -1495,6 +1716,22 @@ function StudentPaymentProfileModal({ student, paymentState, onClose }) {
               <ProfileRow label="Monthly Fee Amount" value={`$${fee.toFixed(2)}`} />
               <ProfileRow label="Total Paid (this month)" value={`$${thisMonthPaid.toFixed(2)}`} />
               <ProfileRow label="Remaining (this month)" value={`$${thisMonthRemaining.toFixed(2)}`} danger={thisMonthRemaining > 0} />
+              {arrears.months.map((m) => (
+                <ProfileRow
+                  key={m.monthKey}
+                  label={`Lagu lahaa — ${m.label}`}
+                  value={`$${m.owed.toFixed(2)}`}
+                  danger
+                />
+              ))}
+              {arrears.total > 0 && (
+                <ProfileRow
+                  label="WADARTA LAGA RABO (hore + bishan)"
+                  value={`$${(arrears.total + thisMonthRemaining).toFixed(2)}`}
+                  strong
+                  danger
+                />
+              )}
               {creditBalance > 0 && (
                 <>
                   <ProfileRow label="Credit Balance" value={`$${creditBalance.toFixed(2)}`} />
@@ -1649,6 +1886,15 @@ function ProfileRow({ label, value, strong, danger, compact }) {
 }
 
 const styles = {
+  arrearsBanner: {
+    background: "#FEF3C7",
+    border: "1px solid #FDE68A",
+    color: "#92400E",
+    borderRadius: theme.radius.sm,
+    padding: "10px 14px",
+    fontSize: 13.5,
+    marginBottom: 14,
+  },
   sectionHeader: {
     fontFamily: theme.font.display,
     fontSize: 18,
@@ -1823,6 +2069,17 @@ const styles = {
     textUnderlineOffset: 3,
   },
   money: { fontVariantNumeric: "tabular-nums", fontWeight: 600 },
+  arrearsChip: {
+    display: "inline-block",
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#B45309",
+    background: "#FEF3C7",
+    border: "1px solid #FDE68A",
+    borderRadius: 999,
+    padding: "2px 8px",
+    whiteSpace: "nowrap",
+  },
   amountInput: {
     width: 90,
     padding: "8px 10px",

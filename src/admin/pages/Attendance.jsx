@@ -17,44 +17,24 @@ import {
   Filter,
   Save,
   Download,
+  FileText,
+  FileSpreadsheet,
 } from "lucide-react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import schoolLogo from "../assets/logo.png";
-import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
-
-const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
-
-function formatClassName(className) {
-  if (!className) return "";
-  let clean = String(className).trim();
-  clean = clean.replace(/^fasalka\s*/i, "");
-  return `Fasalka ${clean}`;
-}
-
-function classRank(className) {
-  const raw = String(className || "").replace(/^fasalka\s*/i, "").trim().toUpperCase();
-  const partTime = /PART\s*TIME/.test(raw);
-  const clean = raw.replace(/PART\s*TIME/, "").trim();
-  const idx = CLASS_ORDER.indexOf(clean);
-  // Part Time fasallada waxay ka dambeeyaan Full Time-ka
-  return (idx === -1 ? 999 : idx) + (partTime ? 100 : 0);
-}
-
-// Fasalka saxda ah ee xaadirin kasta: xaadirinta Part Time (attendancePartTime)
-// waxay gashaa "5 Part Time", ma aha fasalka Full Time ee "5".
-function recordClassKey(r) {
-  const base = String(r.className || "-")
-    .replace(/^fasalka\s*/i, "")
-    .replace(/part\s*time/i, "")
-    .trim();
-  const partTime =
-    r.sourceCollection === "attendancePartTime" ||
-    r.studentType === "Part Time" ||
-    /part\s*time/i.test(String(r.className || ""));
-  return partTime ? `${base} Part Time` : base;
-}
+import {
+  CLASS_ORDER,
+  formatClassName,
+  classRank,
+  recordClassKey,
+  localDateStr,
+  quickRanges,
+  periodLabel,
+  buildAttendanceReport,
+  downloadAttendancePdf,
+  downloadAttendanceCsv,
+} from "../../utils/attendanceReport";
 
 function ResponsiveStyles() {
   return (
@@ -317,7 +297,13 @@ export default function Attendance() {
 
   const [pendingChanges, setPendingChanges] = useState({});
   const [isSaving, setIsSaving] = useState(false);
-  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
+  // Soo dejinta warbixinta (PDF / Excel) — kormeerka & dowladda
+  const [showReport, setShowReport] = useState(false);
+  const [rpClass, setRpClass] = useState("ALL");
+  const [rpFrom, setRpFrom] = useState("");
+  const [rpTo, setRpTo] = useState("");
+  const [rpMode, setRpMode] = useState("full");
+  const [rpBusy, setRpBusy] = useState("");
 
   const reportRef = useRef(null);
 
@@ -546,46 +532,62 @@ export default function Attendance() {
     }, 300);
   };
 
-  // Modern PDF Generator function
-  const handleDownloadPDF = async () => {
+  // ---------------- Warbixinta la soo dejinayo
+  const ranges = useMemo(() => quickRanges(records), [records]);
+
+  const openReport = () => {
+    // Waxay ka bilaabataa filtarka hadda (fasalka) iyo bishan
+    setRpClass(selectedClassFilter);
+    const month = ranges.find((r) => r.key === "month");
+    setRpFrom(month ? month.from : "");
+    setRpTo(localDateStr());
+    setShowReport(true);
+  };
+
+  const reportData = useMemo(() => {
+    if (!showReport) return null;
+    return buildAttendanceReport(records, {
+      classKey: rpClass,
+      from: rpFrom,
+      to: rpTo,
+      teacherName: (id) => teachers[id]?.fullName || id || "-",
+    });
+  }, [showReport, records, rpClass, rpFrom, rpTo, teachers]);
+
+  const runDownload = async (kind) => {
+    if (!reportData) return;
+    if (rpFrom && rpTo && rpFrom > rpTo) {
+      alert("Taariikhda bilowga waa inay ka horreysaa taariikhda dhammaadka.");
+      return;
+    }
+    if (reportData.overall.recordCount === 0) {
+      alert("Muddadan iyo fasalkan wax xaadirin ah lama helin.");
+      return;
+    }
+    if (
+      hasUnsavedChanges &&
+      !window.confirm(
+        "Waxaa jira isbeddel aan la kaydin. Warbixintu waxay qaadanaysaa xogta KAYDSAN oo keliya. Ma sii wadaa?"
+      )
+    ) {
+      return;
+    }
     try {
-      setIsDownloadingPDF(true);
-      expandAllSections();
-
-      // Add print mode class to document body
-      document.body.classList.add("pdf-export-mode");
-
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const input = reportRef.current;
-      if (!input) return;
-
-      const canvas = await html2canvas(input, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: "#ffffff",
-      });
-
-      const imgData = canvas.toDataURL("image/jpeg", 1.0);
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
-      const ratio = pdfWidth / imgWidth;
-      const renderedHeight = imgHeight * ratio;
-
-      pdf.addImage(imgData, "JPEG", 0, 0, pdfWidth, renderedHeight);
-      pdf.save(`Attendance_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+      setRpBusy(kind);
+      // u oggolow React inuu muujiyo "loading" ka hor shaqada culus
+      await new Promise((r) => setTimeout(r, 30));
+      if (kind === "pdf") {
+        await downloadAttendancePdf(reportData, { mode: rpMode, logoUrl: schoolLogo });
+      } else if (kind === "csv-register") {
+        downloadAttendanceCsv(reportData, "register");
+      } else {
+        downloadAttendanceCsv(reportData, "detail");
+      }
     } catch (err) {
       console.error(err);
-      alert("Cillad ayaa ka dhacday soo dejinta PDF-ka: " + err.message);
+      alert("Cillad ayaa ka dhacday soo dejinta: " + err.message);
     } finally {
-      // Clean up body class
-      document.body.classList.remove("pdf-export-mode");
-      setIsDownloadingPDF(false);
+      setRpBusy("");
     }
   };
 
@@ -758,8 +760,8 @@ export default function Attendance() {
               )}
 
               <button
-                onClick={handleDownloadPDF}
-                disabled={isDownloadingPDF}
+                onClick={openReport}
+                disabled={loading}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -773,8 +775,8 @@ export default function Attendance() {
                   cursor: "pointer",
                 }}
               >
-                {isDownloadingPDF ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                Download PDF
+                <Download size={18} />
+                Soo Deji Warbixinta (PDF / Excel)
               </button>
 
               <button
@@ -1296,9 +1298,258 @@ export default function Attendance() {
           )}
         </div>
       </div>
+
+      {showReport && (
+        <div className="no-print" style={modalOverlay} onClick={() => !rpBusy && setShowReport(false)}>
+          <div className="att-report-modal" style={modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <div style={{ ...modalIcon }}>
+                  <Download size={20} color="#fff" />
+                </div>
+                <div>
+                  <div style={{ color: "#fff", fontWeight: 800, fontSize: 18 }}>Warbixinta Xaadirinta Ardayda</div>
+                  <div style={{ color: "#8b87ad", fontSize: 12.5 }}>
+                    Loogu talagalay kormeerka / Wasaaradda — PDF ama Excel
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => !rpBusy && setShowReport(false)}
+                style={{ background: "none", border: "none", color: "#8b87ad", cursor: "pointer", padding: 6 }}
+                title="Xir"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div style={modalSection}>
+              <label style={modalLabel}>Fasalka</label>
+              <select value={rpClass} onChange={(e) => setRpClass(e.target.value)} style={{ ...selectStyle, width: "100%" }}>
+                <option value="ALL">Dhammaan Fasallada</option>
+                {CLASS_ORDER.map((c) => (
+                  <option key={c} value={c}>
+                    {formatClassName(c)}
+                  </option>
+                ))}
+                {CLASS_ORDER.map((c) => (
+                  <option key={`${c}-pt`} value={`${c} Part Time`}>
+                    {formatClassName(`${c} Part Time`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={modalSection}>
+              <label style={modalLabel}>Muddada</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                {ranges.map((r) => {
+                  const active = rpFrom === r.from && rpTo === r.to;
+                  return (
+                    <button
+                      key={r.key}
+                      onClick={() => {
+                        setRpFrom(r.from);
+                        setRpTo(r.to);
+                      }}
+                      style={{
+                        ...chipBtn,
+                        background: active ? "linear-gradient(135deg,#6d5df0,#8b6cf5)" : "rgba(139,108,245,0.1)",
+                        color: active ? "#fff" : "#c4b8f7",
+                      }}
+                    >
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <div style={{ flex: "1 1 140px" }}>
+                  <div style={{ color: "#8b87ad", fontSize: 12, marginBottom: 4 }}>Laga bilaabo</div>
+                  <input type="date" value={rpFrom} onChange={(e) => setRpFrom(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
+                </div>
+                <div style={{ flex: "1 1 140px" }}>
+                  <div style={{ color: "#8b87ad", fontSize: 12, marginBottom: 4 }}>Ilaa</div>
+                  <input type="date" value={rpTo} onChange={(e) => setRpTo(e.target.value)} style={{ ...inputStyle, colorScheme: "dark" }} />
+                </div>
+              </div>
+            </div>
+
+            <div style={modalSection}>
+              <label style={modalLabel}>Nooca PDF-ka</label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                {[
+                  { k: "full", t: "Buuxa", d: "Koobnaan + Diiwaanka bisha (arday × maalin)" },
+                  { k: "summary", t: "Kooban", d: "Koobnaanta ardayda oo keliya" },
+                ].map((m) => (
+                  <button
+                    key={m.k}
+                    onClick={() => setRpMode(m.k)}
+                    style={{
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      cursor: "pointer",
+                      border: rpMode === m.k ? "1.5px solid #8b6cf5" : "1.5px solid rgba(139,108,245,0.2)",
+                      background: rpMode === m.k ? "rgba(139,108,245,0.16)" : "rgba(255,255,255,0.02)",
+                    }}
+                  >
+                    <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>
+                      {rpMode === m.k ? "● " : "○ "}
+                      {m.t}
+                    </div>
+                    <div style={{ color: "#8b87ad", fontSize: 11.5, marginTop: 2 }}>{m.d}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {reportData && (
+              <div style={previewBox}>
+                <div style={{ color: "#c4b8f7", fontSize: 12, marginBottom: 8 }}>
+                  {periodLabel(rpFrom, rpTo)} · {rpClass === "ALL" ? "Dhammaan fasallada" : formatClassName(rpClass)}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                  <PreviewStat label="Fasallo" value={reportData.overall.classCount} />
+                  <PreviewStat label="Arday" value={reportData.overall.studentCount} />
+                  <PreviewStat label="Maalmo" value={reportData.overall.dayCount} />
+                  <PreviewStat
+                    label="Joogitaan"
+                    value={reportData.overall.percent == null ? "—" : `${reportData.overall.percent}%`}
+                    color={reportData.overall.percent != null && reportData.overall.percent < 75 ? "#F87171" : "#4ADE80"}
+                  />
+                </div>
+                {reportData.overall.recordCount === 0 && (
+                  <div style={{ color: "#FBBF24", fontSize: 12.5, marginTop: 10 }}>
+                    ⚠️ Muddadan iyo fasalkan wax xaadirin ah lama helin.
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
+              <button
+                onClick={() => runDownload("pdf")}
+                disabled={!!rpBusy}
+                style={{ ...dlBtn, background: "linear-gradient(135deg,#EF4444,#B91C1C)" }}
+              >
+                {rpBusy === "pdf" ? <Loader2 size={17} className="animate-spin" /> : <FileText size={17} />}
+                PDF
+              </button>
+              <button
+                onClick={() => runDownload("csv-register")}
+                disabled={!!rpBusy}
+                style={{ ...dlBtn, background: "linear-gradient(135deg,#22C55E,#15803D)" }}
+              >
+                {rpBusy === "csv-register" ? <Loader2 size={17} className="animate-spin" /> : <FileSpreadsheet size={17} />}
+                Excel — Diiwaanka
+              </button>
+              <button
+                onClick={() => runDownload("csv-detail")}
+                disabled={!!rpBusy}
+                style={{ ...dlBtn, background: "linear-gradient(135deg,#0EA5E9,#0369A1)" }}
+              >
+                {rpBusy === "csv-detail" ? <Loader2 size={17} className="animate-spin" /> : <FileSpreadsheet size={17} />}
+                Excel — Faahfaahin
+              </button>
+            </div>
+            <div style={{ color: "#6f6b93", fontSize: 11.5, marginTop: 12, lineHeight: 1.5 }}>
+              Diiwaanka: arday kasta, maalin kasta (J = Joogay, M = Maqan, X = Xaalad) iyo wadarta.
+              Faahfaahin: xiisad kasta oo maado, macalin iyo waqti leh. Joogitaanka % = Joogay ÷ (Joogay + Maqan).
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+function PreviewStat({ label, value, color = "#fff" }) {
+  return (
+    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+      <div style={{ color, fontWeight: 800, fontSize: 18 }}>{value}</div>
+      <div style={{ color: "#8b87ad", fontSize: 11 }}>{label}</div>
+    </div>
+  );
+}
+
+const modalOverlay = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(5,4,18,0.72)",
+  backdropFilter: "blur(4px)",
+  zIndex: 1000,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 16,
+};
+
+const modalBox = {
+  width: "100%",
+  maxWidth: 560,
+  maxHeight: "92vh",
+  overflowY: "auto",
+  boxSizing: "border-box",
+  background: "linear-gradient(160deg,#151233,#1b1647)",
+  border: "1px solid rgba(139,108,245,0.35)",
+  borderRadius: 20,
+  padding: 22,
+  boxShadow: "0 30px 80px rgba(0,0,0,0.5)",
+};
+
+const modalIcon = {
+  width: 42,
+  height: 42,
+  borderRadius: 12,
+  background: "linear-gradient(135deg,#6d5df0,#8b6cf5)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+};
+
+const modalSection = { marginTop: 16 };
+
+const modalLabel = {
+  display: "block",
+  color: "#e5e3f7",
+  fontWeight: 700,
+  fontSize: 13,
+  marginBottom: 8,
+};
+
+const chipBtn = {
+  border: "1px solid rgba(139,108,245,0.3)",
+  borderRadius: 20,
+  padding: "6px 12px",
+  fontSize: 12.5,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const previewBox = {
+  marginTop: 16,
+  background: "rgba(139,108,245,0.08)",
+  border: "1px solid rgba(139,108,245,0.2)",
+  borderRadius: 14,
+  padding: 12,
+};
+
+const dlBtn = {
+  flex: "1 1 140px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 8,
+  color: "#fff",
+  border: "none",
+  padding: "12px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  fontSize: 14,
+  cursor: "pointer",
+};
 
 function SummaryCard({ icon: Icon, label, value, color }) {
   return (

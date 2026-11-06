@@ -45,6 +45,7 @@ import {
   LogOut,
   DoorOpen,
   UserRoundPlus,
+  LockKeyhole,
 } from "lucide-react";
 
 import logo from "../assets/logo.png";
@@ -78,6 +79,8 @@ const otherMenus = [
   { name: "Results by Class", icon: FileSpreadsheet, path: "/admin/results-by-class" },
   // NEW: waqtiga gudbinta natiijada + cidda gudbisay / dhiman + fasaxyada update
   { name: "Results Submission", icon: CalendarClock, path: "/admin/results-submission" },
+  // NEW: maamulku wuxuu furaa / xiraa natiijada ardayda ka eegaan Academics
+  { name: "Results Access", icon: LockKeyhole, path: "/admin/results-access" },
   { name: "Gallery", icon: ImageIcon, path: "/admin/gallery" },
   { name: "News", icon: Newspaper, path: "/admin/news" },
   { name: "Library", icon: BookOpen, path: "/admin/library" },
@@ -153,6 +156,14 @@ export default function Sidebar() {
             permissions.includes("/admin/results-submission") ||
             permissions.includes("/admin/results-by-class") ||
             permissions.includes("/admin/exams")
+          );
+        }
+        // Results Access: sub-admin leh Results by Class ama Results Submission
+        if (m.path === "/admin/results-access") {
+          return (
+            permissions.includes("/admin/results-access") ||
+            permissions.includes("/admin/results-by-class") ||
+            permissions.includes("/admin/results-submission")
           );
         }
         return permissions.includes(m.path);

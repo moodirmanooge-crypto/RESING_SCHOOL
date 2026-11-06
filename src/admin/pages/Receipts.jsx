@@ -150,6 +150,25 @@ export default function Receipts() {
     [filtered]
   );
 
+  // Haraaga ardayga: rasiidka ugu dambeeya ee arday kasta ayaa sheegaya inta
+  // ka dhiman hadda (rasiidyadii hore waxay muujinayaan haraagii xilligaas).
+  const latestReceiptIdByStudent = useMemo(() => {
+    const m = {};
+    receipts.forEach((r) => {
+      if (!r.studentId) return;
+      if (!m[r.studentId]) m[r.studentId] = r.id; // liisku waa newest-first
+    });
+    return m;
+  }, [receipts]);
+
+  const totalRemaining = useMemo(
+    () =>
+      Object.values(latestReceiptIdByStudent)
+        .map((id) => receipts.find((r) => r.id === id))
+        .reduce((sum, r) => sum + (Number(r?.remainingBalance) || 0), 0),
+    [latestReceiptIdByStudent, receipts]
+  );
+
   // Isku qaabka Cashier Dashboard-ka: ardayda Free ah waa in aan lagu darin
   // "Wadarta Guud ee La Qaaday" = lacagta bishan (isla tirada Cashier Dashboard)
   const overview = useMemo(() => {
@@ -321,6 +340,14 @@ export default function Receipts() {
             </div>
             <div style={{ ...cardStyle, padding: "14px 22px", minWidth: 180 }}>
               <div style={{ fontSize: 11.5, color: "#9CA3AF", fontWeight: 600, whiteSpace: "nowrap" }}>
+                Haraaga (Remaining) — Ardayda
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: totalRemaining > 0 ? "#DC2626" : "#16a34a", marginTop: 2 }}>
+                ${totalRemaining.toLocaleString()}
+              </div>
+            </div>
+            <div style={{ ...cardStyle, padding: "14px 22px", minWidth: 180 }}>
+              <div style={{ fontSize: 11.5, color: "#9CA3AF", fontWeight: 600, whiteSpace: "nowrap" }}>
                 Wadarta Ku Diiwaan Gashan
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: "#111827", marginTop: 2 }}>
@@ -426,6 +453,7 @@ export default function Receipts() {
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Month</th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Date</th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}>Amount</th>
+                    <th style={{ fontWeight: 600, paddingBottom: 10 }}>Remaining</th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}></th>
                     <th style={{ fontWeight: 600, paddingBottom: 10 }}></th>
                   </tr>
@@ -442,6 +470,9 @@ export default function Receipts() {
                       <td style={{ color: "#6B7280" }}>{formatDate(r.paidAt || r.createdAt)}</td>
                       <td style={{ color: "#16a34a", fontWeight: 700 }}>
                         ${Number(r.paidAmount || 0).toLocaleString()}
+                      </td>
+                      <td>
+                        <RemainingCell receipt={r} isLatest={latestReceiptIdByStudent[r.studentId] === r.id} />
                       </td>
                       <td>
                         <button
@@ -584,6 +615,31 @@ export default function Receipts() {
   );
 }
 
+function hasDueInfo(r) {
+  return r && r.remainingBalance !== undefined && r.remainingBalance !== null;
+}
+
+function RemainingCell({ receipt: r, isLatest }) {
+  if (!hasDueInfo(r)) return <span style={{ color: "#D1D5DB" }}>—</span>;
+  const rem = Number(r.remainingBalance) || 0;
+  const prev = Number(r.previousBalance) || 0;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "6px 0" }}>
+      <span style={{ fontWeight: 800, color: rem > 0 ? "#DC2626" : "#16a34a" }}>
+        {rem > 0 ? `$${rem.toLocaleString()}` : "✓ $0"}
+      </span>
+      {prev > 0 && (
+        <span style={{ fontSize: 11, color: "#B45309", fontWeight: 600 }}>
+          Hore: ${prev.toLocaleString()}
+        </span>
+      )}
+      {!isLatest && rem > 0 && (
+        <span style={{ fontSize: 10.5, color: "#9CA3AF" }}>(xilligaas)</span>
+      )}
+    </div>
+  );
+}
+
 function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
   const paidDate = receipt.paidAt?.seconds
     ? new Date(receipt.paidAt.seconds * 1000)
@@ -705,6 +761,34 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
                   </div>
                 </div>
 
+                {hasDueInfo(receipt) && (
+                  <div className="rc-dues">
+                    {Number(receipt.previousBalance) > 0 && (
+                      <div className="rc-dues-item">
+                        <span>Lagu lahaa hore</span>
+                        <strong>
+                          ${Number(receipt.previousBalance).toLocaleString()}
+                          {Array.isArray(receipt.previousMonths) && receipt.previousMonths.length > 0 && (
+                            <em> ({receipt.previousMonths.map((m) => m.label).join(", ")})</em>
+                          )}
+                        </strong>
+                      </div>
+                    )}
+                    <div className="rc-dues-item">
+                      <span>Wadarta laga rabay</span>
+                      <strong>${Number(receipt.totalDue || 0).toLocaleString()}</strong>
+                    </div>
+                    <div className="rc-dues-item">
+                      <span>La bixiyay</span>
+                      <strong>${totalPaidAmount.toLocaleString()}</strong>
+                    </div>
+                    <div className={`rc-dues-item ${Number(receipt.remainingBalance) > 0 ? "rc-dues-red" : "rc-dues-green"}`}>
+                      <span>Haraaga (Remaining)</span>
+                      <strong>${Number(receipt.remainingBalance || 0).toLocaleString()}</strong>
+                    </div>
+                  </div>
+                )}
+
                 <div className="rc-bottom-row">
                   <div className="rc-payment-method">
                     <span className="rc-method-tag">PAYMENT METHOD</span>
@@ -817,6 +901,14 @@ function ReceiptViewModal({ receipt, onClose, onDelete, deleting }) {
         .rc-side-fields { display: flex; flex-direction: column; gap: 3px; min-width: 150px; }
         .rc-field-inline { display: flex; align-items: baseline; gap: 6px; font-size: 10.5px; }
 
+        .rc-dues { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+        .rc-dues-item { flex: 1 1 22%; border: 1.2px solid #0b1f4d; border-radius: 4px; padding: 2px 6px; font-size: 9.5px; display: flex; flex-direction: column; }
+        .rc-dues-item span { color: #475569; font-weight: 600; }
+        .rc-dues-item strong { font-size: 11.5px; color: #0b1f4d; }
+        .rc-dues-item em { font-size: 8.5px; font-weight: 500; color: #475569; }
+        .rc-dues-red { border-color: #dc2626; background: #fef2f2; }
+        .rc-dues-red strong { color: #dc2626; }
+        .rc-dues-green strong { color: #16a34a; }
         .rc-bottom-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; }
         .rc-payment-method { display: flex; align-items: center; gap: 5px; }
         .rc-method-tag { background: #0b1f4d; color: #fff; font-size: 9px; font-weight: 800; padding: 3px 6px; border-radius: 4px; white-space: nowrap; }

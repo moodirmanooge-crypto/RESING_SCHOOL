@@ -3,6 +3,7 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "../../firebase/firebase";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import { loadActiveStudents } from "../../utils/activeRecords";
 import {
   Download,
   ChevronRight,
@@ -57,13 +58,14 @@ export default function Exams() {
     try {
       setLoading(true);
 
-      const [studentsSnap, examsSnap, resultsSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
+      const [active, examsSnap, resultsSnap] = await Promise.all([
+        loadActiveStudents(),
         getDocs(collection(db, "exams")),
         getDocs(collection(db, "results")),
       ]);
 
-      setStudents(studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      // Ardayda Full Time ee firfircoon (la tirtiray / labanlaab ma jiraan)
+      setStudents(active.students.filter((s) => s.collection === "students"));
       setExams(examsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
       setResults(resultsSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {

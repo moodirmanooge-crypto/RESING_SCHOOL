@@ -135,6 +135,48 @@
   margin-top: 14px;
 }
 
+/* ---- Natiijada xiran / furan (maamulka) ---- */
+.aca-closed {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+
+.aca-closed-icon {
+  font-size: 26px;
+  line-height: 1;
+}
+
+.aca-closed strong {
+  display: block;
+  color: #b91c1c;
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.aca-closed p {
+  margin: 0;
+  font-size: 13px;
+  color: #7f1d1d;
+  line-height: 1.55;
+}
+
+.aca-open-note {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
 /* ---- Fee lock notice ---- */
 .aca-results-card {
   background: #fff;

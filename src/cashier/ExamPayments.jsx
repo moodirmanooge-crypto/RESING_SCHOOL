@@ -19,6 +19,7 @@ import {
 import { db } from "../firebase/firebase";
 import { theme } from "./theme.js";
 import { currentActor } from "../utils/recycleBin.js";
+import { loadActiveStudents } from "../utils/activeRecords.js";
 
 const SCHOOL_NAME = "Rising School";
 
@@ -174,9 +175,8 @@ export default function ExamPayments({ role = "cashier" }) {
 
       // 2. Soo qaad DHAMMAAN ardayda (Full Time + Part Time, kuwa Free ahna ku jira)
       // iyo xogta cashier-ka (examinationFees)
-      const [studentsSnap, partTimeSnap, cashierSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
-        getDocs(collection(db, "partTimeStudents")),
+      const [active, cashierSnap] = await Promise.all([
+        loadActiveStudents(),
         getDocs(collection(db, "cashier")),
       ]);
 
@@ -185,18 +185,17 @@ export default function ExamPayments({ role = "cashier" }) {
         cashierMap[d.id] = d.data();
       });
 
-      const build = (snap, isPartTime) =>
-        snap.docs
-          .map((d) => {
-            const data = d.data();
-            if (data.pendingDeletion) return null;
-            const c = cashierMap[d.id] || {};
+      // Ardayda firfircoon oo keliya (la tirtiray / Recycle Bin ma jiraan),
+      // labanlaabna hal mar oo keliya.
+      const build = (list, isPartTime) =>
+        list
+          .map((data) => {
+            const c = cashierMap[data.id] || {};
             const studentType = isPartTime ? "Part Time" : data.studentType || "Full Time";
-            const studentId = data.studentId || c.studentId || d.id;
+            const studentId = data.studentId || c.studentId || data.id;
             const studentName = data.fullName || c.studentName || "";
             if (!String(studentId).trim() || !String(studentName).trim()) return null;
             return {
-              id: d.id,
               ...c,
               ...data,
               studentId,
@@ -208,7 +207,10 @@ export default function ExamPayments({ role = "cashier" }) {
           })
           .filter(Boolean);
 
-      setStudents([...build(studentsSnap, false), ...build(partTimeSnap, true)]);
+      setStudents([
+        ...build(active.students.filter((s) => s.collection === "students"), false),
+        ...build(active.students.filter((s) => s.collection === "partTimeStudents"), true),
+      ]);
     } catch (err) {
       console.log(err);
       alert("Khalad ayaa dhacay marka xogta la soo qaadanayay: " + err.message);

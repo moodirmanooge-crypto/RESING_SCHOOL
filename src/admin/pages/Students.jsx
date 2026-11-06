@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { db, storage } from "../../firebase/firebase";
 import {
@@ -15,6 +15,12 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
+import {
+  isRemoved,
+  splitStudents,
+  findSameStudent,
+  recordKey,
+} from "../../utils/activeRecords";
 import {
   Plus,
   Upload,
@@ -43,6 +49,9 @@ import {
   Clock,
   LayoutGrid,
   List as ListIcon,
+  Copy,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const classOptions = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
@@ -169,6 +178,8 @@ export default function Students() {
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
   // Checkbox: ku dar lacagta ($) PDF-ka (default = maya)
   const [includeFee, setIncludeFee] = useState(false);
+  // Labanlaabyada (isku arday oo laba jeer la diiwaan geliyay) — default waa qarsoon
+  const [showDuplicates, setShowDuplicates] = useState(false);
 
   useEffect(() => {
     fetchStudents();
@@ -196,6 +207,8 @@ export default function Students() {
         ...d.data(),
       }));
 
+      // Liiska BUUXA ayaa state-ka lagu hayaa (xitaa kuwa la tirtiray) si
+      // labanlaabyada iyo hubinta magaca loo xisaabiyo; muujinta waa la sifeeyaa.
       setStudents([...fullTimeStudents, ...partTimeStudents]);
     } catch (err) {
       console.log(err);
@@ -204,8 +217,13 @@ export default function Students() {
     }
   }
 
-  // Ardayda aan la codsan in la tirtiro
-  const activeStudents = students.filter((s) => !s.pendingDeletion);
+  // Ardayda firfircoon (la tirtiray / Recycle Bin marnaba) + labanlaab la'aan.
+  // Arday kasta hal mar oo keliya ayuu muuqdaa, fasalkiisa saxda ah.
+  const { students: activeStudents, duplicates: duplicateStudents } = useMemo(
+    () => splitStudents(students),
+    [students]
+  );
+  const listBase = showDuplicates ? [...activeStudents, ...duplicateStudents] : activeStudents;
 
   // Liiska Shift-yada ee jira (haddii xogtu leedahay)
   const shiftOptions = [
@@ -213,9 +231,9 @@ export default function Students() {
   ];
 
   // Filter-ka Isku dhafka ah (Class + Type + Fee + Shift + Orphan + Search) iyo kala soocidda
-  const filteredStudents = students
+  const filteredStudents = listBase
     .filter((s) => {
-      if (s.pendingDeletion) return false;
+      if (isRemoved(s)) return false;
 
       const matchesClass =
         selectedClass === "ALL" || String(s.className) === String(selectedClass);
@@ -264,9 +282,9 @@ export default function Students() {
     });
 
   // Liiska loo diyaariyey EXPORT-ka PDF: Fee Type lama akhriyo (had iyo jeer Dhamaan Fee Types)
-  const exportStudents = students
+  const exportStudents = activeStudents
     .filter((s) => {
-      if (s.pendingDeletion) return false;
+      if (isRemoved(s)) return false;
 
       const matchesClass =
         selectedClass === "ALL" || String(s.className) === String(selectedClass);
@@ -532,6 +550,29 @@ export default function Students() {
       return;
     }
 
+    // Hal arday laba fasal kuma jiri karo: magaca cusub haddii uu yahay arday kale
+    // oo jira (ama ku jira Recycle Bin), ha kaydin.
+    const selfKey = recordKey(selectedStudent);
+    const same = findSameStudent(
+      students,
+      { fullName: editData.fullName, motherName: editData.motherName, className: editData.className },
+      selfKey
+    );
+    const isMyDuplicate = (s) =>
+      s && duplicateStudents.some((d) => recordKey(d) === recordKey(s) && d.duplicateOfKey === selfKey);
+    if (same.active && !isMyDuplicate(same.active)) {
+      alert(
+        `Magacan "${editData.fullName}" waxaa horey u leh arday kale (ID ${same.active.studentId || same.active.id}, Class ${same.active.className || "—"}). Hal arday laba jeer lama diiwaan gelin karo.`
+      );
+      return;
+    }
+    if (same.removed) {
+      alert(
+        `Magacan "${editData.fullName}" waxaa leh arday ku jira Recycle Bin / Pending Deletion (ID ${same.removed.studentId || same.removed.id}). Halkii aad magacan isticmaali lahayd, ka soo celi ardaygaas.`
+      );
+      return;
+    }
+
     try {
       setSaving(true);
 
@@ -591,10 +632,21 @@ export default function Students() {
 
       await syncRelatedDocs(studentDocId, updatedFields);
 
+      // Labanlaabyada qarsoon ee ardaygan si joogto ah ugu xir isaga (duplicateOf),
+      // si haddii magaca la beddelo aysan dib ugu soo muuqan fasalkii hore.
+      const newKey = `${newCollection}/${studentDocId}`;
+      const myDups = duplicateStudents.filter((d) => d.duplicateOfKey === selfKey);
+      await Promise.allSettled(
+        myDups.map((d) => updateDoc(doc(db, d.collection, d.id), { duplicateOf: newKey }))
+      );
+
+      const myDupKeys = new Set(myDups.map(recordKey));
       setStudents((prev) =>
         prev.map((s) =>
           s.id === studentDocId && s.collection === oldCollection
             ? { ...s, ...updatedFields, collection: newCollection }
+            : myDupKeys.has(recordKey(s))
+            ? { ...s, duplicateOf: newKey }
             : s
         )
       );
@@ -758,15 +810,31 @@ export default function Students() {
   async function deleteStudent(student) {
     if (!confirm(`Ma hubtaa inaad tirtirto ${student.fullName}?`)) return;
     try {
+      const now = new Date().toISOString();
+      const myKey = recordKey(student);
+      // Labanlaabyada qarsoon ee ardaygan sidoo kale waa la tirtirayaa — haddii
+      // kale waxay dib ugu soo muuqan lahaayeen fasal kale ("ardaygii wuu soo noqday").
+      const myDups = duplicateStudents.filter((d) => d.duplicateOfKey === myKey);
+
       await updateDoc(doc(db, student.collection, student.id), {
         pendingDeletion: true,
-        deletionRequestedAt: new Date().toISOString(),
+        deletionRequestedAt: now,
       });
+      await Promise.allSettled(
+        myDups.map((d) =>
+          updateDoc(doc(db, d.collection, d.id), {
+            pendingDeletion: true,
+            deletionRequestedAt: now,
+            duplicateOf: myKey,
+          })
+        )
+      );
 
+      const hideKeys = new Set([myKey, ...myDups.map(recordKey)]);
       setStudents((prev) =>
         prev.map((s) =>
-          s.id === student.id && s.collection === student.collection
-            ? { ...s, pendingDeletion: true, deletionRequestedAt: new Date().toISOString() }
+          hideKeys.has(recordKey(s))
+            ? { ...s, pendingDeletion: true, deletionRequestedAt: now }
             : s
         )
       );
@@ -888,6 +956,20 @@ export default function Students() {
             <div style={genderWarn}>
               ⚠️ {noGenderCount} arday weli lama calaamadin Gender (Male/Female). Riix <b>Edit</b>{" "}
               kaarka ardayga si aad u doorato.
+            </div>
+          )}
+
+          {duplicateStudents.length > 0 && (
+            <div style={dupNotice}>
+              <Copy size={15} />
+              <span style={{ flex: 1 }}>
+                {duplicateStudents.length} arday oo labanlaab ah (laba jeer la diiwaan geliyay) ayaa
+                la qariyay si arday kasta hal fasal oo keliya uga muuqdo. Muuji si aad u tirtirto.
+              </span>
+              <button onClick={() => setShowDuplicates((v) => !v)} style={dupToggle}>
+                {showDuplicates ? <EyeOff size={14} /> : <Eye size={14} />}
+                {showDuplicates ? "Qari" : "Muuji"}
+              </button>
             </div>
           )}
 
@@ -1113,6 +1195,7 @@ export default function Students() {
                       </span>
                       <GenderChip gender={student.gender} />
                       {student.orphanStatus === "Yes" && <span style={chipRose}>Agoon</span>}
+                      {student.duplicateOfId && <span style={chipRose}>Labanlaab</span>}
                     </div>
 
                     {/* Xogta xiriirka */}
@@ -1171,6 +1254,7 @@ export default function Students() {
                     {student.studentType || "Full Time"}
                   </span>
                   <GenderChip gender={student.gender} />
+                  {student.duplicateOfId && <span style={chipRose}>Labanlaab</span>}
                   <span style={chip}>{student.studentPhone || "—"}</span>
                   <span style={chip}>${student.monthlyFee || "0"}/bishii</span>
 
@@ -1957,6 +2041,33 @@ const shiftPillActive = {
   background: "#f0fdf4",
   color: "#15803d",
   boxShadow: "0 0 0 3px rgba(22,163,74,0.15)",
+};
+
+const dupNotice = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  background: "#fff7ed",
+  border: "1px solid #fed7aa",
+  color: "#9a3412",
+  borderRadius: 12,
+  padding: "10px 14px",
+  fontSize: 13,
+  marginBottom: 12,
+};
+
+const dupToggle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  background: "#fff",
+  border: "1.5px solid #fed7aa",
+  color: "#c2410c",
+  padding: "7px 12px",
+  borderRadius: 9,
+  fontWeight: 700,
+  fontSize: 12.5,
+  cursor: "pointer",
 };
 
 const genderWarn = {

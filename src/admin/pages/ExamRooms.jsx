@@ -45,6 +45,7 @@ import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import logo from "../assets/logo.png";
 import { SCHOOL_NAME, SCHOOL_CITY } from "../schoolInfo";
+import { loadActiveStudents } from "../../utils/activeRecords";
 
 const CLASS_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "F1", "F2", "F3", "F4"];
 const GREEN = "#15803d";
@@ -470,8 +471,8 @@ export default function ExamRooms() {
   async function load() {
     setLoading(true);
     try {
-      const [stSnap, rmSnap, ttSnap, wkSnap] = await Promise.all([
-        getDocs(collection(db, "students")),
+      const [active, rmSnap, ttSnap, wkSnap] = await Promise.all([
+        loadActiveStudents(),
         getDocs(collection(db, "examRooms")),
         getDocs(collection(db, "examTimetable")).catch(() => null),
         getDocs(collection(db, "examWeek")).catch(() => null),
@@ -482,18 +483,17 @@ export default function ExamRooms() {
       const wk = {};
       wkSnap?.docs.forEach((d) => (wk[d.id] = d.data()));
       setExamWeeks(wk);
-      const st = stSnap.docs
-        .map((d) => {
-          const x = d.data();
-          return {
-            docId: d.id,
-            studentId: String(x.studentId || x.studentID || d.id),
-            fullName: x.fullName || x.name || "—",
-            className: String(x.className || "").trim(),
-            pendingDeletion: !!x.pendingDeletion,
-          };
-        })
-        .filter((s) => !s.pendingDeletion && s.className && s.className !== "Qalin Jabis");
+      // Ardayda Full Time ee firfircoon oo keliya: kuwa la tirtiray / Recycle Bin
+      // iyo labanlaabyada (fasal kale) halkan kuma jiraan.
+      const st = active.students
+        .filter((x) => x.collection === "students")
+        .map((x) => ({
+          docId: x.id,
+          studentId: String(x.studentId || x.studentID || x.id),
+          fullName: x.fullName || x.name || "—",
+          className: String(x.className || "").trim(),
+        }))
+        .filter((s) => s.className && s.className !== "Qalin Jabis");
       setStudents(st);
 
       setRooms(
@@ -510,8 +510,17 @@ export default function ExamRooms() {
     }
   }
 
-  const sortedRooms = useMemo(() => [...rooms].sort(byRoomName), [rooms]);
-  const selectedRoom = rooms.find((r) => r.id === selectedId) || null;
+  // Ardayga la tirtiray (ama Recycle Bin ku jira) qolka kama muuqdo, warqadaha
+  // lagu daabacona kuma jiro. Xogta qolka laftiisa waa la hayaa, si haddii
+  // ardayga laga soo celiyo uu qolkiisii dib ugu soo laabto.
+  const activeIds = useMemo(() => new Set(students.map((s) => s.docId)), [students]);
+  const visibleRooms = useMemo(
+    () => rooms.map((r) => ({ ...r, students: (r.students || []).filter((s) => activeIds.has(s.docId)) })),
+    [rooms, activeIds]
+  );
+  const sortedRooms = useMemo(() => [...visibleRooms].sort(byRoomName), [visibleRooms]);
+  const selectedRoom = visibleRooms.find((r) => r.id === selectedId) || null;
+  const rawSelectedRoom = rooms.find((r) => r.id === selectedId) || null;
 
   // The exam week for the classes in this room (per day: which classes sit which subjects)
   const roomSchedule = useMemo(
@@ -531,9 +540,9 @@ export default function ExamRooms() {
   // which room each student is in (a student can only be in one room)
   const assignedMap = useMemo(() => {
     const m = new Map();
-    rooms.forEach((r) => (r.students || []).forEach((s) => m.set(s.docId, r.name)));
+    visibleRooms.forEach((r) => (r.students || []).forEach((s) => m.set(s.docId, r.name)));
     return m;
-  }, [rooms]);
+  }, [visibleRooms]);
 
   const classes = useMemo(() => {
     const set = new Set(students.map((s) => s.className));
@@ -706,7 +715,8 @@ export default function ExamRooms() {
     if (!selectedRoom) return;
     setBusy(true);
     try {
-      await saveStudents(selectedRoom, selectedRoom.students.filter((s) => s.docId !== docId));
+      const base = rawSelectedRoom || selectedRoom;
+      await saveStudents(base, (base.students || []).filter((s) => s.docId !== docId));
     } catch (err) {
       console.log(err);
       alert("Error: " + err.message);

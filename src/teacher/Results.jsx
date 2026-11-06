@@ -36,6 +36,7 @@ import {
   submissionStatus,
   formatDT,
 } from "../utils/resultsSubmission";
+import { loadActiveStudents, isRemoved } from "../utils/activeRecords";
 
 function ResultsStyles() {
   return (
@@ -203,6 +204,11 @@ export default function Results() {
         return;
       }
       const data = teacherSnap.data();
+      // Macalin la tirtiray (ama Recycle Bin ku jira) fasal ma laha
+      if (isRemoved(data)) {
+        setClasses([]);
+        return;
+      }
       setEmploymentTypes(normalizeTypes(data.employmentType));
 
       const teacherClasses = Array.isArray(data.classes) ? data.classes : [];
@@ -263,13 +269,16 @@ export default function Results() {
       const studentCollectionName = partTime ? "partTimeStudents" : "students";
       const resultsCollectionName = partTime ? "resultsPartTime" : "results";
 
-      const [studentsSnap, resultsSnap, ctx] = await Promise.all([
-        getDocs(query(collection(db, studentCollectionName), where("className", "==", className))),
+      const [active, resultsSnap, ctx] = await Promise.all([
+        loadActiveStudents(),
         getDocs(query(collection(db, resultsCollectionName), where("examId", "==", examId))),
         fetchSubmissionContext(examObj, className),
       ]);
 
-      const studentList = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // Ardayda firfircoon oo keliya, labanlaab la'aan
+      const studentList = active.students.filter(
+        (s) => s.collection === studentCollectionName && s.className === className
+      );
       setStudents(studentList);
 
       const existing = {};

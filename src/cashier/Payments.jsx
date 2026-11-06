@@ -8,6 +8,7 @@ import {
   toDateValue,
   ledgerStartMonthKey,
 } from "../utils/feeLedger.js";
+import { loadActiveStudents, isRemoved } from "../utils/activeRecords.js";
 
 // Waqtiga maxaliga ah (Soomaaliya), ma aha UTC
 const currentMonthKey = () => localMonthKey();
@@ -62,8 +63,10 @@ export default function Payments() {
 
       // Ardayda lacag bixiya (Full Time + Part Time, Free-ga laga reebay) iyo
       // lacagta bil kasta — isla xisaabinta Classes/Dashboard/Admin
-      const ledger = await loadFeeLedger();
-      setStudents(ledger.payableStudents);
+      const [ledger, active] = await Promise.all([loadFeeLedger(), loadActiveStudents()]);
+      // Kaliya ardayda firfircoon, labanlaab la'aan (la tirtiray / Recycle Bin ma jiraan)
+      const visibleIds = new Set(active.students.map((s) => s.id));
+      setStudents(ledger.payableStudents.filter((s) => !isRemoved(s) && visibleIds.has(s.id)));
       setMonthStatusByStudent(ledger.monthPaid);
     } catch (err) {
       console.log(err);
@@ -186,13 +189,19 @@ export default function Payments() {
                 const paidThisMonth = !free && fullyPaidSet.has(currentMonthKey());
                 const thisMonthRecord = months[currentMonthKey()];
 
-                const nextUnpaid = findNextUnpaidMonth(
-                  fullyPaidSet,
-                  registrationMonthKey(student)
-                );
-                const displayRemaining = free
+                // Haraaga = bilihii hore ee dhiman + inta bishan ka dhiman
+                let arrearsTotal = 0;
+                if (!free && fee > 0) {
+                  let k = registrationMonthKey(student);
+                  for (let g = 0; k < currentMonthKey() && g < 120; g++) {
+                    if (!fullyPaidSet.has(k)) arrearsTotal += Math.max(fee - (partialMap[k] || 0), 0);
+                    k = monthKeyAdd(k, 1);
+                  }
+                }
+                const thisMonthRemaining = paidThisMonth
                   ? 0
-                  : Math.max(fee - (partialMap[nextUnpaid] || 0), 0);
+                  : Math.max(fee - (partialMap[currentMonthKey()] || 0), 0);
+                const displayRemaining = free ? 0 : arrearsTotal + thisMonthRemaining;
 
                 const displayPaid = free
                   ? 0
@@ -252,7 +261,20 @@ export default function Payments() {
                       )}
                     </td>
                     <td style={{ ...styles.td, ...styles.money }}>
-                      {free ? "—" : `$${displayRemaining}`}
+                      {free ? (
+                        "—"
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span style={{ color: displayRemaining > 0 ? theme.colors.danger : undefined }}>
+                            ${displayRemaining}
+                          </span>
+                          {arrearsTotal > 0 && (
+                            <span style={{ ...styles.paidDate, color: "#B45309", fontWeight: 700 }}>
+                              ⚠️ Hore: ${arrearsTotal}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={styles.td}>
                       <span

@@ -10,6 +10,12 @@
 //   - Wadarta imtixaan kasta iyo wadarta guud ee dhammaan imtixaannada
 
 import { useState, useEffect } from "react";
+import {
+  subscribeResultsAccess,
+  fetchResultsAccess,
+  resultsAccessState,
+  formatAccessTime,
+} from "../utils/resultsAccess";
 import "../styles/academics.css";
 import logo from "../assets/logo.png";
 import { Link } from "react-router-dom";
@@ -262,6 +268,34 @@ export default function Academics() {
   const [feeBlocked, setFeeBlocked] = useState(false);
   const [feeInfo, setFeeInfo] = useState(null);
 
+  // ---- Maamulka: natiijadu ma furan tahay? (live) ----
+  const [accessCfg, setAccessCfg] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => {
+    const unsub = subscribeResultsAccess(setAccessCfg);
+    const t = setInterval(() => setNowTick(Date.now()), 20000);
+    return () => {
+      unsub();
+      clearInterval(t);
+    };
+  }, []);
+  const access = accessCfg ? resultsAccessState(accessCfg, nowTick) : null;
+  const resultsOpen = Boolean(access?.open);
+
+  // Marka maamulku xiro (ama waqtigu dhammaado), natiijada furan isla markiiba ha xirmato
+  useEffect(() => {
+    if (access && !access.open && (student || report)) {
+      setStudent(null);
+      setReport(null);
+      setStudentId("");
+      setPassword("");
+      setFeeBlocked(false);
+      setFeeInfo(null);
+      setActiveTab("all");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [access?.open]);
+
   // ---- Xannib: F12, right-click, iyo shortcut-yada developer tools ----
   useEffect(() => {
     function handleContextMenu(e) {
@@ -323,6 +357,20 @@ export default function Academics() {
     setError("");
     setFeeBlocked(false);
     setFeeInfo(null);
+
+    // Server-ka ka hubi in maamulku furay natiijada
+    try {
+      const cfgNow = await fetchResultsAccess();
+      setAccessCfg(cfgNow);
+      if (!resultsAccessState(cfgNow, Date.now()).open) {
+        setError("Natiijada hadda waa xiran tahay. Maamulka ayaa furi doona marka ay diyaar tahay.");
+        return;
+      }
+    } catch (err) {
+      console.error(err);
+      setError("Lama hubin karo xaaladda natiijada. Fadlan isku day mar kale.");
+      return;
+    }
 
     const idInput = studentId.trim();
     if (!idInput) {
@@ -473,6 +521,32 @@ export default function Academics() {
             U gudub aragtida natiijadaada — geli lambarkaaga iyo password-kaaga.
           </p>
 
+          {access && !resultsOpen && (
+            <div className="aca-closed">
+              <div className="aca-closed-icon">🔒</div>
+              <div>
+                <strong>
+                  Natiijada {accessCfg?.examLabel ? `${accessCfg.examLabel} ` : ""}weli lama furin
+                </strong>
+                <p>
+                  {access.reason === "notYet"
+                    ? `Waxay furmaysaa ${formatAccessTime(access.opensAt)}.`
+                    : access.reason === "ended"
+                    ? "Waqtiga eegista natiijada wuu dhammaaday."
+                    : "Maamulka dugsiga ayaa furi doona marka natiijadu diyaar noqoto."}
+                  {accessCfg?.message ? ` ${accessCfg.message}` : ""}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {access && resultsOpen && accessCfg?.examLabel && (
+            <div className="aca-open-note">
+              ✅ Natiijada <b>{accessCfg.examLabel}</b> waa furan tahay
+              {access.closesAt ? ` — ilaa ${formatAccessTime(access.closesAt)}` : ""}.
+            </div>
+          )}
+
           <form onSubmit={handleLookup}>
             <div className="aca-lookup-grid">
               <div className="aca-field">
@@ -504,8 +578,14 @@ export default function Academics() {
               </div>
             </div>
 
-            <button type="submit" className="aca-lookup-btn" disabled={loading}>
-              {loading ? "Sugaya..." : "U Gudub Aragtida Natiijadaada"}
+            <button type="submit" className="aca-lookup-btn" disabled={loading || !resultsOpen}>
+              {!access
+                ? "Hubinaya..."
+                : !resultsOpen
+                ? "🔒 Natiijada waa xiran tahay"
+                : loading
+                ? "Sugaya..."
+                : "U Gudub Aragtida Natiijadaada"}
             </button>
 
             {error && <div className="aca-error">{error}</div>}

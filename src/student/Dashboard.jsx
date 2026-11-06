@@ -14,6 +14,9 @@ import { db } from "../firebase/firebase";
 import StudentIdCard from "./StudentIdCard";
 import CertificateCard from "../admin/components/CertificateCard";
 import schoolLogo from "../assets/logo.png";
+import ClassTimetableSheet, { FitToWidth } from "../admin/components/ClassTimetableSheet";
+import { currentAcademicYear, fmtRange, sortSessions } from "../utils/timetableUtils";
+import { captureNode, saveCanvasAsImage, canvasesToPdf, safeFileName } from "../utils/exportImage";
 
 // Midabada waxaa laga soo qaatay logada dugsiga:
 // cagaar (wareegga + caleemaha), buluug (gaashaanka), oranji/jaalle (qorraxda).
@@ -577,58 +580,6 @@ const NAV_ITEMS = [
   { key: "developer", label: "About Developer", icon: "👨‍💻" },
 ];
 
-async function downloadTimetableImage({ className, studentType, dayLabel }) {
-  const node = document.getElementById("student-timetable-card");
-  if (!node) return;
-
-  const scrollWrap = node.querySelector(".rs-table-wrap");
-
-  const prevNodeWidth = node.style.width;
-  const prevWrapOverflow = scrollWrap ? scrollWrap.style.overflow : null;
-  const prevWrapWidth = scrollWrap ? scrollWrap.style.width : null;
-
-  try {
-    if (!window.html2canvas) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.body.appendChild(script);
-      });
-    }
-
-    if (scrollWrap) {
-      const fullWidth = scrollWrap.scrollWidth;
-      scrollWrap.style.overflow = "visible";
-      scrollWrap.style.width = `${fullWidth}px`;
-      node.style.width = `${fullWidth}px`;
-    }
-
-    const canvas = await window.html2canvas(node, {
-      backgroundColor: "#ffffff",
-      scale: 2,
-      useCORS: true,
-      width: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
-      windowWidth: scrollWrap ? scrollWrap.scrollWidth : node.scrollWidth,
-    });
-    const link = document.createElement("a");
-    const safeType = (studentType || "full-time").toLowerCase().replace(/\s+/g, "-");
-    link.download = `Timetable-${className || "class"}-${safeType}-${dayLabel || "day"}.png`;
-    link.href = canvas.toDataURL("image/png");
-    link.click();
-  } catch (err) {
-    console.log("Falling back to print view:", err);
-    window.print();
-  } finally {
-    if (scrollWrap) {
-      scrollWrap.style.overflow = prevWrapOverflow || "";
-      scrollWrap.style.width = prevWrapWidth || "";
-    }
-    node.style.width = prevNodeWidth || "";
-  }
-}
-
 async function downloadCertificateImage(fullName) {
   const node = document.getElementById("certificate-render-card");
   if (!node) return;
@@ -678,6 +629,8 @@ export default function StudentDashboard() {
   const [activeTimetableDay, setActiveTimetableDay] = useState(FULL_TIME_DAYS[0].key);
   const [activeExamDay, setActiveExamDay] = useState(DAYS[0].key);
   const [teacherNames, setTeacherNames] = useState({});
+  const [ttView, setTtView] = useState("sheet"); // sheet | list
+  const [ttBusy, setTtBusy] = useState("");
   const [certificate, setCertificate] = useState(null);
 
   useEffect(() => {
@@ -947,6 +900,37 @@ export default function StudentDashboard() {
     return true;
   });
 
+  // ---- Jadwalka fasalka (warqadda) ----
+  const sessionsByDay = {};
+  timetableDays.forEach((d) => {
+    sessionsByDay[d.key] = timetableByDay[d.key]?.sessions || [];
+  });
+  const hasTimetable = timetableDays.some((d) => (sessionsByDay[d.key] || []).length > 0);
+  const ttTeacherName = (s) => s?.teacherName || teacherNames[s?.teacherId] || "";
+
+  async function downloadTimetable(format) {
+    const node = document.getElementById("student-timetable-sheet");
+    if (!node) {
+      setTtView("sheet");
+      alert("Fadlan mar kale riix — jadwalka ayaa la furay.");
+      return;
+    }
+    try {
+      setTtBusy(format);
+      const canvas = await captureNode(node);
+      const base = `Jadwalka-Fasalka-${safeFileName(student?.className)}-${safeFileName(
+        student?.studentType || "Full Time"
+      )}`;
+      if (format === "pdf") canvasesToPdf([canvas], `${base}.pdf`);
+      else await saveCanvasAsImage(canvas, `${base}.png`);
+    } catch (err) {
+      console.error(err);
+      alert("Soo dejintu way fashilantay. Fadlan isku day mar kale.");
+    } finally {
+      setTtBusy("");
+    }
+  }
+
   if (loading) {
     return (
       <div className="rs-page" style={{ alignItems: "center", justifyContent: "center", display: "flex" }}>
@@ -1154,104 +1138,141 @@ export default function StudentDashboard() {
                         </span>
                       )}
                     </div>
+                    <div style={{ fontSize: 12.5, color: COLORS.textDim, marginTop: 2 }}>
+                      Jadwalka xiisadaha fasalkaaga — soo deji PDF ama sawir (Gallery / Photos)
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <div style={styles.academicYearPill}>🗓️ Academic Year 2024/2025</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <div style={styles.academicYearPill}>🗓️ {currentAcademicYear()}</div>
                   <button
-                    onClick={() =>
-                      downloadTimetableImage({
-                        className: student?.className,
-                        studentType: student?.studentType,
-                        dayLabel: timetableDays.find((d) => d.key === activeTimetableDay)?.label,
-                      })
-                    }
-                    style={styles.downloadBtn}
+                    onClick={() => downloadTimetable("pdf")}
+                    disabled={!!ttBusy || !hasTimetable}
+                    style={{ ...styles.downloadBtn, opacity: ttBusy || !hasTimetable ? 0.6 : 1 }}
                   >
-                    ⬇️ Download
+                    {ttBusy === "pdf" ? "⏳ ..." : "📄 PDF"}
+                  </button>
+                  <button
+                    onClick={() => downloadTimetable("png")}
+                    disabled={!!ttBusy || !hasTimetable}
+                    style={{ ...styles.downloadBtnBlue, opacity: ttBusy || !hasTimetable ? 0.6 : 1 }}
+                  >
+                    {ttBusy === "png" ? "⏳ ..." : "🖼️ Sawir"}
                   </button>
                 </div>
               </div>
 
               <div className="rs-day-tabs">
-                {timetableDays.map((d) => {
-                  const isActive = d.key === activeTimetableDay;
-                  const hasData = (timetableByDay[d.key]?.sessions || []).length > 0;
-                  return (
-                    <button
-                      key={d.key}
-                      onClick={() => setActiveTimetableDay(d.key)}
-                      style={{
-                        ...styles.dayTabBtn,
-                        ...(isActive ? styles.dayTabBtnActive : {}),
-                      }}
-                    >
-                      📅 {d.label}
-                      {hasData && (
-                        <span
-                          style={{
-                            width: 6,
-                            height: 6,
-                            borderRadius: "50%",
-                            background: isActive ? "#fff" : COLORS.accent,
-                            marginLeft: 6,
-                            display: "inline-block",
-                          }}
-                        />
-                      )}
-                    </button>
-                  );
-                })}
+                <button
+                  onClick={() => setTtView("sheet")}
+                  style={{ ...styles.dayTabBtn, ...(ttView === "sheet" ? styles.dayTabBtnActive : {}) }}
+                >
+                  🗂️ Jadwalka Oo Dhan
+                </button>
+                <button
+                  onClick={() => setTtView("list")}
+                  style={{ ...styles.dayTabBtn, ...(ttView === "list" ? styles.dayTabBtnActive : {}) }}
+                >
+                  📅 Maalin-maalin
+                </button>
               </div>
 
-              {(() => {
-                const sessions = [...(timetableByDay[activeTimetableDay]?.sessions || [])].sort(
-                  (a, b) => (a.startTime || "").localeCompare(b.startTime || "")
-                );
-                if (sessions.length === 0) {
-                  return <EmptyState text={`No ${student?.studentType || ""} timetable set for this day yet.`} />;
-                }
-                return (
-                  <div id="student-timetable-card" style={styles.ttCard}>
-                    <div className="rs-table-wrap">
-                      <div style={styles.ttCardHeaderRow}>
-                        <div style={styles.ttColNum}>#</div>
-                        <div style={styles.ttColStart}>START</div>
-                        <div style={styles.ttColEnd}>END</div>
-                        <div style={styles.ttColSubject}>SUBJECT</div>
-                        <div style={styles.ttColTeacher}>TEACHER</div>
-                      </div>
-                      {sessions.map((s, i) => {
-                        const badgeColor = BADGE_COLORS[i % BADGE_COLORS.length];
-                        const teacherName =
-                          s.teacherName || teacherNames[s.teacherId] || s.teacherId || "—";
-                        return (
-                          <div key={s.id || i} style={styles.ttRow}>
-                            <div style={{ ...styles.ttNumBadge, background: badgeColor }}>
-                              {s.sessionNumber ?? i + 1}
-                            </div>
-                            <div style={styles.ttColStart}>
-                              <span style={styles.ttClockIcon}>🕐</span> {s.startTime}
-                            </div>
-                            <div style={styles.ttColEnd}>
-                              <span style={{ color: COLORS.textDim, marginRight: 6 }}>→</span>
-                              <span style={styles.ttClockIcon}>🕐</span> {s.endTime}
-                            </div>
-                            <div style={styles.ttColSubject}>
-                              <span style={{ marginRight: 8 }}>{subjectIcon(s.subject)}</span>
-                              {(s.subject || "—").toUpperCase()}
-                            </div>
-                            <div style={styles.ttColTeacher}>{teacherName}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <div style={styles.ttFooterNote}>
-                      ℹ️ Timetable is subject to change. Please check regularly for updates.
-                    </div>
+              {ttView === "sheet" ? (
+                hasTimetable ? (
+                  <div style={{ borderRadius: 14, overflow: "hidden", border: `1px solid ${COLORS.border}` }}>
+                    <FitToWidth>
+                      <ClassTimetableSheet
+                        id="student-timetable-sheet"
+                        className={student?.className}
+                        typeLabel={student?.studentType === "Part Time" ? "Part Time" : "Full Time"}
+                        days={timetableDays}
+                        sessionsByDay={sessionsByDay}
+                        teacherNameOf={ttTeacherName}
+                        academicYear={currentAcademicYear()}
+                      />
+                    </FitToWidth>
                   </div>
-                );
-              })()}
+                ) : (
+                  <EmptyState text={`Fasalkaaga weli jadwal ${student?.studentType || ""} looma samayn.`} />
+                )
+              ) : (
+                <>
+                  <div className="rs-day-tabs">
+                    {timetableDays.map((d) => {
+                      const isActive = d.key === activeTimetableDay;
+                      const hasData = (timetableByDay[d.key]?.sessions || []).length > 0;
+                      return (
+                        <button
+                          key={d.key}
+                          onClick={() => setActiveTimetableDay(d.key)}
+                          style={{
+                            ...styles.dayTabBtn,
+                            ...(isActive ? styles.dayTabBtnActive : {}),
+                          }}
+                        >
+                          {d.label}
+                          {hasData && (
+                            <span
+                              style={{
+                                width: 6,
+                                height: 6,
+                                borderRadius: "50%",
+                                background: isActive ? "#fff" : COLORS.accent,
+                                marginLeft: 6,
+                                display: "inline-block",
+                              }}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {(() => {
+                    const sessions = sortSessions(timetableByDay[activeTimetableDay]?.sessions || []);
+                    if (sessions.length === 0) {
+                      return <EmptyState text={`No ${student?.studentType || ""} timetable set for this day yet.`} />;
+                    }
+                    return (
+                      <div style={styles.ttCard}>
+                        <div className="rs-table-wrap">
+                          <div style={styles.ttCardHeaderRow}>
+                            <div style={styles.ttColNum}>#</div>
+                            <div style={styles.ttColStart}>START</div>
+                            <div style={styles.ttColEnd}>END</div>
+                            <div style={styles.ttColSubject}>SUBJECT</div>
+                            <div style={styles.ttColTeacher}>TEACHER</div>
+                          </div>
+                          {sessions.map((s, i) => {
+                            const badgeColor = BADGE_COLORS[i % BADGE_COLORS.length];
+                            const range = fmtRange(s.startTime, s.endTime).split(" – ");
+                            return (
+                              <div key={s.id || i} style={styles.ttRow}>
+                                <div style={{ ...styles.ttNumBadge, background: badgeColor }}>{i + 1}</div>
+                                <div style={styles.ttColStart}>
+                                  <span style={styles.ttClockIcon}>🕐</span> {range[0]}
+                                </div>
+                                <div style={styles.ttColEnd}>
+                                  <span style={{ color: COLORS.textDim, marginRight: 6 }}>→</span>
+                                  <span style={styles.ttClockIcon}>🕐</span> {range[1] || ""}
+                                </div>
+                                <div style={styles.ttColSubject}>
+                                  <span style={{ marginRight: 8 }}>{subjectIcon(s.subject)}</span>
+                                  {(s.subject || "—").toUpperCase()}
+                                </div>
+                                <div style={styles.ttColTeacher}>{ttTeacherName(s) || "—"}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div style={styles.ttFooterNote}>
+                          ℹ️ Jadwalku wuu isbeddeli karaa. Si joogto ah u eeg.
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
             </section>
           )}
 
@@ -1744,6 +1765,18 @@ const styles = {
     cursor: "pointer",
     whiteSpace: "nowrap",
     boxShadow: "0 8px 18px rgba(31,157,76,0.25)",
+  },
+  downloadBtnBlue: {
+    background: `linear-gradient(135deg, ${COLORS.blue}, #1554a6)`,
+    border: "none",
+    borderRadius: 12,
+    padding: "9px 16px",
+    fontSize: 12.5,
+    fontWeight: 800,
+    color: "#fff",
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    boxShadow: "0 8px 18px rgba(29,111,209,0.25)",
   },
   ttCard: {
     background: "#fff",

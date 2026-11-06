@@ -30,6 +30,7 @@ import {
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import MobileBottomNav from "./MobileBottomNav";
+import { isRemoved } from "../utils/activeRecords";
 
 // Nuucyada Exam-ka ee macallinku dooran karo
 const examTypes = ["Monthly One", "Term", "Monthly Two", "Final"];
@@ -202,6 +203,12 @@ export default function Exams() {
       const teacherSnap = await getDoc(doc(db, "teachers", teacherId));
       if (teacherSnap.exists()) {
         const data = teacherSnap.data();
+        // Macalin la tirtiray (ama Recycle Bin ku jira) fasal ma laha
+        if (isRemoved(data)) {
+          setClasses([]);
+          setSubjects([]);
+          return;
+        }
         setTeacherPhoto(data.photoUrl || data.teacherPhoto || "");
         setEmploymentTypes(normalizeTypes(data.employmentType));
 

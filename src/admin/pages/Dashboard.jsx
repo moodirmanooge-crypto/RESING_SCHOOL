@@ -7,6 +7,12 @@ import { useNavigate } from "react-router-dom";
 import { db } from "../../firebase/firebase";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import { loadFeeLedger, localMonthKey } from "../../utils/feeLedger.js";
+import {
+  subscribeResultsAccess,
+  saveResultsAccess,
+  resultsAccessState,
+  formatAccessTime,
+} from "../../utils/resultsAccess";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import DashboardCard from "../components/DashboardCard";
@@ -35,6 +41,8 @@ import {
   CalendarDays,
   ChevronDown,
   Activity,
+  Lock,
+  Unlock,
 } from "lucide-react";
 import {
   ComposedChart,
@@ -187,10 +195,38 @@ export default function Dashboard() {
   const [payments, setPayments] = useState([]);
   const [feeStats, setFeeStats] = useState({ total: 0, collected: 0, pending: 0 });
 
+  // Natiijada ardayda (Academics): furan / xiran — live
+  const [resultsCfg, setResultsCfg] = useState(null);
+  const [resultsBusy, setResultsBusy] = useState(false);
+  const [nowTick, setNowTick] = useState(Date.now());
+
   useEffect(() => {
     loadAll();
     loadAdminName();
+    const unsub = subscribeResultsAccess(setResultsCfg);
+    const t = setInterval(() => setNowTick(Date.now()), 30000);
+    return () => {
+      unsub();
+      clearInterval(t);
+    };
   }, []);
+
+  async function toggleResults() {
+    if (!resultsCfg) return;
+    const st = resultsAccessState(resultsCfg, Date.now());
+    if (st.open && !window.confirm("Ma xiraysaa natiijada? Ardayda hadda eegaysa way u xirmi doontaa.")) return;
+    setResultsBusy(true);
+    try {
+      await saveResultsAccess(
+        st.open ? { isOpen: false } : { isOpen: true, openAt: "", closeAt: "" },
+        localStorage.getItem("adminName") || localStorage.getItem("adminId") || "admin"
+      );
+    } catch (e) {
+      alert("Khalad: " + e.message);
+    } finally {
+      setResultsBusy(false);
+    }
+  }
 
   async function loadAdminName() {
     const adminId = localStorage.getItem("adminId");
@@ -533,6 +569,43 @@ export default function Dashboard() {
           </div>
 
           {smsModalOpen && <SendSmsModal onClose={() => setSmsModalOpen(false)} />}
+
+          {/* ======================= NATIIJADA ARDAYDA: FUR / XIR ======================= */}
+          {resultsCfg && (() => {
+            const st = resultsAccessState(resultsCfg, nowTick);
+            return (
+              <div style={{ ...resultsBar, borderColor: st.open ? "#86efac" : "#fca5a5", background: st.open ? "#f0fdf4" : "#fef2f2" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                  <div style={{ ...resultsIcon, background: st.open ? "#16a34a" : "#dc2626" }}>
+                    {st.open ? <Unlock size={18} /> : <Lock size={18} />}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 800, color: "#111827", fontSize: 14.5 }}>
+                      Natiijada Ardayda: {st.open ? "FURAN" : "XIRAN"}
+                      {resultsCfg.examLabel ? ` · ${resultsCfg.examLabel}` : ""}
+                    </div>
+                    <div style={{ fontSize: 12.5, color: "#4b5563" }}>
+                      {st.open
+                        ? st.closesAt
+                          ? `Ardaydu way arki karaan — wuxuu xirmayaa ${formatAccessTime(st.closesAt)}`
+                          : "Ardaydu hadda way arki karaan natiijadooda (Academics)"
+                        : st.reason === "notYet"
+                        ? `Wuxuu furmayaa ${formatAccessTime(st.opensAt)}`
+                        : "Ardaydu ma arki karaan natiijada ilaa aad furto"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={toggleResults} disabled={resultsBusy} style={{ ...resultsBtn, background: st.open ? "#dc2626" : "#16a34a", opacity: resultsBusy ? 0.6 : 1 }}>
+                    {st.open ? "Xir Natiijada" : "Fur Natiijada"}
+                  </button>
+                  <button onClick={() => navigate("/admin/results-access")} style={{ ...resultsBtn, background: "#fff", color: "#374151", border: "1px solid #d1d5db" }}>
+                    Jadwal
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* ======================= STAT CARDS ======================= */}
           <div style={statGrid}>
@@ -1182,6 +1255,36 @@ const heroBtnOutline = {
 const heroRight = { position: "relative", width: 250, minWidth: 250, alignSelf: "stretch", zIndex: 1, paddingTop: 20 };
 const quote = { fontFamily: "Georgia, 'Times New Roman', serif", fontStyle: "italic", fontSize: 19, lineHeight: 1.45, color: "#f0fdf4", maxWidth: 200 };
 
+const resultsBar = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 14,
+  flexWrap: "wrap",
+  border: "1.5px solid",
+  borderRadius: 16,
+  padding: "12px 16px",
+  marginTop: 20,
+};
+const resultsIcon = {
+  width: 40,
+  height: 40,
+  borderRadius: 12,
+  color: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  flexShrink: 0,
+};
+const resultsBtn = {
+  border: "none",
+  borderRadius: 10,
+  padding: "10px 16px",
+  color: "#fff",
+  fontWeight: 700,
+  fontSize: 13.5,
+  cursor: "pointer",
+};
 const statGrid = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 18, margin: "22px 0" };
 const row = { display: "grid", gap: 20, marginBottom: 20 };
 const card = {

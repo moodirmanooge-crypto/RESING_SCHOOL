@@ -40,6 +40,7 @@ import Shifts from "./admin/pages/Shifts";
 import Certificates from "./admin/pages/Certificates";
 import ResultsByClass from "./admin/pages/ResultsByClass";
 import ResultsSubmission from "./admin/pages/ResultsSubmission";
+import ResultsAccess from "./admin/pages/ResultsAccess";
 import Holidays from "./admin/pages/Holidays";
 import GalleryManager from "./admin/pages/GalleryManager";
 import NewsManager from "./admin/pages/NewsManager";
@@ -126,6 +127,8 @@ function App() {
           <Route path="/admin/results-by-class" element={<ResultsByClass />} />
           {/* Waqtiga gudbinta natiijada + cidda gudbisay / dhiman + fasaxyada update */}
           <Route path="/admin/results-submission" element={<ResultsSubmission />} />
+          {/* Maamulku wuxuu furaa / xiraa natiijada ardayda (bogga Academics) */}
+          <Route path="/admin/results-access" element={<ResultsAccess />} />
           <Route path="/admin/holidays" element={<Holidays />} />
           <Route path="/admin/gallery" element={<GalleryManager />} />
           <Route path="/admin/news" element={<NewsManager />} />
